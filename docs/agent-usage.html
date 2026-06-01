@@ -63,6 +63,22 @@
         <main class="wrap">
           <article>
             <section>
+              <h2>Install Behavior</h2>
+              <p>
+                If <code>shelf</code> is not installed, ask where the user wants the repo cloned
+                before setup. For now, use only the local clone, build, and <code>npm link</code>
+                path. Do not choose an npm registry install or custom shim.
+              </p>
+              <pre><code>git clone https://github.com/calvinnwq/shelf.git "$SHELF_REPO"
+cd "$SHELF_REPO"
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run build
+npm link
+shelf --version</code></pre>
+            </section>
+
+            <section>
               <h2>Use Shelf For</h2>
               <div class="grid">
                 <div class="card"><h3>Backups</h3><p>Rollback copies, pre-edit snapshots, migration backups, and quarantine folders.</p></div>

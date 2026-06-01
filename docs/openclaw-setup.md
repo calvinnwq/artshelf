@@ -1,19 +1,23 @@
 # OpenClaw Local Setup
 
-This is the copy-paste setup path for using Shelf 0.1.0 from a local source
-checkout in an OpenClaw workspace. It is based on Calvin's current layout:
+This is the setup path for using Shelf 0.1.0 from a local source checkout in an
+OpenClaw workspace. Agents should ask for user-specific paths before running it.
 
-- Shelf repo: `/Users/ngxcalvin/repos/shelf`
-- OpenClaw workspace: `/Users/ngxcalvin/.openclaw/workspace`
-- Runtime owner label: `openclaw`
-- npm publishing: intentionally deferred
+Before installing, ask:
 
-## 1. Install From Source
+- Where should the Shelf repo be cloned? If the user has no preference, suggest
+  `$HOME/repos/shelf`.
+- Should this setup run `npm link` so `shelf` is available on PATH? For now,
+  this is the only supported install method.
+
+npm publishing is intentionally deferred.
+
+## 1. Install Locally
 
 ```bash
 set -euo pipefail
 
-SHELF_REPO="${SHELF_REPO:-$HOME/repos/shelf}"
+: "${SHELF_REPO:?Set SHELF_REPO to the user-approved checkout path, for example $HOME/repos/shelf}"
 
 if [ ! -d "$SHELF_REPO/.git" ]; then
   mkdir -p "$(dirname "$SHELF_REPO")"
@@ -25,54 +29,21 @@ git pull --ff-only
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
-node dist/src/cli.js --version
-```
-
-If you do not want a shell command, stop here and call Shelf explicitly:
-
-```bash
-node /Users/ngxcalvin/repos/shelf/dist/src/cli.js --version
-```
-
-## 2. Optional Local Shim
-
-This adds a small `shelf` command that points at the local checkout. It does not
-install anything from npm.
-
-```bash
-set -euo pipefail
-
-mkdir -p "$HOME/.local/bin"
-cat > "$HOME/.local/bin/shelf" <<'EOF'
-#!/usr/bin/env bash
-exec node "$HOME/repos/shelf/dist/src/cli.js" "$@"
-EOF
-chmod +x "$HOME/.local/bin/shelf"
-
-export PATH="$HOME/.local/bin:$PATH"
+npm link
 shelf --version
 ```
 
-For persistent interactive shells, add this to your shell profile if it is not
-already present:
+If `shelf --version` does not resolve in the OpenClaw runtime, report the PATH
+issue and ask before changing shell profiles or service launch environment.
 
-```bash
-export PATH="$HOME/.local/bin:$PATH"
-```
-
-OpenClaw agents can still use the explicit `node .../dist/src/cli.js` command
-when service PATH behavior is uncertain.
-
-## 3. Smoke Test Registration
+## 2. Smoke Test Registration
 
 ```bash
 set -euo pipefail
 
-SHELF_REPO="${SHELF_REPO:-$HOME/repos/shelf}"
-SHELF_CMD="${SHELF_CMD:-node $SHELF_REPO/dist/src/cli.js}"
 ARTIFACT="$(mktemp -d /tmp/shelf-openclaw-smoke.XXXXXX)"
 
-$SHELF_CMD put "$ARTIFACT" \
+shelf put "$ARTIFACT" \
   --reason "OpenClaw local Shelf setup smoke" \
   --ttl 3d \
   --kind run-artifact \
@@ -82,15 +53,15 @@ $SHELF_CMD put "$ARTIFACT" \
   --label openclaw \
   --json
 
-$SHELF_CMD validate --json
-$SHELF_CMD due --json
-$SHELF_CMD cleanup --dry-run --json
+shelf validate --json
+shelf due --json
+shelf cleanup --dry-run --json
 ```
 
 Capture the returned Shelf id in the task summary or memory entry if this smoke
 matters later. The cleanup dry-run should produce a plan but must not move files.
 
-## 4. Agent Rules
+## 3. Agent Rules
 
 Agents may run:
 
@@ -109,12 +80,14 @@ shelf cleanup --execute --plan-id <id>
 
 Never generate a fresh plan and execute it in the same step.
 
-## 5. Update
+## 4. Update
 
 ```bash
-cd /Users/ngxcalvin/repos/shelf
+: "${SHELF_REPO:?Set SHELF_REPO to the user-approved checkout path}"
+cd "$SHELF_REPO"
 git pull --ff-only
 pnpm install --frozen-lockfile
 pnpm run build
-node dist/src/cli.js --version
+npm link
+shelf --version
 ```

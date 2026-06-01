@@ -41,8 +41,8 @@
                 <p class="eyebrow">Source install</p>
                 <h1>Install from source.</h1>
                 <p class="lede">
-                  Shelf 0.1.0 is GitHub/source-first. Use a source checkout with Corepack,
-                  pnpm, and an optional local global link.
+                  Shelf 0.1.0 is GitHub/source-first. The supported path is a local
+                  clone, build, and `npm link`.
                 </p>
               </div>
               <div class="terminal">
@@ -52,7 +52,8 @@ $ cd shelf
 $ corepack enable
 $ pnpm install --frozen-lockfile
 $ pnpm run build
-$ node dist/src/cli.js --version</code></pre>
+$ npm link
+$ shelf --version</code></pre>
               </div>
             </div>
           </div>
@@ -70,26 +71,18 @@ $ node dist/src/cli.js --version</code></pre>
             </section>
 
             <section>
-              <h2>Build From Source</h2>
+              <h2>Install Locally</h2>
               <pre><code>git clone https://github.com/calvinnwq/shelf.git
 cd shelf
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
-node dist/src/cli.js --version</code></pre>
-              <p>
-                The direct Node invocation is the most explicit pre-release smoke test. It proves
-                the compiled CLI works without adding a global command to your machine.
-              </p>
-            </section>
-
-            <section>
-              <h2>Optional Global Link</h2>
-              <pre><code>npm link
+npm link
 shelf --version</code></pre>
               <p>
-                This mirrors the common source-install flow for small Node CLIs. It links the local
-                checkout into your global npm bin, so future local rebuilds update the linked command.
+                This is the only supported install method for now. `npm link` connects the
+                local checkout to your global npm bin, so future rebuilds update the `shelf`
+                command.
               </p>
               <pre><code>npm unlink -g shelf</code></pre>
             </section>
@@ -100,6 +93,7 @@ shelf --version</code></pre>
 git pull
 pnpm install --frozen-lockfile
 pnpm run build
+npm link
 shelf --version</code></pre>
             </section>
 
