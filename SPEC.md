@@ -163,6 +163,23 @@ Rules:
   `cleanup=delete`; v1 may still choose to refuse physical delete until we have
   enough dogfood evidence.
 
+### `shelf resolve`
+
+Marks a handled, missing, or no-longer-needed record as manually resolved while
+keeping it in the ledger audit trail.
+
+```bash
+shelf resolve <id> --status resolved --reason <text>
+shelf resolve <id> --status resolved --reason <text> --json
+```
+
+Rules:
+
+- Requires `<id>`, `--status resolved`, and `--reason`.
+- Does not move or delete files.
+- Removes the record from future `due` and cleanup dry-run output.
+- Keeps the record visible through `list` and `list --status resolved`.
+
 ## Ledger Storage
 
 V1 supports two scopes:
@@ -226,23 +243,6 @@ Manually resolved records include:
   "resolutionReason": "artifact inspected and no longer needed"
 }
 ```
-
-### `shelf resolve`
-
-Marks a handled, missing, or no-longer-needed record as manually resolved while
-keeping it in the ledger audit trail.
-
-```bash
-shelf resolve <id> --status resolved --reason <text>
-shelf resolve <id> --status resolved --reason <text> --json
-```
-
-Rules:
-
-- Requires `<id>`, `--status resolved`, and `--reason`.
-- Does not move or delete files.
-- Removes the record from future `due` and cleanup dry-run output.
-- Keeps the record visible through `list` and `list --status resolved`.
 
 ## Cleanup Safety Model
 
