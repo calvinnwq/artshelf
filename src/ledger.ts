@@ -32,7 +32,8 @@ const KINDS = new Set<ShelfKind>([
 ]);
 
 const CLEANUP_ACTIONS = new Set<CleanupAction>(["trash", "review", "delete"]);
-const STATUSES = new Set<ShelfStatus>(["active", "review-required", "trashed", "cleanup-refused"]);
+const STATUSES = new Set<ShelfStatus>(["active", "review-required", "trashed", "cleanup-refused", "resolved"]);
+const RESOLVE_STATUSES = new Set<ShelfStatus>(["resolved"]);
 
 export type PutInput = {
   path: string;
@@ -44,6 +45,12 @@ export type PutInput = {
   cleanup?: string | undefined;
   owner?: string | undefined;
   labels: string[];
+};
+
+export type ResolveInput = {
+  id: string;
+  status: string;
+  reason: string;
 };
 
 export function defaultLedgerPath(cwd = process.cwd()): string {
@@ -105,6 +112,36 @@ export function readLedger(ledgerPath: string): ShelfRecord[] {
       throw new Error(`Invalid JSONL at line ${index + 1}: ${(error as Error).message}`);
     }
   });
+}
+
+export function filterRecordsByStatus(records: ShelfRecord[], status?: string): ShelfRecord[] {
+  if (!status) return records;
+  const normalized = assertStatus(status);
+  return records.filter((record) => record.status === normalized);
+}
+
+export function resolveRecord(ledgerPath: string, input: ResolveInput): ShelfRecord {
+  if (!input.id || input.id.trim().length === 0) throw new Error("resolve requires <id>");
+  if (!input.reason || input.reason.trim().length === 0) throw new Error("Missing required --reason");
+  const status = assertResolveStatus(input.status);
+  const records = readLedger(ledgerPath);
+  const index = records.findIndex((record) => record.id === input.id);
+  if (index === -1) throw new Error(`Shelf record not found: ${input.id}`);
+
+  const current = records[index];
+  if (!current) throw new Error(`Shelf record not found: ${input.id}`);
+  if (current.status === "resolved") {
+    throw new Error(`Shelf record is already resolved: ${input.id}`);
+  }
+  const updated: ShelfRecord = {
+    ...current,
+    status,
+    resolvedAt: toIso(now()),
+    resolutionReason: input.reason.trim()
+  };
+  records[index] = updated;
+  writeLedger(ledgerPath, records);
+  return updated;
 }
 
 export function dueEntries(records: ShelfRecord[], at = now()): DueEntry[] {
@@ -173,6 +210,10 @@ export function validateLedger(ledgerPath: string): {
       if (!record.cleanupPlanId) errors.push(`${label}: ${record.status} record missing cleanupPlanId`);
       if (!record.receiptPath) errors.push(`${label}: ${record.status} record missing receiptPath`);
       if (!record.cleanedAt) errors.push(`${label}: ${record.status} record missing cleanedAt`);
+    }
+    if (record.status === "resolved") {
+      if (!record.resolvedAt) errors.push(`${label}: resolved record missing resolvedAt`);
+      if (!record.resolutionReason) errors.push(`${label}: resolved record missing resolutionReason`);
     }
   }
 
@@ -377,6 +418,19 @@ function assertKind(kind: string): ShelfKind {
 function assertCleanup(cleanup: string): CleanupAction {
   if (!CLEANUP_ACTIONS.has(cleanup as CleanupAction)) throw new Error(`Unknown cleanup action: ${cleanup}`);
   return cleanup as CleanupAction;
+}
+
+function assertStatus(status: string): ShelfStatus {
+  if (!STATUSES.has(status as ShelfStatus)) throw new Error(`Unknown status: ${status}`);
+  return status as ShelfStatus;
+}
+
+function assertResolveStatus(status: string): ShelfStatus {
+  const normalized = assertStatus(status);
+  if (!RESOLVE_STATUSES.has(normalized)) {
+    throw new Error(`resolve currently supports --status resolved`);
+  }
+  return normalized;
 }
 
 function makeId(date: Date): string {

@@ -64,11 +64,12 @@ $ shelf --version</code></pre>
               <h2>Commands</h2>
               <div class="command-list">
                 <div class="command-row"><code>shelf put &lt;path&gt;</code><p>Append a ledger entry with reason, retention, owner, labels, kind, and cleanup mode.</p></div>
-                <div class="command-row"><code>shelf list</code><p>Show ledger entries and current status. Use `--json` for a stable machine-readable envelope.</p></div>
+                <div class="command-row"><code>shelf list</code><p>Show ledger entries and current status. Use <code>--status active|review-required|trashed|cleanup-refused|resolved</code> to filter.</p></div>
                 <div class="command-row"><code>shelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path.</p></div>
-                <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing registered paths.</p></div>
+                <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing active or review-required paths.</p></div>
                 <div class="command-row"><code>shelf cleanup --dry-run</code><p>Create a cleanup plan without moving files.</p></div>
                 <div class="command-row"><code>shelf cleanup --execute --plan-id &lt;id&gt;</code><p>Execute a previously reviewed plan id, write a receipt, and update touched ledger records.</p></div>
+                <div class="command-row"><code>shelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code><p>Mark a handled, missing, or no-longer-needed record as manually resolved.</p></div>
               </div>
             </section>
 
@@ -98,7 +99,8 @@ $ shelf --version</code></pre>
               <p>
                 Executed records move out of the active cleanup flow. `review` becomes
                 `review-required`, `trash` becomes `trashed`, and refused delete becomes
-                `cleanup-refused`. `shelf list` keeps those records visible for audit.
+                `cleanup-refused`. Manual resolution becomes `resolved`. `shelf list` keeps
+                those records visible for audit.
               </p>
             </section>
 

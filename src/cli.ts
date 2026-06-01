@@ -3,9 +3,11 @@ import {
   createCleanupPlan,
   dueEntries,
   executeCleanupPlan,
+  filterRecordsByStatus,
   normalizeLedgerPath,
   putRecord,
   readLedger,
+  resolveRecord,
   validateLedger
 } from "./ledger.js";
 
@@ -20,6 +22,7 @@ const VALUE_FLAGS = new Set([
   "plan-id",
   "reason",
   "retain-until",
+  "status",
   "ttl"
 ]);
 
@@ -47,13 +50,15 @@ function main(argv: string[]): number {
       case "put":
         return handlePut(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "list":
-        return handleList(normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        return handleList(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "due":
         return handleDue(normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "validate":
         return handleValidate(normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "cleanup":
         return handleCleanup(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      case "resolve":
+        return handleResolve(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case undefined:
         printHelp();
         return 0;
@@ -87,17 +92,31 @@ function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
   return 0;
 }
 
-function handleList(ledgerPath: string, json: boolean): number {
-  const records = readLedger(ledgerPath);
-  if (json) return printJson({ ok: true, ledgerPath, entries: records });
+function handleList(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const status = stringFlag(parsed, "status");
+  const records = filterRecordsByStatus(readLedger(ledgerPath), status);
+  if (json) return printJson({ ok: true, ledgerPath, ...(status ? { status } : {}), entries: records });
   if (records.length === 0) {
-    process.stdout.write(`no shelf entries\nledger: ${ledgerPath}\n`);
+    process.stdout.write(`no shelf entries${status ? ` with status ${status}` : ""}\nledger: ${ledgerPath}\n`);
     return 0;
   }
   for (const record of records) {
     process.stdout.write(`${record.id} ${record.kind} ${record.status} ${record.cleanup} ${record.path} :: ${record.reason}\n`);
   }
   process.stdout.write(`ledger: ${ledgerPath}\n`);
+  return 0;
+}
+
+function handleResolve(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const id = parsed.positionals[0];
+  if (!id) throw new Error("resolve requires <id>");
+  const record = resolveRecord(ledgerPath, {
+    id,
+    status: requiredStringFlag(parsed, "status"),
+    reason: requiredStringFlag(parsed, "reason")
+  });
+  if (json) return printJson({ ok: true, record, ledgerPath });
+  process.stdout.write(`resolved ${record.id}\nstatus: ${record.status}\nledger: ${ledgerPath}\n`);
   return 0;
 }
 
@@ -236,15 +255,37 @@ Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a
     return;
   }
 
+  if (command === "list") {
+    process.stdout.write(`Usage:
+  shelf list [--status <status>] [--ledger <path>] [--json]
+
+Statuses:
+  active, review-required, trashed, cleanup-refused, resolved
+`);
+    return;
+  }
+
+  if (command === "resolve") {
+    process.stdout.write(`Usage:
+  shelf resolve <id> --status resolved --reason <text> [--ledger <path>] [--json]
+
+Resolve marks a handled, missing, or no-longer-needed record as manually resolved.
+Resolved records stay in the audit trail but no longer participate in due or cleanup planning.
+`);
+    return;
+  }
+
   process.stdout.write(`Shelf ${VERSION}
 
 Usage:
   shelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review)
   shelf list [--json]
+  shelf list --status active [--json]
   shelf due [--json]
   shelf validate [--json]
   shelf cleanup --dry-run [--json]
   shelf cleanup --execute --plan-id <id> [--json]
+  shelf resolve <id> --status resolved --reason <text> [--json]
 
 Global options:
   --ledger <path>        Use an explicit JSONL ledger

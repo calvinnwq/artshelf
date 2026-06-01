@@ -98,10 +98,12 @@ plans, while `shelf list` still keeps the audit trail visible.
 ```bash
 shelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
 shelf list
+shelf list --status active
 shelf due
 shelf validate
 shelf cleanup --dry-run
 shelf cleanup --execute --plan-id <id>
+shelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```
 
 Use `shelf help` or `shelf help <command>` for command details. All core
@@ -116,8 +118,10 @@ quickstart, agent usage, and CLI reference. The source repo also keeps the
 
 The package includes an agent-facing skill at `skills/shelf/SKILL.md`. Agents
 that support local skills can copy or reference this file to learn when to call
-`shelf put`, how to report Shelf ids in handoffs and issue comments, and why
-`cleanup --execute` requires explicit approval for a reviewed plan id.
+`shelf put`, how to report Shelf ids in handoffs and issue comments, why
+`cleanup --execute` requires explicit approval for a reviewed plan id, and when
+`shelf resolve <id> --status resolved --reason <text>` may mark confirmed
+handled, missing, or no-longer-needed records without moving or deleting files.
 
 From a source checkout, use `skills/shelf/SKILL.md` directly. Agents should ask
 where the user wants Shelf cloned before installing or linking it. Package-manager

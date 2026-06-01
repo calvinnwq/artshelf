@@ -123,6 +123,17 @@ Execution writes a receipt and updates touched ledger records to `trashed`,
 `review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
 future due and dry-run cleanup output.
 
+You may mark a record manually resolved when the user confirms the artifact was
+inspected, is already missing, or is no longer needed:
+
+```bash
+shelf resolve <id> --status resolved --reason <text>
+```
+
+Use a specific reason. `resolve` only updates the ledger; it does not move or
+delete files. Resolved records stop reappearing in future due and dry-run
+cleanup output while remaining visible in `shelf list --status resolved`.
+
 ## Scheduled Review
 
 Agents may schedule routine Shelf checks for stale artifacts through their host

@@ -74,7 +74,17 @@ Shows ledger entries in a human-readable format.
 ```bash
 shelf list
 shelf list --json
+shelf list --status active
+shelf list --status resolved --json
 ```
+
+`--status` filters the audit trail to one record status:
+
+- `active`
+- `review-required`
+- `trashed`
+- `cleanup-refused`
+- `resolved`
 
 ### `shelf due`
 
@@ -111,7 +121,8 @@ V1 validation checks:
 - paths are absolute or resolvable
 - TTL/retain-until/manual-review is valid
 - cleanup action is known
-- recorded paths still exist, reported as warnings not hard failures
+- resolved records include `resolvedAt` and `resolutionReason`
+- active and review-required recorded paths still exist, reported as warnings not hard failures
 
 ### `shelf cleanup --dry-run`
 
@@ -151,6 +162,24 @@ Rules:
 - `delete` remains allowed only when the ledger entry explicitly says
   `cleanup=delete`; v1 may still choose to refuse physical delete until we have
   enough dogfood evidence.
+
+### `shelf resolve`
+
+Marks a handled, missing, or no-longer-needed record as manually resolved while
+keeping it in the ledger audit trail.
+
+```bash
+shelf resolve <id> --status resolved --reason <text>
+shelf resolve <id> --status resolved --reason <text> --json
+```
+
+Rules:
+
+- Requires `<id>`, `--status resolved`, and `--reason`.
+- Does not move or delete files.
+- Removes the record from future `due` and cleanup dry-run output.
+- Keeps the record visible through `list` and `list --status resolved`.
+- Refuses records that are already `resolved`; the original reason is preserved.
 
 ## Ledger Storage
 
@@ -193,6 +222,7 @@ V1 record statuses:
 - `trashed`: execution moved a `cleanup=trash` artifact into Shelf trash.
 - `cleanup-refused`: execution refused the requested action, such as physical
   delete in v1.
+- `resolved`: a human or agent marked the record as manually handled.
 
 Handled records may include cleanup outcome fields:
 
@@ -203,6 +233,15 @@ Handled records may include cleanup outcome fields:
   "cleanedAt": "2026-06-01T05:45:00Z",
   "targetPath": "/absolute/path/.shelf/trash/plan_20260601_154200_cd34/shf_20260601_154200_ab12-artifact",
   "cleanupReason": "delete is disabled in v1"
+}
+```
+
+Manually resolved records include:
+
+```json
+{
+  "resolvedAt": "2026-06-01T05:45:00Z",
+  "resolutionReason": "artifact inspected and no longer needed"
 }
 ```
 
@@ -232,6 +271,11 @@ Agents should call `shelf put` immediately after creating:
 
 Agents should not run `shelf cleanup --execute` without explicit approval.
 
+Agents may run `shelf resolve <id> --status resolved --reason <text>` only
+after explicit confirmation that the record has been handled, is missing, or is
+no longer needed. The reason must be specific; resolve does not move or delete
+files.
+
 Scheduled jobs may run:
 
 ```bash
@@ -253,13 +297,14 @@ Scheduled jobs must not silently execute cleanup.
 - CLI can record entries to JSONL.
 - CLI refuses records without a reason.
 - CLI requires TTL, retain-until, or manual-review.
-- CLI can list and show due entries.
+- CLI can list, filter by status, and show due entries.
+- CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
 - Cleanup dry-run creates a plan id.
 - Cleanup execute refuses to run without a plan id.
 - Cleanup execute writes a receipt.
 - All core commands support `--json`.
-- Tests cover record/list/due/validate/dry-run/execute-plan behavior.
+- Tests cover record/list/status-filter/due/validate/resolve/dry-run/execute-plan behavior.
 
 ## Deferred
 
