@@ -15,6 +15,7 @@ test("docs site pages share the expected chrome", () => {
   for (const page of DOC_PAGES) {
     const html = read(page);
     assert.match(html, /class="global-nav"/, page);
+    assert.match(html, /class="nav-scroll"/, page);
     assert.match(html, /data-theme-toggle/, page);
     assert.match(html, /href="site\.css"/, page);
     assert.match(html, /src="theme\.js"/, page);
@@ -25,6 +26,19 @@ test("docs site pages share the expected chrome", () => {
     assert.match(html, /href="openclaw\.html"/, page);
     assert.match(html, /href="reference\.html"/, page);
   }
+});
+
+test("docs site uses clawpatch-style mobile navigation", () => {
+  const css = read("docs/site.css");
+
+  assert.match(css, /@media \(max-width: 960px\)/);
+  assert.match(css, /\.nav-scroll\s*\{[\s\S]*display: flex/);
+  assert.match(css, /\.nav-scroll\s*\{[\s\S]*overflow-x: auto/);
+  assert.match(css, /\.nav-section\s*\{[\s\S]*flex: 0 0 auto/);
+  assert.match(css, /\.global-nav a:not\(\.site-mark\)\s*\{[\s\S]*white-space: nowrap/);
+  assert.match(css, /\.nav-section-title\s*\{[\s\S]*display: none/);
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.actions\s*\{[\s\S]*display: grid/);
+  assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.button,[\s\S]*\.pill\s*\{[\s\S]*width: 100%/);
 });
 
 test("docs site local links resolve inside docs", () => {
