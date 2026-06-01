@@ -86,7 +86,12 @@ shelf list --ledger /tmp/shelf-ledger.jsonl
 - Small enough to actually use.
 
 V1 only moves `cleanup=trash` entries into Shelf's local trash folder. Entries
-marked `cleanup=review` stay review-only, and physical `delete` is refused.
+marked `cleanup=review` become `review-required`, and physical `delete` is
+refused as `cleanup-refused`.
+
+After `cleanup --execute`, Shelf writes a receipt and updates touched ledger
+records. Handled records stop appearing in `due` and future dry-run cleanup
+plans, while `shelf list` still keeps the audit trail visible.
 
 ## Commands
 

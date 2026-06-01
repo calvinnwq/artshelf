@@ -119,6 +119,9 @@ shelf cleanup --execute --plan-id <id>
 ```
 
 Never generate a fresh plan and execute it in the same step.
+Execution writes a receipt and updates touched ledger records to `trashed`,
+`review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
+future due and dry-run cleanup output.
 
 ## Scheduled Review
 

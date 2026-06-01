@@ -79,6 +79,8 @@ shelf list --json
 ### `shelf due`
 
 Shows entries whose retention has expired or that need manual review.
+Only `active` records participate in due classification; records already handled
+by cleanup execution remain visible through `list` and validation.
 
 ```bash
 shelf due
@@ -143,6 +145,8 @@ Rules:
 - Requires `--plan-id`.
 - Refuses to generate a fresh live cleanup set during execute.
 - Writes a cleanup receipt.
+- Updates touched ledger records so handled artifacts stop appearing as active
+  cleanup candidates.
 - Uses trash/review behavior by default.
 - `delete` remains allowed only when the ledger entry explicitly says
   `cleanup=delete`; v1 may still choose to refuse physical delete until we have
@@ -182,11 +186,34 @@ Default behavior:
 }
 ```
 
+V1 record statuses:
+
+- `active`: eligible for `due` classification and cleanup dry-run planning.
+- `review-required`: execution surfaced the artifact for manual review.
+- `trashed`: execution moved a `cleanup=trash` artifact into Shelf trash.
+- `cleanup-refused`: execution refused the requested action, such as physical
+  delete in v1.
+
+Handled records may include cleanup outcome fields:
+
+```json
+{
+  "cleanupPlanId": "plan_20260601_154200_cd34",
+  "receiptPath": "/absolute/path/.shelf/receipts/plan_20260601_154200_cd34.json",
+  "cleanedAt": "2026-06-01T05:45:00Z",
+  "targetPath": "/absolute/path/.shelf/trash/plan_20260601_154200_cd34/shf_20260601_154200_ab12-artifact",
+  "cleanupReason": "delete is disabled in v1"
+}
+```
+
 ## Cleanup Safety Model
 
 - Dry-run first.
 - Execute only by plan id.
 - Trash/review before delete.
+- Execute updates ledger state after writing the cleanup receipt. A trashed,
+  review-required, or refused record no longer participates in future `due` or
+  cleanup dry-run output by default.
 - Missing paths update the report; they are not treated as a successful cleanup
   unless the user explicitly repairs the ledger later.
 - Cleanup never scans arbitrary filesystem paths for deletion in v1.

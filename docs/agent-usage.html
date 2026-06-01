@@ -119,7 +119,8 @@ shelf cleanup --dry-run --json</code></pre>
               <pre><code>shelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
               <div class="note">
                 Execution needs explicit human approval for the reviewed plan id. Never generate a
-                fresh plan and execute it in the same step.
+                fresh plan and execute it in the same step. Execution writes a receipt and updates
+                touched ledger records to `trashed`, `review-required`, or `cleanup-refused`.
               </div>
             </section>
 

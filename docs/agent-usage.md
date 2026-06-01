@@ -122,6 +122,9 @@ shelf cleanup --execute --plan-id <id>
 
 Approval should name the plan id. Do not generate a fresh plan and execute it in
 the same breath. Review the dry-run first, then execute the reviewed plan id.
+Execution writes a receipt and updates touched ledger records to `trashed`,
+`review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
+future due and dry-run cleanup output.
 
 ## Scheduled Review
 

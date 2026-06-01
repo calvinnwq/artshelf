@@ -8,6 +8,7 @@ export type ShelfKind =
   | "other";
 
 export type CleanupAction = "trash" | "review" | "delete";
+export type ShelfStatus = "active" | "review-required" | "trashed" | "cleanup-refused";
 export type Retention =
   | { mode: "ttl"; ttl: string }
   | { mode: "retain-until"; retainUntil: string }
@@ -24,7 +25,12 @@ export type ShelfRecord = {
   cleanup: CleanupAction;
   owner: string;
   labels: string[];
-  status: "active";
+  status: ShelfStatus;
+  cleanupPlanId?: string;
+  receiptPath?: string;
+  cleanedAt?: string;
+  targetPath?: string;
+  cleanupReason?: string;
 };
 
 export type DueStatus = "due" | "manual-review" | "missing-path" | "kept";
@@ -53,4 +59,3 @@ export type CleanupPlan = {
   skipped: Array<{ id: string; path: string; reason: string; dueStatus: DueStatus }>;
   planPath: string;
 };
-
