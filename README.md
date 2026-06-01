@@ -118,8 +118,10 @@ quickstart, agent usage, and CLI reference. The source repo also keeps the
 
 The package includes an agent-facing skill at `skills/shelf/SKILL.md`. Agents
 that support local skills can copy or reference this file to learn when to call
-`shelf put`, how to report Shelf ids in handoffs and issue comments, and why
-`cleanup --execute` requires explicit approval for a reviewed plan id.
+`shelf put`, how to report Shelf ids in handoffs and issue comments, why
+`cleanup --execute` requires explicit approval for a reviewed plan id, and when
+`shelf resolve <id> --status resolved --reason <text>` may mark confirmed
+handled, missing, or no-longer-needed records without moving or deleting files.
 
 From a source checkout, use `skills/shelf/SKILL.md` directly. Agents should ask
 where the user wants Shelf cloned before installing or linking it. Package-manager
