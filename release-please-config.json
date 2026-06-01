@@ -1,0 +1,10 @@
+{
+  "bootstrap-sha": "27e7a58792d2ce7e4a32c3a9c10590b1eeefd9ba",
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "@ngxcalvin/shelf",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

@@ -31,7 +31,7 @@ somewhere accountable, with an expiry tag and a cleanup plan.
 - Not a desired-state reconciler.
 - Not a general disk cleaner.
 - Not a content indexer.
-- Not a secret scanner in v1.
+- Not a credential scanner in v1.
 - Not allowed to silently delete files.
 
 ## V1 CLI
@@ -243,5 +243,5 @@ Scheduled jobs must not silently execute cleanup.
 - Rollback command.
 - Retention classes like keep-daily/weekly/monthly.
 - Dependency roots and pinning.
-- Secret scanning.
+- Credential scanning.
 - Public package publishing.

@@ -3,11 +3,29 @@
   "version": "0.1.0",
   "description": "Tiny CLI for accountable temporary artifact retention.",
   "type": "module",
+  "author": "Calvin",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ngxcalvin/shelf.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ngxcalvin/shelf/issues"
+  },
+  "homepage": "https://github.com/ngxcalvin/shelf#readme",
+  "keywords": [
+    "artifact-retention",
+    "cleanup",
+    "cli",
+    "jsonl",
+    "tmp"
+  ],
   "bin": {
     "shelf": "dist/src/cli.js"
   },
   "files": [
-    "dist",
+    "dist/src",
+    "CHANGELOG.md",
+    "LICENSE",
     "README.md",
     "SPEC.md"
   ],
@@ -22,5 +40,6 @@
   "engines": {
     "node": ">=22"
   },
+  "packageManager": "pnpm@10.33.3",
   "license": "MIT"
 }
