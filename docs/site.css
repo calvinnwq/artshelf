@@ -162,6 +162,10 @@ pre code {
   margin-bottom: 18px;
 }
 
+.nav-scroll {
+  display: contents;
+}
+
 .nav-section-title {
   margin: 0;
   font-weight: 700;
@@ -507,23 +511,61 @@ html[data-theme="dark"] .note {
 
 @media (max-width: 960px) {
   .docs-shell {
-    grid-template-columns: 1fr;
+    display: block;
   }
 
   .global-nav {
-    position: static;
+    position: sticky;
+    z-index: 10;
     grid-template-columns: minmax(0, 1fr) auto;
     height: auto;
+    max-height: none;
+    align-items: center;
     border-right: 0;
     border-bottom: 1px solid var(--line);
+    padding: 16px 20px 12px;
+    overflow: hidden;
+    box-shadow: 0 8px 26px rgba(20, 23, 19, 0.06);
+  }
+
+  html[data-theme="dark"] .global-nav {
+    box-shadow: 0 8px 26px rgba(0, 0, 0, 0.24);
+  }
+
+  .site-mark {
+    margin-bottom: 4px;
+    border-bottom: 0;
+    padding-bottom: 0;
+  }
+
+  .nav-scroll {
+    display: flex;
+    grid-column: 1 / -1;
+    gap: 8px;
+    margin: 2px -20px 0;
+    overflow-x: auto;
+    padding: 8px 20px 4px;
+    scrollbar-color: var(--line) transparent;
+    scrollbar-width: thin;
   }
 
   .nav-section {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    flex: 0 0 auto;
+    gap: 8px;
+    margin: 0;
   }
 
   .nav-section-title {
-    grid-column: 1 / -1;
+    display: none;
+  }
+
+  .global-nav a:not(.site-mark) {
+    flex: 0 0 auto;
+    border: 1px solid var(--line);
+    background: var(--panel);
+    padding: 8px 11px;
+    white-space: nowrap;
   }
 
   .hero,
@@ -544,15 +586,43 @@ html[data-theme="dark"] .note {
 
 @media (max-width: 560px) {
   .wrap {
-    width: calc(100vw - 44px);
-    max-width: calc(100vw - 44px);
+    width: calc(100vw - 32px);
+    max-width: calc(100vw - 32px);
   }
 
-  .nav-section {
+  .global-nav {
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .nav-scroll {
+    margin-right: -16px;
+    margin-left: -16px;
+    padding-right: 16px;
+    padding-left: 16px;
+  }
+
+  .site-mark span {
+    display: none;
+  }
+
+  .actions {
+    display: grid;
     grid-template-columns: 1fr;
   }
 
+  .button,
+  .pill {
+    width: 100%;
+  }
+
+  pre {
+    padding: 12px 14px;
+    font-size: 0.82rem;
+  }
+
   h1 {
-    font-size: 2rem;
+    font-size: 1.82rem;
+    line-height: 1.12;
   }
 }
