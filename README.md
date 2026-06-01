@@ -10,15 +10,14 @@ visible and reviewable.
 
 ## Status
 
-Shelf is an early v1 MVP. It is usable from source, but it is not published to
-npm yet. The current focus is dogfooding the ledger, dry-run cleanup plan, and
-agent usage contract before package publishing.
+Shelf is an early v1 MVP. Version 0.1.0 is a GitHub/source-first release and is
+not published to npm. The current focus is dogfooding the ledger, dry-run
+cleanup plan, and agent usage contract from local installs.
 
 ## Install
 
-Shelf is not published to npm yet. The supported installation path before the
-first release is to clone the repo, build it, and optionally link the CLI
-globally for local use.
+Shelf is not published to npm. The supported installation path is to clone the
+repo, build it, and optionally link the CLI globally for local use.
 
 ```bash
 git clone https://github.com/calvinnwq/shelf.git
@@ -47,8 +46,8 @@ To remove the linked command later:
 npm unlink -g shelf
 ```
 
-When Shelf is published, the intended package install will be
-`npm install -g shelf`.
+For Calvin's OpenClaw setup, see the copy-paste guide in
+[docs/openclaw-setup.md](docs/openclaw-setup.md).
 
 ## Quickstart
 
@@ -116,7 +115,8 @@ commands support `--json`.
 
 See the [docs site](https://calvinnwq.github.io/shelf/) for install,
 quickstart, agent usage, and CLI reference. The source repo also keeps the
-[v1 spec](SPEC.md) and [agent usage guide](docs/agent-usage.md).
+[v1 spec](SPEC.md), [agent usage guide](docs/agent-usage.md), and
+[OpenClaw setup guide](docs/openclaw-setup.md).
 
 ## Agent Skill
 
@@ -125,8 +125,8 @@ that support local skills can copy or reference this file to learn when to call
 `shelf put`, how to report Shelf ids in handoffs and issue comments, and why
 `cleanup --execute` requires explicit approval for a reviewed plan id.
 
-After installing from npm, the skill is available under the installed package
-directory. From a source checkout, use `skills/shelf/SKILL.md` directly.
+From a source checkout, use `skills/shelf/SKILL.md` directly. Package-manager
+distribution for agent skills can come later.
 
 ## Development
 
