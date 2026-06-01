@@ -80,6 +80,16 @@ shelf cleanup --execute --plan-id <id>
 
 Never generate a fresh plan and execute it in the same step.
 
+Agents may mark a ledger record manually resolved only after the user confirms
+the artifact was inspected, is already missing, or is no longer needed:
+
+```bash
+shelf resolve <id> --status resolved --reason <text>
+```
+
+Use a specific reason. `resolve` only updates the ledger; it does not move or
+delete files.
+
 ## 4. Update
 
 ```bash

@@ -110,6 +110,11 @@ shelf due --json
 shelf cleanup --dry-run --json</code></pre>
               <div class="note">
                 Do not run `cleanup --execute` without explicit human approval for the reviewed plan id.
+                Never generate a fresh plan and execute it in the same step. Agents may run
+                <code>shelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code> only
+                after the user confirms the artifact was inspected, is already missing, or
+                is no longer needed. Use a specific reason; <code>resolve</code> only updates
+                the ledger and does not move or delete files.
               </div>
             </section>
 

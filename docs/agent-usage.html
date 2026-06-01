@@ -129,7 +129,8 @@ shelf cleanup --dry-run --json</code></pre>
               <pre><code>shelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code></pre>
               <p>
                 Use a specific reason. <code>resolve</code> only updates the ledger; it does not
-                move or delete files. Resolved records remain visible through
+                move or delete files. Resolved records stop reappearing in future due and
+                dry-run cleanup output while remaining visible through
                 <code>shelf list --status resolved</code>.
               </p>
             </section>

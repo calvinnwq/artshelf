@@ -290,13 +290,14 @@ Scheduled jobs must not silently execute cleanup.
 - CLI can record entries to JSONL.
 - CLI refuses records without a reason.
 - CLI requires TTL, retain-until, or manual-review.
-- CLI can list and show due entries.
+- CLI can list, filter by status, and show due entries.
+- CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
 - Cleanup dry-run creates a plan id.
 - Cleanup execute refuses to run without a plan id.
 - Cleanup execute writes a receipt.
 - All core commands support `--json`.
-- Tests cover record/list/due/validate/dry-run/execute-plan behavior.
+- Tests cover record/list/status-filter/due/validate/resolve/dry-run/execute-plan behavior.
 
 ## Deferred
 
