@@ -3,7 +3,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "@calvinnwq/shelf",
+      "package-name": "shelf",
       "changelog-path": "CHANGELOG.md"
     }
   }

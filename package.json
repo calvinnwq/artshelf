@@ -1,5 +1,5 @@
 {
-  "name": "@calvinnwq/shelf",
+  "name": "shelf",
   "version": "0.1.0",
   "description": "Tiny CLI for accountable temporary artifact retention.",
   "type": "module",
