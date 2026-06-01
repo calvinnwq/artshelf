@@ -98,10 +98,12 @@ plans, while `shelf list` still keeps the audit trail visible.
 ```bash
 shelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
 shelf list
+shelf list --status active
 shelf due
 shelf validate
 shelf cleanup --dry-run
 shelf cleanup --execute --plan-id <id>
+shelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```
 
 Use `shelf help` or `shelf help <command>` for command details. All core

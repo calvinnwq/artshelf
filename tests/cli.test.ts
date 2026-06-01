@@ -18,6 +18,11 @@ test("help and version are useful", () => {
   assert.match(putHelp.stdout, /shelf put <path>/);
   assert.match(putHelp.stdout, /--label <label>/);
 
+  const resolveHelp = shelf(["help", "resolve"]);
+  assert.equal(resolveHelp.status, 0);
+  assert.match(resolveHelp.stdout, /shelf resolve <id>/);
+  assert.match(resolveHelp.stdout, /--status resolved/);
+
   const version = shelf(["--version"]);
   assert.equal(version.status, 0);
   assert.equal(version.stdout, "shelf 0.1.0\n");
@@ -84,6 +89,8 @@ test("put appends JSONL and list emits human and JSON output", () => {
   assert.match(listed, /active trash/);
   assert.match(listed, /ledger:/);
   assert.equal(JSON.parse(shelf(["list", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 1);
+  assert.equal(JSON.parse(shelf(["list", "--status", "active", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 1);
+  assert.equal(JSON.parse(shelf(["list", "--status", "resolved", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 0);
 });
 
 test("due classifies kept, due, manual review, and missing paths", () => {
@@ -205,6 +212,71 @@ test("cleanup execute records review and refused outcomes as terminal ledger sta
 
   const followupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
   assert.equal(followupPlan.entries.length, 0);
+});
+
+test("list filters by status after cleanup state changes", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  shelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z");
+
+  const active = JSON.parse(shelf(["list", "--status", "active", "--ledger", ledger, "--json"]).stdout).entries;
+  const trashed = JSON.parse(shelf(["list", "--status", "trashed", "--ledger", ledger, "--json"]).stdout).entries;
+  assert.equal(active.length, 0);
+  assert.equal(trashed.length, 1);
+  assert.equal(trashed[0].status, "trashed");
+  assert.match(shelf(["list", "--status", "not-real", "--ledger", ledger]).stderr, /Unknown status: not-real/);
+});
+
+test("resolve marks missing records as resolved and removes cleanup noise", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  const put = JSON.parse(shelf(["put", artifact, "--reason", "temporary evidence", "--ttl", "1d", "--cleanup", "review", "--ledger", ledger, "--json"], "2026-06-01T00:00:00Z").stdout);
+  rmSync(artifact);
+  assert.equal(JSON.parse(shelf(["validate", "--ledger", ledger, "--json"]).stdout).warnings.length, 1);
+
+  const resolved = shelf([
+    "resolve",
+    put.record.id,
+    "--status",
+    "resolved",
+    "--reason",
+    "artifact inspected and no longer needed",
+    "--ledger",
+    ledger,
+    "--json"
+  ], "2026-06-02T00:00:00Z");
+  assert.equal(resolved.status, 0, resolved.stderr);
+  const body = JSON.parse(resolved.stdout);
+  assert.equal(body.record.status, "resolved");
+  assert.equal(body.record.resolvedAt, "2026-06-02T00:00:00Z");
+  assert.equal(body.record.resolutionReason, "artifact inspected and no longer needed");
+
+  const due = JSON.parse(shelf(["due", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).entries;
+  const plan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+  const validate = JSON.parse(shelf(["validate", "--ledger", ledger, "--json"]).stdout);
+  assert.deepEqual(due, []);
+  assert.equal(plan.entries.length, 0);
+  assert.equal(plan.skipped.length, 0);
+  assert.equal(validate.ok, true);
+  assert.equal(validate.warnings.length, 0);
+  assert.equal(JSON.parse(shelf(["list", "--status", "resolved", "--ledger", ledger, "--json"]).stdout).entries.length, 1);
+
+  const repeated = shelf(["resolve", put.record.id, "--status", "resolved", "--reason", "overwrite attempt", "--ledger", ledger]);
+  assert.equal(repeated.status, 1);
+  assert.match(repeated.stderr, /already resolved/);
+  assert.equal(readLedger(ledger)[0].resolutionReason, "artifact inspected and no longer needed");
+
+  const unsupported = shelf(["resolve", put.record.id, "--status", "active", "--reason", "reopen", "--ledger", ledger]);
+  assert.equal(unsupported.status, 1);
+  assert.match(unsupported.stderr, /resolve currently supports --status resolved/);
 });
 
 function shelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {

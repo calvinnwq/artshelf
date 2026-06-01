@@ -1,0 +1,3 @@
+commands:
+  test: "pnpm install --frozen-lockfile && pnpm check"
+  lint: "git diff --check && pnpm pack --dry-run"

@@ -92,6 +92,8 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /updates ledger state|updates touched records/);
   assert.match(pages, /review-required/);
   assert.match(pages, /cleanup-refused/);
+  assert.match(pages, /shelf list --status active|--status active/);
+  assert.match(pages, /shelf resolve <id> --status resolved|shelf resolve &lt;id&gt; --status resolved/);
 });
 
 test("docs menu keeps the reference section focused on user-facing pages", () => {

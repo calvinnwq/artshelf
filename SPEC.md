@@ -74,7 +74,17 @@ Shows ledger entries in a human-readable format.
 ```bash
 shelf list
 shelf list --json
+shelf list --status active
+shelf list --status resolved --json
 ```
+
+`--status` filters the audit trail to one record status:
+
+- `active`
+- `review-required`
+- `trashed`
+- `cleanup-refused`
+- `resolved`
 
 ### `shelf due`
 
@@ -193,6 +203,7 @@ V1 record statuses:
 - `trashed`: execution moved a `cleanup=trash` artifact into Shelf trash.
 - `cleanup-refused`: execution refused the requested action, such as physical
   delete in v1.
+- `resolved`: a human or agent marked the record as manually handled.
 
 Handled records may include cleanup outcome fields:
 
@@ -205,6 +216,32 @@ Handled records may include cleanup outcome fields:
   "cleanupReason": "delete is disabled in v1"
 }
 ```
+
+Manually resolved records include:
+
+```json
+{
+  "resolvedAt": "2026-06-01T05:45:00Z",
+  "resolutionReason": "artifact inspected and no longer needed"
+}
+```
+
+### `shelf resolve`
+
+Marks a handled, missing, or no-longer-needed record as manually resolved while
+keeping it in the ledger audit trail.
+
+```bash
+shelf resolve <id> --status resolved --reason <text>
+shelf resolve <id> --status resolved --reason <text> --json
+```
+
+Rules:
+
+- Requires `<id>`, `--status resolved`, and `--reason`.
+- Does not move or delete files.
+- Removes the record from future `due` and cleanup dry-run output.
+- Keeps the record visible through `list` and `list --status resolved`.
 
 ## Cleanup Safety Model
 
