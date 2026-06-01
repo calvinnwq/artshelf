@@ -17,7 +17,8 @@ import type {
   DueStatus,
   Retention,
   ShelfKind,
-  ShelfRecord
+  ShelfRecord,
+  ShelfStatus
 } from "./types.js";
 
 const KINDS = new Set<ShelfKind>([
@@ -31,6 +32,7 @@ const KINDS = new Set<ShelfKind>([
 ]);
 
 const CLEANUP_ACTIONS = new Set<CleanupAction>(["trash", "review", "delete"]);
+const STATUSES = new Set<ShelfStatus>(["active", "review-required", "trashed", "cleanup-refused"]);
 
 export type PutInput = {
   path: string;
@@ -106,7 +108,7 @@ export function readLedger(ledgerPath: string): ShelfRecord[] {
 }
 
 export function dueEntries(records: ShelfRecord[], at = now()): DueEntry[] {
-  return records.map((record) => {
+  return records.filter((record) => record.status === "active").map((record) => {
     const dueStatus = classifyDue(record, at);
     return {
       id: record.id,
@@ -152,9 +154,26 @@ export function validateLedger(ledgerPath: string): {
       errors.push(`${label}: unknown cleanup ${record.cleanup}`);
     }
     if (!Array.isArray(record.labels)) errors.push(`${label}: labels must be an array`);
-    if (record.status !== "active") errors.push(`${label}: status must be active`);
+    if (record.status && !STATUSES.has(record.status)) errors.push(`${label}: unknown status ${record.status}`);
     if (!validRetention(record)) errors.push(`${label}: invalid retention`);
-    if (record.path && !existsSync(record.path)) warnings.push(`${label}: recorded path is missing`);
+    if ((record.status === "active" || record.status === "review-required") && record.path && !existsSync(record.path)) {
+      warnings.push(`${label}: recorded path is missing`);
+    }
+    if (record.status === "trashed") {
+      if (!record.cleanupPlanId) errors.push(`${label}: trashed record missing cleanupPlanId`);
+      if (!record.receiptPath) errors.push(`${label}: trashed record missing receiptPath`);
+      if (!record.cleanedAt) errors.push(`${label}: trashed record missing cleanedAt`);
+      if (!record.targetPath) {
+        errors.push(`${label}: trashed record missing targetPath`);
+      } else if (!existsSync(record.targetPath)) {
+        warnings.push(`${label}: trashed target path is missing`);
+      }
+    }
+    if (record.status === "review-required" || record.status === "cleanup-refused") {
+      if (!record.cleanupPlanId) errors.push(`${label}: ${record.status} record missing cleanupPlanId`);
+      if (!record.receiptPath) errors.push(`${label}: ${record.status} record missing receiptPath`);
+      if (!record.cleanedAt) errors.push(`${label}: ${record.status} record missing cleanedAt`);
+    }
   }
 
   return { ok: errors.length === 0, errors, warnings, entries: records.length };
@@ -204,9 +223,22 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   if (!existsSync(planPath)) throw new Error(`Cleanup plan not found: ${planId}`);
   const plan = JSON.parse(readFileSync(planPath, "utf8")) as CleanupPlan;
   const trashRoot = join(dirname(ledgerPath), "trash", planId);
+  const records = readLedger(ledgerPath);
+  const recordsById = new Map(records.map((record) => [record.id, record]));
   const results = [];
 
   for (const entry of plan.entries) {
+    const record = recordsById.get(entry.id);
+    if (!record) {
+      results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "record is missing from ledger" });
+      continue;
+    }
+
+    if (record.status !== "active") {
+      results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: `record is ${record.status}` });
+      continue;
+    }
+
     if (!existsSync(entry.path)) {
       results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "path is missing" });
       continue;
@@ -229,7 +261,9 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   }
 
   const receiptPath = receiptPathFor(ledgerPath, planId);
-  writeJson(receiptPath, { planId, executedAt: toIso(now()), results });
+  const executedAt = toIso(now());
+  writeJson(receiptPath, { planId, executedAt, results });
+  updateLedgerAfterCleanup(ledgerPath, records, { planId, receiptPath, executedAt, results });
   return { planId, receiptPath, results };
 }
 
@@ -237,6 +271,65 @@ function appendRecord(ledgerPath: string, record: ShelfRecord): void {
   mkdirSync(dirname(ledgerPath), { recursive: true });
   const previous = existsSync(ledgerPath) ? readFileSync(ledgerPath, "utf8") : "";
   writeFileSync(ledgerPath, `${previous}${previous && !previous.endsWith("\n") ? "\n" : ""}${JSON.stringify(record)}\n`);
+}
+
+function writeLedger(ledgerPath: string, records: ShelfRecord[]): void {
+  mkdirSync(dirname(ledgerPath), { recursive: true });
+  const tmpPath = `${ledgerPath}.tmp`;
+  writeFileSync(tmpPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : ""));
+  renameSync(tmpPath, ledgerPath);
+}
+
+function updateLedgerAfterCleanup(
+  ledgerPath: string,
+  records: ShelfRecord[],
+  receipt: {
+    planId: string;
+    receiptPath: string;
+    executedAt: string;
+    results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+  }
+): void {
+  const resultById = new Map(receipt.results.map((result) => [result.id, result]));
+  const updated = records.map((record) => {
+    const result = resultById.get(record.id);
+    if (!result) return record;
+
+    if (result.status === "trashed") {
+      return {
+        ...record,
+        status: "trashed" as const,
+        cleanupPlanId: receipt.planId,
+        receiptPath: receipt.receiptPath,
+        cleanedAt: receipt.executedAt,
+        ...(result.target ? { targetPath: result.target } : {})
+      };
+    }
+
+    if (result.status === "review-required") {
+      return {
+        ...record,
+        status: "review-required" as const,
+        cleanupPlanId: receipt.planId,
+        receiptPath: receipt.receiptPath,
+        cleanedAt: receipt.executedAt
+      };
+    }
+
+    if (result.status === "refused") {
+      return {
+        ...record,
+        status: "cleanup-refused" as const,
+        cleanupPlanId: receipt.planId,
+        receiptPath: receipt.receiptPath,
+        cleanedAt: receipt.executedAt,
+        ...(result.reason ? { cleanupReason: result.reason } : {})
+      };
+    }
+
+    return record;
+  });
+  writeLedger(ledgerPath, updated);
 }
 
 function buildRetention(input: PutInput, createdAt: Date): { retention: Retention; retainUntil?: string } {

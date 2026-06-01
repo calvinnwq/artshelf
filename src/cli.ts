@@ -95,7 +95,7 @@ function handleList(ledgerPath: string, json: boolean): number {
     return 0;
   }
   for (const record of records) {
-    process.stdout.write(`${record.id} ${record.kind} ${record.cleanup} ${record.path} :: ${record.reason}\n`);
+    process.stdout.write(`${record.id} ${record.kind} ${record.status} ${record.cleanup} ${record.path} :: ${record.reason}\n`);
   }
   process.stdout.write(`ledger: ${ledgerPath}\n`);
   return 0;

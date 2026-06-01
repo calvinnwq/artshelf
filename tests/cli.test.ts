@@ -81,6 +81,7 @@ test("put appends JSONL and list emits human and JSON output", () => {
 
   const listed = shelf(["list", "--ledger", ledgerPath(fixture)]).stdout;
   assert.match(listed, /debug parser output/);
+  assert.match(listed, /active trash/);
   assert.match(listed, /ledger:/);
   assert.equal(JSON.parse(shelf(["list", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 1);
 });
@@ -156,6 +157,54 @@ test("cleanup dry-run creates a plan and execute requires a plan id", () => {
   assert.equal(receipt.results[0].status, "trashed");
   assert.equal(existsSync(artifact), false);
   assert.equal(existsSync(receipt.results[0].target), true);
+  const result = receipt.results[0];
+  assert.ok(result);
+
+  const records = readLedger(ledger);
+  const record = records[0];
+  assert.ok(record);
+  assert.equal(record.status, "trashed");
+  assert.equal(record.cleanupPlanId, plan.planId);
+  assert.equal(record.receiptPath, receipt.receiptPath);
+  assert.equal(record.targetPath, result.target);
+  assert.equal(record.cleanedAt, "2026-06-03T00:01:00Z");
+
+  const due = JSON.parse(shelf(["due", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).entries;
+  assert.deepEqual(due, []);
+
+  const followupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+  assert.equal(followupPlan.entries.length, 0);
+  assert.equal(followupPlan.skipped.length, 0);
+  assert.equal(JSON.parse(shelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("cleanup execute records review and refused outcomes as terminal ledger state", () => {
+  const fixture = fixtureDir();
+  const review = join(fixture, "review.txt");
+  const refused = join(fixture, "refused.txt");
+  writeFileSync(review, "review");
+  writeFileSync(refused, "refused");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", review, "--reason", "needs eyes", "--manual-review", "--cleanup", "review", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  shelf(["put", refused, "--reason", "delete later", "--ttl", "1d", "--cleanup", "delete", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const plan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  assert.equal(plan.entries.length, 2);
+
+  const receipt = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  assert.deepEqual(receipt.results.map((result: any) => result.status).sort(), ["refused", "review-required"]);
+
+  const records = readLedger(ledger);
+  assert.deepEqual(records.map((record: any) => record.status).sort(), ["cleanup-refused", "review-required"]);
+  assert.equal(records.every((record: any) => record.cleanupPlanId === plan.planId), true);
+  assert.equal(records.every((record: any) => record.receiptPath === receipt.receiptPath), true);
+  assert.equal(records.every((record: any) => record.cleanedAt === "2026-06-03T00:01:00Z"), true);
+  assert.equal(existsSync(review), true);
+  assert.equal(existsSync(refused), true);
+
+  const followupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+  assert.equal(followupPlan.entries.length, 0);
 });
 
 function shelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
@@ -173,4 +222,8 @@ function fixtureDir(): string {
 
 function ledgerPath(fixture: string): string {
   return join(fixture, ".shelf", "ledger.jsonl");
+}
+
+function readLedger(ledger: string): any[] {
+  return readFileSync(ledger, "utf8").trim().split("\n").map((line) => JSON.parse(line));
 }

@@ -105,7 +105,8 @@ shelf due --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
               <pre><code>shelf cleanup --execute --plan-id plan_20260601_120000_ab12</code></pre>
               <div class="note">
                 Execute is intentionally separate. Agents must not run it unless a human explicitly
-                approves the reviewed plan id.
+                approves the reviewed plan id. After execution, Shelf writes a receipt and updates
+                touched records so handled artifacts stop appearing in future due checks.
               </div>
             </section>
           </article>

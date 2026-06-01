@@ -89,6 +89,9 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /cleanup --execute --plan-id/);
   assert.match(pages, /explicit human approval|reviewed plan id/);
   assert.match(pages, /V1 refuses physical delete|refuses delete/);
+  assert.match(pages, /updates ledger state|updates touched records/);
+  assert.match(pages, /review-required/);
+  assert.match(pages, /cleanup-refused/);
 });
 
 test("docs menu keeps the reference section focused on user-facing pages", () => {

@@ -107,7 +107,7 @@ $ shelf cleanup --dry-run --json</code></pre>
                 </div>
                 <div class="card">
                   <h3>Execute by plan</h3>
-                  <p>Cleanup execution uses a reviewed plan id. V1 trashes safe entries and refuses delete.</p>
+                  <p>Cleanup execution uses a reviewed plan id, writes a receipt, and updates ledger state.</p>
                 </div>
               </div>
             </section>
@@ -152,7 +152,8 @@ $ shelf cleanup --dry-run --json</code></pre>
                 <li>Ledger-first. Shelf only cleans entries that were registered intentionally.</li>
                 <li>Dry-run before mutation. Plans are written before execution.</li>
                 <li>Execute by reviewed plan id. Agents should stop before `cleanup --execute`.</li>
-                <li>V1 refuses physical delete. `cleanup=review` stays review-only.</li>
+                <li>Handled records stop appearing in future due and cleanup dry-run output.</li>
+                <li>V1 refuses physical delete. `cleanup=review` becomes `review-required`.</li>
               </ul>
               <div class="note">
                 Shelf is an early v1 MVP. Source install and live dogfooding come before npm publishing.
