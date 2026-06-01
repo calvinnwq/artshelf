@@ -122,7 +122,7 @@ V1 validation checks:
 - TTL/retain-until/manual-review is valid
 - cleanup action is known
 - resolved records include `resolvedAt` and `resolutionReason`
-- recorded paths still exist, reported as warnings not hard failures
+- active and review-required recorded paths still exist, reported as warnings not hard failures
 
 ### `shelf cleanup --dry-run`
 
@@ -179,6 +179,7 @@ Rules:
 - Does not move or delete files.
 - Removes the record from future `due` and cleanup dry-run output.
 - Keeps the record visible through `list` and `list --status resolved`.
+- Refuses records that are already `resolved`; the original reason is preserved.
 
 ## Ledger Storage
 
