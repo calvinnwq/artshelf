@@ -96,6 +96,7 @@ Use `shelf help` or `shelf help <command>` for command details. All core
 commands support `--json`.
 
 See [SPEC.md](SPEC.md) for the v1 contract and [docs/](docs/) for project docs.
+Agents should start with [docs/agent-usage.md](docs/agent-usage.md).
 
 ## Development
 
