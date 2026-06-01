@@ -62,6 +62,13 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /V1 refuses physical delete|refuses delete/);
 });
 
+test("docs menu keeps the reference section focused on user-facing pages", () => {
+  for (const page of DOC_PAGES) {
+    const html = read(page);
+    assert.doesNotMatch(html, /<a href="https:\/\/github\.com\/calvinnwq\/shelf\/blob\/main\/SPEC\.md">V1 spec<\/a>/, page);
+  }
+});
+
 function read(path: string): string {
   return readFileSync(path, "utf8");
 }
