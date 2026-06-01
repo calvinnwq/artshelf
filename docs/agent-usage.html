@@ -100,6 +100,22 @@ shelf --version</code></pre>
             </section>
 
             <section>
+              <h2>Idempotent Lookup</h2>
+              <p>
+                Integrations should query the ledger before creating another record for the same
+                artifact. <code>find</code> and <code>get</code> are read-only; they never move,
+                resolve, or delete files.
+              </p>
+              <pre><code>shelf find --path &lt;path&gt; --owner coding-workflow-pipeline --label &lt;run-id&gt; --json
+shelf get &lt;id&gt; --json</code></pre>
+              <p>
+                <code>find</code> requires at least one selector. Multiple labels are an all-label
+                match. If it returns a record, reuse that Shelf id; otherwise call
+                <code>shelf put</code> and record the new id.
+              </p>
+            </section>
+
+            <section>
               <h2>Report The ID</h2>
               <pre><code>Shelf artifacts:
 - shf_20260601_182800_ab12: /tmp/parser-output, debug evidence for SK-123,

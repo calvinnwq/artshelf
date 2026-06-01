@@ -4,6 +4,8 @@ import {
   dueEntries,
   executeCleanupPlan,
   filterRecordsByStatus,
+  findRecords,
+  getRecord,
   normalizeLedgerPath,
   putRecord,
   readLedger,
@@ -19,6 +21,7 @@ const VALUE_FLAGS = new Set([
   "label",
   "ledger",
   "owner",
+  "path",
   "plan-id",
   "reason",
   "retain-until",
@@ -51,6 +54,10 @@ function main(argv: string[]): number {
         return handlePut(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "list":
         return handleList(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      case "find":
+        return handleFind(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      case "get":
+        return handleGet(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "due":
         return handleDue(normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "validate":
@@ -104,6 +111,34 @@ function handleList(parsed: ParsedArgs, ledgerPath: string, json: boolean): numb
     process.stdout.write(`${record.id} ${record.kind} ${record.status} ${record.cleanup} ${record.path} :: ${record.reason}\n`);
   }
   process.stdout.write(`ledger: ${ledgerPath}\n`);
+  return 0;
+}
+
+function handleFind(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const records = findRecords(readLedger(ledgerPath), {
+    path: stringFlag(parsed, "path"),
+    owner: stringFlag(parsed, "owner"),
+    labels: arrayFlag(parsed, "label"),
+    status: stringFlag(parsed, "status")
+  });
+  if (json) return printJson({ ok: true, ledgerPath, entries: records });
+  if (records.length === 0) {
+    process.stdout.write(`no matching shelf entries\nledger: ${ledgerPath}\n`);
+    return 0;
+  }
+  for (const record of records) {
+    process.stdout.write(`${record.id} ${record.kind} ${record.status} ${record.cleanup} ${record.path} :: ${record.reason}\n`);
+  }
+  process.stdout.write(`ledger: ${ledgerPath}\n`);
+  return 0;
+}
+
+function handleGet(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const id = parsed.positionals[0];
+  if (!id) throw new Error("get requires <id>");
+  const record = getRecord(readLedger(ledgerPath), id);
+  if (json) return printJson({ ok: true, ledgerPath, record });
+  process.stdout.write(`${record.id} ${record.kind} ${record.status} ${record.cleanup} ${record.path}\nreason: ${record.reason}\nledger: ${ledgerPath}\n`);
   return 0;
 }
 
@@ -265,6 +300,32 @@ Statuses:
     return;
   }
 
+  if (command === "find") {
+    process.stdout.write(`Usage:
+  shelf find (--path <path>|--owner <name>|--label <label>|--status <status>) [options]
+
+Options:
+  --path <path>          Match an exact artifact path after path normalization
+  --owner <name>
+  --label <label>        Repeatable; all labels must match
+  --status <status>
+  --ledger <path>
+  --json
+
+Find is read-only. Use it before put when an integration needs idempotent artifact registration.
+`);
+    return;
+  }
+
+  if (command === "get") {
+    process.stdout.write(`Usage:
+  shelf get <id> [--ledger <path>] [--json]
+
+Get is read-only and returns one ledger record by Shelf id.
+`);
+    return;
+  }
+
   if (command === "resolve") {
     process.stdout.write(`Usage:
   shelf resolve <id> --status resolved --reason <text> [--ledger <path>] [--json]
@@ -281,6 +342,8 @@ Usage:
   shelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review)
   shelf list [--json]
   shelf list --status active [--json]
+  shelf find --path <path> [--json]
+  shelf get <id> [--json]
   shelf due [--json]
   shelf validate [--json]
   shelf cleanup --dry-run [--json]

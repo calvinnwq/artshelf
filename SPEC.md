@@ -86,6 +86,37 @@ shelf list --status resolved --json
 - `cleanup-refused`
 - `resolved`
 
+### `shelf find`
+
+Read-only ledger query for integrations that need idempotent artifact
+registration without parsing `list` output.
+
+```bash
+shelf find --path <path> --json
+shelf find --path <path> --owner coding-workflow-pipeline --label <run-id> --status active --json
+```
+
+Accepted selectors:
+
+- `--path <path>`: exact artifact path match after path normalization.
+- `--owner <string>`
+- `--label <label>` repeatable; all labels must match.
+- `--status active|review-required|trashed|cleanup-refused|resolved`
+
+`find` requires at least one selector. It never creates, resolves, moves, or
+deletes records.
+
+### `shelf get`
+
+Read-only lookup of a single ledger record by Shelf id.
+
+```bash
+shelf get <id>
+shelf get <id> --json
+```
+
+`get` is for audit and handoff follow-up. Missing ids are an error.
+
 ### `shelf due`
 
 Shows entries whose retention has expired or that need manual review.
@@ -271,6 +302,10 @@ Agents should call `shelf put` immediately after creating:
 
 Agents should not run `shelf cleanup --execute` without explicit approval.
 
+Agents may run `shelf find` and `shelf get` before `put` to avoid duplicate
+registrations. `find`/`get` are read-only ledger queries; they must not be used
+as permission to clean up or resolve a record.
+
 Agents may run `shelf resolve <id> --status resolved --reason <text>` only
 after explicit confirmation that the record has been handled, is missing, or is
 no longer needed. The reason must be specific; resolve does not move or delete
@@ -298,13 +333,14 @@ Scheduled jobs must not silently execute cleanup.
 - CLI refuses records without a reason.
 - CLI requires TTL, retain-until, or manual-review.
 - CLI can list, filter by status, and show due entries.
+- CLI can find existing records by path/owner/label/status and get records by id.
 - CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
 - Cleanup dry-run creates a plan id.
 - Cleanup execute refuses to run without a plan id.
 - Cleanup execute writes a receipt.
 - All core commands support `--json`.
-- Tests cover record/list/status-filter/due/validate/resolve/dry-run/execute-plan behavior.
+- Tests cover record/list/find/get/status-filter/due/validate/resolve/dry-run/execute-plan behavior.
 
 ## Deferred
 

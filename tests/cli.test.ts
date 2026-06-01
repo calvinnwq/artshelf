@@ -23,6 +23,15 @@ test("help and version are useful", () => {
   assert.match(resolveHelp.stdout, /shelf resolve <id>/);
   assert.match(resolveHelp.stdout, /--status resolved/);
 
+  const findHelp = shelf(["help", "find"]);
+  assert.equal(findHelp.status, 0);
+  assert.match(findHelp.stdout, /shelf find/);
+  assert.match(findHelp.stdout, /--path <path>/);
+
+  const getHelp = shelf(["help", "get"]);
+  assert.equal(getHelp.status, 0);
+  assert.match(getHelp.stdout, /shelf get <id>/);
+
   const version = shelf(["--version"]);
   assert.equal(version.status, 0);
   assert.equal(version.stdout, "shelf 0.1.0\n");
@@ -91,6 +100,83 @@ test("put appends JSONL and list emits human and JSON output", () => {
   assert.equal(JSON.parse(shelf(["list", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 1);
   assert.equal(JSON.parse(shelf(["list", "--status", "active", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 1);
   assert.equal(JSON.parse(shelf(["list", "--status", "resolved", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 0);
+});
+
+test("find and get provide read-only idempotency queries", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  const otherArtifact = join(fixture, "other.txt");
+  const ledger = ledgerPath(fixture);
+  writeFileSync(artifact, "hello");
+  writeFileSync(otherArtifact, "other");
+
+  const put = JSON.parse(shelf([
+    "put",
+    artifact,
+    "--reason",
+    "workflow evidence",
+    "--ttl",
+    "14d",
+    "--kind",
+    "run-artifact",
+    "--cleanup",
+    "review",
+    "--owner",
+    "coding-workflow-pipeline",
+    "--label",
+    "cwfp-test",
+    "--label",
+    "implementation",
+    "--ledger",
+    ledger,
+    "--json"
+  ]).stdout);
+  shelf([
+    "put",
+    otherArtifact,
+    "--reason",
+    "other evidence",
+    "--ttl",
+    "14d",
+    "--owner",
+    "other-owner",
+    "--label",
+    "cwfp-test",
+    "--ledger",
+    ledger
+  ]);
+
+  const found = JSON.parse(shelf([
+    "find",
+    "--path",
+    artifact,
+    "--owner",
+    "coding-workflow-pipeline",
+    "--label",
+    "cwfp-test",
+    "--status",
+    "active",
+    "--ledger",
+    ledger,
+    "--json"
+  ]).stdout);
+  assert.equal(found.entries.length, 1);
+  assert.equal(found.entries[0].id, put.record.id);
+
+  const noMatch = JSON.parse(shelf(["find", "--label", "missing", "--ledger", ledger, "--json"]).stdout);
+  assert.deepEqual(noMatch.entries, []);
+
+  const get = JSON.parse(shelf(["get", put.record.id, "--ledger", ledger, "--json"]).stdout);
+  assert.equal(get.record.path, artifact);
+  assert.equal(get.record.reason, "workflow evidence");
+
+  const missingGet = shelf(["get", "shf_missing", "--ledger", ledger]);
+  assert.equal(missingGet.status, 1);
+  assert.match(missingGet.stderr, /Shelf record not found/);
+
+  const unbounded = shelf(["find", "--ledger", ledger]);
+  assert.equal(unbounded.status, 1);
+  assert.match(unbounded.stderr, /find requires at least one/);
 });
 
 test("due classifies kept, due, manual review, and missing paths", () => {

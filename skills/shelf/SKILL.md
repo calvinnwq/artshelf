@@ -63,6 +63,20 @@ shelf put <path> \
 
 Use `--json` when another tool or handoff needs the entry id.
 
+## Lookup
+
+Use read-only lookup before `put` when a workflow needs idempotent artifact
+registration:
+
+```bash
+shelf find --path <path> --owner <runtime> --label <run-id> --json
+shelf get <id> --json
+```
+
+`find` requires at least one selector: `--path`, `--owner`, `--label`, or
+`--status`. Multiple labels must all match. If a matching record already
+exists, reuse its Shelf id instead of creating a duplicate record.
+
 ## What To Register
 
 Register:
