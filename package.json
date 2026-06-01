@@ -11,7 +11,7 @@
   "bugs": {
     "url": "https://github.com/calvinnwq/shelf/issues"
   },
-  "homepage": "https://github.com/calvinnwq/shelf#readme",
+  "homepage": "https://calvinnwq.github.io/shelf/",
   "keywords": [
     "artifact-retention",
     "cleanup",
@@ -34,7 +34,8 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "test": "node --test dist/tests/*.test.js",
-    "check": "pnpm run build && pnpm run test"
+    "check": "pnpm run build && pnpm run test",
+    "start": "node dist/src/cli.js"
   },
   "devDependencies": {
     "typescript": "^5.9.3"

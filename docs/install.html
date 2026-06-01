@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Install Shelf</title>
+    <meta name="description" content="Install Shelf from source before the first npm release.">
+    <link rel="stylesheet" href="site.css">
+    <script src="theme.js" defer></script>
+  </head>
+  <body>
+    <div class="docs-shell">
+      <nav class="global-nav" aria-label="Documentation">
+        <a class="site-mark" href="index.html"><strong>Shelf</strong><span>Artifact retention CLI</span></a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
+        <div class="nav-section">
+          <p class="nav-section-title">Start</p>
+          <a href="index.html">Overview</a>
+          <a href="install.html" aria-current="page">Install</a>
+          <a href="quickstart.html">Quickstart</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Agents</p>
+          <a href="agent-usage.html">Agent usage</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Reference</p>
+          <a href="reference.html">CLI reference</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/SPEC.md">V1 spec</a>
+          <a href="https://github.com/calvinnwq/shelf">GitHub</a>
+        </div>
+      </nav>
+
+      <div class="docs-content">
+        <header class="page-top">
+          <div class="wrap">
+            <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Install</span></nav>
+            <div class="hero">
+              <div>
+                <p class="eyebrow">Source install</p>
+                <h1>Install from source.</h1>
+                <p class="lede">
+                  Shelf is not on npm yet. The supported pre-release path is a source checkout
+                  with Corepack, pnpm, and an optional local global link.
+                </p>
+              </div>
+              <div class="terminal">
+                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>install</span></div>
+                <pre><code>$ git clone https://github.com/calvinnwq/shelf.git
+$ cd shelf
+$ corepack enable
+$ pnpm install --frozen-lockfile
+$ pnpm run build
+$ node dist/src/cli.js --version</code></pre>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main class="wrap">
+          <article>
+            <section>
+              <h2>Requirements</h2>
+              <div class="grid">
+                <div class="card"><h3>Node.js 22+</h3><p>The package declares `node &gt;=22` and CI runs on Node 24.</p></div>
+                <div class="card"><h3>Corepack</h3><p>Use Corepack to activate the pinned pnpm version from `packageManager`.</p></div>
+                <div class="card"><h3>Git</h3><p>Clone the public repo and keep source installs easy to update with `git pull`.</p></div>
+              </div>
+            </section>
+
+            <section>
+              <h2>Build From Source</h2>
+              <pre><code>git clone https://github.com/calvinnwq/shelf.git
+cd shelf
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run build
+node dist/src/cli.js --version</code></pre>
+              <p>
+                The direct Node invocation is the most explicit pre-release smoke test. It proves
+                the compiled CLI works without adding a global command to your machine.
+              </p>
+            </section>
+
+            <section>
+              <h2>Optional Global Link</h2>
+              <pre><code>npm link
+shelf --version</code></pre>
+              <p>
+                This mirrors the common source-install flow for small Node CLIs. It links the local
+                checkout into your global npm bin, so future local rebuilds update the linked command.
+              </p>
+              <pre><code>npm unlink -g shelf</code></pre>
+            </section>
+
+            <section>
+              <h2>Update A Source Install</h2>
+              <pre><code>cd shelf
+git pull
+pnpm install --frozen-lockfile
+pnpm run build
+shelf --version</code></pre>
+            </section>
+
+            <section>
+              <h2>Expected npm Install</h2>
+              <p>After the first release, the intended package install will be:</p>
+              <pre><code>npm install -g shelf
+shelf --version</code></pre>
+              <div class="note">Do the source install and live smoke tests first. Publishing comes later.</div>
+            </section>
+          </article>
+        </main>
+        <footer class="site-footer"><div class="wrap">Shelf docs · <a href="quickstart.html">Next: quickstart</a></div></footer>
+      </div>
+    </div>
+  </body>
+</html>

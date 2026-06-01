@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shelf Quickstart</title>
+    <meta name="description" content="Register and review a temporary artifact with Shelf.">
+    <link rel="stylesheet" href="site.css">
+    <script src="theme.js" defer></script>
+  </head>
+  <body>
+    <div class="docs-shell">
+      <nav class="global-nav" aria-label="Documentation">
+        <a class="site-mark" href="index.html"><strong>Shelf</strong><span>Artifact retention CLI</span></a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
+        <div class="nav-section">
+          <p class="nav-section-title">Start</p>
+          <a href="index.html">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html" aria-current="page">Quickstart</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Agents</p>
+          <a href="agent-usage.html">Agent usage</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Reference</p>
+          <a href="reference.html">CLI reference</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/SPEC.md">V1 spec</a>
+          <a href="https://github.com/calvinnwq/shelf">GitHub</a>
+        </div>
+      </nav>
+
+      <div class="docs-content">
+        <header class="page-top">
+          <div class="wrap">
+            <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Quickstart</span></nav>
+            <div class="hero">
+              <div>
+                <p class="eyebrow">Five-minute workflow</p>
+                <h1>Register first, clean later.</h1>
+                <p class="lede">
+                  Shelf works best when the artifact is registered the moment it is created.
+                  Start with an explicit ledger path when testing.
+                </p>
+              </div>
+              <div class="terminal">
+                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>quickstart</span></div>
+                <pre><code>$ mkdir -p /tmp/shelf-demo
+$ echo "debug output" &gt; /tmp/shelf-demo/output.txt
+$ shelf put /tmp/shelf-demo \
+  --reason "quickstart artifact" \
+  --ttl 1d \
+  --kind scratch \
+  --cleanup review \
+  --ledger /tmp/shelf-ledger.jsonl</code></pre>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main class="wrap">
+          <article>
+            <section>
+              <h2>1. Create Something Worth Tracking</h2>
+              <pre><code>mkdir -p /tmp/shelf-demo
+echo "debug output" &gt; /tmp/shelf-demo/output.txt</code></pre>
+            </section>
+
+            <section>
+              <h2>2. Put It On The Shelf</h2>
+              <pre><code>shelf put /tmp/shelf-demo \
+  --reason "quickstart artifact" \
+  --ttl 1d \
+  --kind scratch \
+  --cleanup review \
+  --owner manual \
+  --label quickstart \
+  --ledger /tmp/shelf-ledger.jsonl \
+  --json</code></pre>
+              <p>Capture the returned `id` anywhere future cleanup context matters.</p>
+            </section>
+
+            <section>
+              <h2>3. Inspect The Ledger</h2>
+              <pre><code>shelf list --ledger /tmp/shelf-ledger.jsonl
+shelf validate --ledger /tmp/shelf-ledger.jsonl --json
+shelf due --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
+            </section>
+
+            <section>
+              <h2>4. Preview Cleanup</h2>
+              <pre><code>shelf cleanup --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
+              <p>
+                Dry-run writes a plan under the ledger's `.shelf` directory. Review the plan id
+                before any execute step.
+              </p>
+            </section>
+
+            <section>
+              <h2>5. Stop Before Execute</h2>
+              <pre><code>shelf cleanup --execute --plan-id plan_20260601_120000_ab12</code></pre>
+              <div class="note">
+                Execute is intentionally separate. Agents must not run it unless a human explicitly
+                approves the reviewed plan id.
+              </div>
+            </section>
+          </article>
+        </main>
+        <footer class="site-footer"><div class="wrap">Shelf docs · <a href="agent-usage.html">Next: agent usage</a></div></footer>
+      </div>
+    </div>
+  </body>
+</html>

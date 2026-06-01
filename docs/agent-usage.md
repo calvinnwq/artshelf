@@ -1,8 +1,9 @@
 # Agent Usage
 
 Agents that support local skills can copy or reference
-[`skills/shelf/SKILL.md`](../skills/shelf/SKILL.md). This guide explains the
-same contract in ordinary documentation form.
+[`skills/shelf/SKILL.md`](../skills/shelf/SKILL.md). The public docs site at
+<https://calvinnwq.github.io/shelf/> explains the same contract in browsable
+form.
 
 Shelf works best when agents register artifacts at creation time, while the
 reason is still fresh. Do not wait for a cleanup pass to infer intent from file

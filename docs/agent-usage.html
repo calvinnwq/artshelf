@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shelf Agent Usage</title>
+    <meta name="description" content="How agents should use Shelf safely.">
+    <link rel="stylesheet" href="site.css">
+    <script src="theme.js" defer></script>
+  </head>
+  <body>
+    <div class="docs-shell">
+      <nav class="global-nav" aria-label="Documentation">
+        <a class="site-mark" href="index.html"><strong>Shelf</strong><span>Artifact retention CLI</span></a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
+        <div class="nav-section">
+          <p class="nav-section-title">Start</p>
+          <a href="index.html">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quickstart</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Agents</p>
+          <a href="agent-usage.html" aria-current="page">Agent usage</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Reference</p>
+          <a href="reference.html">CLI reference</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/SPEC.md">V1 spec</a>
+          <a href="https://github.com/calvinnwq/shelf">GitHub</a>
+        </div>
+      </nav>
+
+      <div class="docs-content">
+        <header class="page-top">
+          <div class="wrap">
+            <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Agent usage</span></nav>
+            <div class="hero">
+              <div>
+                <p class="eyebrow">For OpenClaw, Codex, Claude, and other agents</p>
+                <h1>Register artifacts while intent is fresh.</h1>
+                <p class="lede">
+                  Agents should use Shelf when temporary files need accountability, restart
+                  context, or later human review. Source files and cheap build outputs stay out.
+                </p>
+              </div>
+              <div class="terminal">
+                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>agent contract</span></div>
+                <pre><code>$ shelf put &lt;path&gt; \
+  --reason "&lt;why this exists&gt;" \
+  --ttl 3d \
+  --kind run-artifact \
+  --cleanup review \
+  --owner openclaw \
+  --label &lt;project&gt; \
+  --json</code></pre>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main class="wrap">
+          <article>
+            <section>
+              <h2>Use Shelf For</h2>
+              <div class="grid">
+                <div class="card"><h3>Backups</h3><p>Rollback copies, pre-edit snapshots, migration backups, and quarantine folders.</p></div>
+                <div class="card"><h3>Evidence</h3><p>Debug output directories, generated reports, logs, and live-smoke artifacts.</p></div>
+                <div class="card"><h3>Long runs</h3><p>Workflow artifacts a future agent might need to resume, review, or clean up.</p></div>
+              </div>
+            </section>
+
+            <section>
+              <h2>Skip Shelf For</h2>
+              <ul>
+                <li>Source files that belong in git.</li>
+                <li>Build outputs and dependency caches that can be regenerated cheaply.</li>
+                <li>Secrets, credential dumps, or private tokens.</li>
+                <li>Artifacts already owned by a more specific durable workflow ledger.</li>
+              </ul>
+            </section>
+
+            <section>
+              <h2>Report The ID</h2>
+              <pre><code>Shelf artifacts:
+- shf_20260601_182800_ab12: /tmp/parser-output, debug evidence for SK-123,
+  retain until 2026-06-04, cleanup=review</code></pre>
+              <p>
+                Put the id in handoffs, PR comments, Linear comments, daily memory, or task run
+                summaries when the artifact matters for restart.
+              </p>
+            </section>
+
+            <section>
+              <h2>Cleanup Boundary</h2>
+              <pre><code>shelf due --json
+shelf cleanup --dry-run --json</code></pre>
+              <p>Those read-only review commands are fine for agents.</p>
+              <pre><code>shelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
+              <div class="note">
+                Execution needs explicit human approval for the reviewed plan id. Never generate a
+                fresh plan and execute it in the same step.
+              </div>
+            </section>
+
+            <section>
+              <h2>Portable Skill</h2>
+              <p>
+                The repo ships a portable skill at
+                <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">skills/shelf/SKILL.md</a>.
+                Agents that support local skills can copy or reference it directly.
+              </p>
+            </section>
+          </article>
+        </main>
+        <footer class="site-footer"><div class="wrap">Shelf docs · <a href="reference.html">Next: CLI reference</a></div></footer>
+      </div>
+    </div>
+  </body>
+</html>

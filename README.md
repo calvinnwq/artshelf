@@ -16,11 +16,16 @@ agent usage contract before package publishing.
 
 ## Install
 
+Shelf is not published to npm yet. The supported installation path before the
+first release is to clone the repo, build it, and optionally link the CLI
+globally for local use.
+
 ```bash
 git clone https://github.com/calvinnwq/shelf.git
 cd shelf
-pnpm install
-pnpm build
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run build
 ```
 
 Run locally:
@@ -29,7 +34,21 @@ Run locally:
 node dist/src/cli.js --version
 ```
 
-When Shelf is published, the intended CLI name is `shelf`.
+Optional global link, similar to a source install for other small Node CLIs:
+
+```bash
+npm link
+shelf --version
+```
+
+To remove the linked command later:
+
+```bash
+npm unlink -g shelf
+```
+
+When Shelf is published, the intended package install will be
+`npm install -g shelf`.
 
 ## Quickstart
 
@@ -95,8 +114,9 @@ shelf cleanup --execute --plan-id <id>
 Use `shelf help` or `shelf help <command>` for command details. All core
 commands support `--json`.
 
-See [SPEC.md](SPEC.md) for the v1 contract and [docs/](docs/) for project docs.
-Agents should start with [docs/agent-usage.md](docs/agent-usage.md).
+See the [docs site](https://calvinnwq.github.io/shelf/) for install,
+quickstart, agent usage, and CLI reference. The source repo also keeps the
+[v1 spec](SPEC.md) and [agent usage guide](docs/agent-usage.md).
 
 ## Agent Skill
 

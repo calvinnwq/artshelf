@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Shelf Docs</title>
+    <meta name="description" content="Shelf is a tiny CLI for accountable temporary artifact retention.">
+    <link rel="stylesheet" href="site.css">
+    <script src="theme.js" defer></script>
+  </head>
+  <body>
+    <div class="docs-shell">
+      <nav class="global-nav" aria-label="Documentation">
+        <a class="site-mark" href="index.html" aria-current="page">
+          <strong>Shelf</strong>
+          <span>Artifact retention CLI</span>
+        </a>
+        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
+        <div class="nav-section">
+          <p class="nav-section-title">Start</p>
+          <a href="index.html" aria-current="page">Overview</a>
+          <a href="install.html">Install</a>
+          <a href="quickstart.html">Quickstart</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Agents</p>
+          <a href="agent-usage.html">Agent usage</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
+        </div>
+        <div class="nav-section">
+          <p class="nav-section-title">Reference</p>
+          <a href="reference.html">CLI reference</a>
+          <a href="https://github.com/calvinnwq/shelf/blob/main/SPEC.md">V1 spec</a>
+          <a href="https://github.com/calvinnwq/shelf">GitHub</a>
+        </div>
+      </nav>
+
+      <div class="docs-content">
+        <header class="page-top">
+          <div class="wrap">
+            <nav class="breadcrumbs" aria-label="Breadcrumbs">
+              <span>Docs</span>
+            </nav>
+            <div class="hero">
+              <div>
+                <p class="eyebrow">Temporary artifacts · Accountable cleanup</p>
+                <h1>Put run outputs somewhere accountable.</h1>
+                <p class="lede">
+                  Shelf records why temporary artifacts, backups, and debug evidence exist,
+                  then gives humans and agents a reviewable cleanup plan before anything moves.
+                </p>
+                <div class="actions">
+                  <a class="button primary" href="install.html">Install from source</a>
+                  <a class="button" href="quickstart.html">Quickstart</a>
+                  <a class="button" href="agent-usage.html">Agent usage</a>
+                  <a class="button" href="https://github.com/calvinnwq/shelf">GitHub</a>
+                </div>
+              </div>
+              <div class="terminal" aria-label="Shelf terminal example">
+                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shelf</span></div>
+                <pre><code>$ shelf put /tmp/parser-output \
+  --reason "debug evidence for parser fix" \
+  --ttl 3d \
+  --kind run-artifact \
+  --cleanup review
+
+recorded shf_20260601_182800_ab12
+retains until: 2026-06-04T08:28:00Z
+
+$ shelf cleanup --dry-run --json</code></pre>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main class="wrap">
+          <article>
+            <section>
+              <h2>Why Shelf Exists</h2>
+              <p>
+                Agent-heavy projects create a lot of temporary stuff: copied files, rollback
+                folders, smoke-test output, reports, and logs. Filesystem age cannot tell a future
+                agent whether those artifacts are still useful. Shelf captures intent at creation
+                time, while the reason is still fresh.
+              </p>
+              <div class="summary-grid">
+                <div class="stat"><strong>6</strong><span>small v1 commands</span></div>
+                <div class="stat"><strong>0</strong><span>runtime dependencies</span></div>
+                <div class="stat"><strong>JSONL</strong><span>plain ledger storage</span></div>
+                <div class="stat"><strong>dry-run</strong><span>before mutation</span></div>
+              </div>
+            </section>
+
+            <section>
+              <h2>What Shelf Does</h2>
+              <div class="grid">
+                <div class="card">
+                  <h3>Register artifacts</h3>
+                  <p>Record path, reason, owner, labels, retention, and cleanup mode with `shelf put`.</p>
+                </div>
+                <div class="card">
+                  <h3>Review due items</h3>
+                  <p>Use `shelf due` and `shelf cleanup --dry-run` to inspect what needs attention.</p>
+                </div>
+                <div class="card">
+                  <h3>Execute by plan</h3>
+                  <p>Cleanup execution uses a reviewed plan id. V1 trashes safe entries and refuses delete.</p>
+                </div>
+              </div>
+            </section>
+
+            <section>
+              <h2>Pick Your Path</h2>
+              <div class="grid">
+                <a class="doc-card" href="install.html">
+                  <strong>Install from source</strong>
+                  <span>Clone, build, smoke-test, and optionally link the CLI globally.</span>
+                </a>
+                <a class="doc-card" href="quickstart.html">
+                  <strong>Try the workflow</strong>
+                  <span>Register a temp artifact, inspect the ledger, and create a dry-run plan.</span>
+                </a>
+                <a class="doc-card" href="agent-usage.html">
+                  <strong>Wire up agents</strong>
+                  <span>Teach OpenClaw, Codex, Claude, or other agents when to call Shelf.</span>
+                </a>
+                <a class="doc-card" href="reference.html">
+                  <strong>Look up commands</strong>
+                  <span>See the v1 command surface and cleanup safety rules.</span>
+                </a>
+                <a class="doc-card" href="https://github.com/calvinnwq/shelf/blob/main/SPEC.md">
+                  <strong>Read the spec</strong>
+                  <span>Understand the ledger-first contract and v1 non-goals.</span>
+                </a>
+                <a class="doc-card" href="https://github.com/calvinnwq/shelf">
+                  <strong>Open the repo</strong>
+                  <span>Source, tests, release automation, and the portable agent skill.</span>
+                </a>
+              </div>
+            </section>
+
+            <section>
+              <h2>Safety Model</h2>
+              <ul>
+                <li>Ledger-first. Shelf only cleans entries that were registered intentionally.</li>
+                <li>Dry-run before mutation. Plans are written before execution.</li>
+                <li>Execute by reviewed plan id. Agents should stop before `cleanup --execute`.</li>
+                <li>V1 refuses physical delete. `cleanup=review` stays review-only.</li>
+              </ul>
+              <div class="note">
+                Shelf is an early v1 MVP. Source install and live dogfooding come before npm publishing.
+              </div>
+            </section>
+          </article>
+        </main>
+
+        <footer class="site-footer">
+          <div class="wrap">Shelf docs · MIT · <a href="https://github.com/calvinnwq/shelf">GitHub</a></div>
+        </footer>
+      </div>
+    </div>
+  </body>
+</html>
