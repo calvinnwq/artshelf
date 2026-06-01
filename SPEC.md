@@ -1,0 +1,247 @@
+# Shelf V1 Spec
+
+## Problem
+
+Agents and humans create temporary directories, backups, run artifacts, debug
+outputs, and quarantine folders during work. Those artifacts often have a clear
+reason when created, but that reason is lost later. Cleanup then becomes risky:
+we either keep everything forever or delete based on weak filesystem age.
+
+Shelf makes artifact creation accountable at the moment it happens.
+
+## One-Line Product Definition
+
+Shelf is a tiny CLI for putting temporary artifacts, backups, and run outputs
+somewhere accountable, with an expiry tag and a cleanup plan.
+
+## Goals
+
+- Record why an artifact exists, who created it, and how long it should stay.
+- Make due cleanup visible without guessing from filesystem timestamps.
+- Make cleanup previewable and auditable.
+- Give agents a deterministic tool they can call instead of leaving scratch
+  files behind.
+- Stay small enough that agents actually use it.
+
+## Non-Goals
+
+- Not a full backup system.
+- Not a daemon.
+- Not Kortex.
+- Not a desired-state reconciler.
+- Not a general disk cleaner.
+- Not a content indexer.
+- Not a secret scanner in v1.
+- Not allowed to silently delete files.
+
+## V1 CLI
+
+### `shelf put`
+
+Records an existing file or directory in the ledger.
+
+```bash
+shelf put <path> --reason "why this exists" --ttl 7d --kind scratch
+```
+
+Required:
+
+- `path`
+- `--reason`
+- one of `--ttl`, `--retain-until`, or `--manual-review`
+
+Optional:
+
+- `--kind scratch|backup|run-artifact|evidence|cache|quarantine|other`
+- `--cleanup trash|review|delete`
+- `--owner <string>`
+- `--label <label>` repeatable
+- `--json`
+
+Defaults:
+
+- `kind=other`
+- `cleanup=review`
+- `owner=manual`
+
+`put` should refuse to record a path that does not exist unless a future flag
+explicitly supports planned artifacts.
+
+### `shelf list`
+
+Shows ledger entries in a human-readable format.
+
+```bash
+shelf list
+shelf list --json
+```
+
+### `shelf due`
+
+Shows entries whose retention has expired or that need manual review.
+
+```bash
+shelf due
+shelf due --json
+```
+
+V1 due statuses:
+
+- `due`
+- `manual-review`
+- `missing-path`
+- `kept`
+
+### `shelf validate`
+
+Checks ledger health without mutating files.
+
+```bash
+shelf validate
+shelf validate --json
+```
+
+V1 validation checks:
+
+- ledger file is parseable JSONL
+- required fields are present
+- IDs are unique
+- paths are absolute or resolvable
+- TTL/retain-until/manual-review is valid
+- cleanup action is known
+- recorded paths still exist, reported as warnings not hard failures
+
+### `shelf cleanup --dry-run`
+
+Creates a cleanup plan but does not mutate artifacts.
+
+```bash
+shelf cleanup --dry-run
+shelf cleanup --dry-run --json
+```
+
+The plan must include:
+
+- `planId`
+- generated timestamp
+- candidate entry IDs
+- planned action per entry
+- skipped/refused entries with reasons
+- plan file path
+
+### `shelf cleanup --execute`
+
+Executes a previously generated cleanup plan.
+
+```bash
+shelf cleanup --execute --plan-id <id>
+shelf cleanup --execute --plan-id <id> --json
+```
+
+Rules:
+
+- Requires `--plan-id`.
+- Refuses to generate a fresh live cleanup set during execute.
+- Writes a cleanup receipt.
+- Uses trash/review behavior by default.
+- `delete` remains allowed only when the ledger entry explicitly says
+  `cleanup=delete`; v1 may still choose to refuse physical delete until we have
+  enough dogfood evidence.
+
+## Ledger Storage
+
+V1 supports two scopes:
+
+- repo-local: `.shelf/ledger.jsonl`
+- user-global: `~/.shelf/ledger.jsonl`
+
+Default behavior:
+
+- If the current directory is inside a git repo, write repo-local.
+- Otherwise write user-global.
+- Allow `--ledger <path>` for explicit tests and unusual workflows.
+
+## Ledger Record Schema
+
+```json
+{
+  "id": "shf_20260601_154200_ab12",
+  "path": "/absolute/path/to/artifact",
+  "kind": "scratch",
+  "reason": "debug parser output",
+  "createdAt": "2026-06-01T05:42:00Z",
+  "retainUntil": "2026-06-04T05:42:00Z",
+  "retention": {
+    "mode": "ttl",
+    "ttl": "3d"
+  },
+  "cleanup": "trash",
+  "owner": "manual",
+  "labels": ["debug"],
+  "status": "active"
+}
+```
+
+## Cleanup Safety Model
+
+- Dry-run first.
+- Execute only by plan id.
+- Trash/review before delete.
+- Missing paths update the report; they are not treated as a successful cleanup
+  unless the user explicitly repairs the ledger later.
+- Cleanup never scans arbitrary filesystem paths for deletion in v1.
+- Cleanup only acts on ledger entries.
+
+## Agent Usage Contract
+
+Agents should call `shelf put` immediately after creating:
+
+- config backups
+- quarantine folders
+- debug output directories
+- temporary repo artifacts
+- one-off generated reports
+- copied files kept for rollback
+
+Agents should not run `shelf cleanup --execute` without explicit approval.
+
+Scheduled jobs may run:
+
+```bash
+shelf due --json
+shelf cleanup --dry-run --json
+```
+
+Scheduled jobs must not silently execute cleanup.
+
+## Dogfood Scenarios
+
+1. Record a repo-local `tmp/` scratch directory with a 3-day TTL.
+2. Record an OpenClaw config backup with manual review retention.
+3. Generate a dry-run cleanup plan after TTL expiry using fixture data.
+4. Execute a cleanup plan in a temporary test fixture and verify receipt output.
+
+## V1 Acceptance Criteria
+
+- CLI can record entries to JSONL.
+- CLI refuses records without a reason.
+- CLI requires TTL, retain-until, or manual-review.
+- CLI can list and show due entries.
+- CLI validates ledger shape.
+- Cleanup dry-run creates a plan id.
+- Cleanup execute refuses to run without a plan id.
+- Cleanup execute writes a receipt.
+- All core commands support `--json`.
+- Tests cover record/list/due/validate/dry-run/execute-plan behavior.
+
+## Deferred
+
+- Cron integration.
+- OpenClaw/Codex/Claude skill adapters.
+- GitHub Action.
+- Fake/demo mode.
+- Rollback command.
+- Retention classes like keep-daily/weekly/monthly.
+- Dependency roots and pinning.
+- Secret scanning.
+- Public package publishing.
