@@ -16,8 +16,8 @@ cleanup plan, and agent usage contract from local installs.
 
 ## Install
 
-Shelf is not published to npm. The supported installation path is to clone the
-repo, build it, and optionally link the CLI globally for local use.
+Shelf is not published to npm. The supported installation path is local only:
+clone the repo, build it, and link the CLI with `npm link`.
 
 ```bash
 git clone https://github.com/calvinnwq/shelf.git
@@ -25,17 +25,6 @@ cd shelf
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
-```
-
-Run locally:
-
-```bash
-node dist/src/cli.js --version
-```
-
-Optional global link, similar to a source install for other small Node CLIs:
-
-```bash
 npm link
 shelf --version
 ```
@@ -125,7 +114,8 @@ that support local skills can copy or reference this file to learn when to call
 `shelf put`, how to report Shelf ids in handoffs and issue comments, and why
 `cleanup --execute` requires explicit approval for a reviewed plan id.
 
-From a source checkout, use `skills/shelf/SKILL.md` directly. Package-manager
+From a source checkout, use `skills/shelf/SKILL.md` directly. Agents should ask
+where the user wants Shelf cloned before installing or linking it. Package-manager
 distribution for agent skills can come later.
 
 ## Development

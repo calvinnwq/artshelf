@@ -32,6 +32,22 @@ shelf --version
 shelf help put
 ```
 
+If Shelf is not installed, ask the user where to clone the repo before making
+changes. Do not hard-code a personal repo path. The supported setup method for
+now is local only: clone the repo, build it, run `npm link`, then verify
+`shelf --version`. Do not use an npm registry install or custom shim until the
+docs say that method is supported.
+
+```bash
+git clone https://github.com/calvinnwq/shelf.git "$SHELF_REPO"
+cd "$SHELF_REPO"
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run build
+npm link
+shelf --version
+```
+
 Common registration:
 
 ```bash

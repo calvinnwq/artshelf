@@ -34,11 +34,21 @@ Use the installed CLI when available:
 shelf put <path> --reason "<why this exists>" --ttl 3d --kind run-artifact --cleanup review --owner agent
 ```
 
-Before Shelf is published, local dogfooding can use the built CLI:
+If Shelf is not installed, do not assume a repo path. Ask where the user wants
+the Shelf repo cloned, then use the supported local install path:
 
 ```bash
-node dist/src/cli.js put <path> --reason "<why this exists>" --ttl 3d --kind run-artifact --cleanup review --owner agent
+git clone https://github.com/calvinnwq/shelf.git "$SHELF_REPO"
+cd "$SHELF_REPO"
+corepack enable
+pnpm install --frozen-lockfile
+pnpm run build
+npm link
+shelf --version
 ```
+
+For now, do not choose an npm registry install or a custom shim. npm publishing
+is deferred, and `npm link` from a local clone is the supported method.
 
 Useful defaults for agents:
 

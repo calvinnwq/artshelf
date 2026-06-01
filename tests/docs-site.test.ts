@@ -41,7 +41,7 @@ test("docs site local links resolve inside docs", () => {
   }
 });
 
-test("install docs cover source install and global link", () => {
+test("install docs cover the local clone, build, and npm link path", () => {
   const readme = read("README.md");
   const install = read("docs/install.html");
 
@@ -50,9 +50,9 @@ test("install docs cover source install and global link", () => {
     assert.match(text, /corepack enable/);
     assert.match(text, /pnpm install --frozen-lockfile/);
     assert.match(text, /pnpm run build/);
-    assert.match(text, /node dist\/src\/cli\.js --version/);
     assert.match(text, /npm link/);
     assert.match(text, /shelf --version/);
+    assert.doesNotMatch(text, /Optional global link|optional local global link/);
   }
 });
 
@@ -90,18 +90,39 @@ test("agent docs define scheduled review without scheduled execution", () => {
   }
 });
 
-test("OpenClaw setup docs cover source install, shim, and safe smoke", () => {
+test("agent install guidance prompts for paths and avoids unsupported install methods", () => {
+  const markdownGuide = read("docs/agent-usage.md");
+  const portableSkill = read("skills/shelf/SKILL.md");
+  const agentPage = read("docs/agent-usage.html");
+
+  for (const text of [markdownGuide, portableSkill, agentPage]) {
+    assert.match(text, /ask|Ask/);
+    assert.match(text, /repo path|where the user wants|where to clone|where the Shelf repo/);
+    assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/shelf\.git/);
+    assert.match(text, /pnpm run build/);
+    assert.match(text, /npm link/);
+    assert.doesNotMatch(text, /\/Users\/ngxcalvin\/repos\/shelf/);
+    assert.doesNotMatch(text, /node dist\/src\/cli\.js/);
+    assert.doesNotMatch(text, /\.local\/bin\/shelf/);
+  }
+});
+
+test("OpenClaw setup docs prompt for path, use npm link, and safe smoke", () => {
   const markdownGuide = read("docs/openclaw-setup.md");
   const page = read("docs/openclaw.html");
   const readme = read("README.md");
 
   for (const text of [markdownGuide, page]) {
     assert.match(text, /OpenClaw/);
+    assert.match(text, /ask|Ask/);
+    assert.match(text, /user-approved checkout path|where Shelf should be cloned/);
     assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/shelf\.git/);
     assert.match(text, /pnpm install --frozen-lockfile/);
     assert.match(text, /pnpm run build/);
-    assert.match(text, /node dist\/src\/cli\.js --version/);
-    assert.match(text, /\.local\/bin\/shelf/);
+    assert.match(text, /npm link/);
+    assert.match(text, /shelf --version/);
+    assert.doesNotMatch(text, /\/Users\/ngxcalvin\/repos\/shelf/);
+    assert.doesNotMatch(text, /\.local\/bin\/shelf/);
     assert.match(text, /OpenClaw local Shelf setup smoke/);
     assert.match(text, /cleanup --dry-run --json/);
     assert.match(text, /cleanup --execute/);
