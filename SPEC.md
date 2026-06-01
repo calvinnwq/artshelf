@@ -121,6 +121,7 @@ V1 validation checks:
 - paths are absolute or resolvable
 - TTL/retain-until/manual-review is valid
 - cleanup action is known
+- resolved records include `resolvedAt` and `resolutionReason`
 - recorded paths still exist, reported as warnings not hard failures
 
 ### `shelf cleanup --dry-run`
@@ -268,6 +269,11 @@ Agents should call `shelf put` immediately after creating:
 - copied files kept for rollback
 
 Agents should not run `shelf cleanup --execute` without explicit approval.
+
+Agents may run `shelf resolve <id> --status resolved --reason <text>` only
+after explicit confirmation that the record has been handled, is missing, or is
+no longer needed. The reason must be specific; resolve does not move or delete
+files.
 
 Scheduled jobs may run:
 
