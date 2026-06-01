@@ -17,6 +17,39 @@ shelf cleanup --dry-run
 shelf cleanup --execute --plan-id <id>
 ```
 
+Use `shelf help` or `shelf help <command>` for command details.
+
+## Examples
+
+Record a scratch directory for three days:
+
+```bash
+shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
+```
+
+Use an explicit ledger for tests, demos, and unusual workflows:
+
+```bash
+shelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/shelf-ledger.jsonl --json
+shelf list --ledger /tmp/shelf-ledger.jsonl
+```
+
+Review cleanup before anything moves:
+
+```bash
+shelf due
+shelf cleanup --dry-run
+```
+
+Execute only from a reviewed plan id:
+
+```bash
+shelf cleanup --execute --plan-id plan_20260601_120000_ab12
+```
+
+V1 only moves `cleanup=trash` entries into Shelf's local trash folder. Entries
+marked `cleanup=review` stay review-only, and physical `delete` is refused.
+
 ## Product Posture
 
 - Ledger-first, not filesystem-scan-first.

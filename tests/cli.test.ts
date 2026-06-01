@@ -7,6 +7,29 @@ import { test } from "node:test";
 
 const CLI = new URL("../src/cli.js", import.meta.url);
 
+test("help and version are useful", () => {
+  const help = shelf(["help"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /Shelf 0\.1\.0/);
+  assert.match(help.stdout, /shelf cleanup --dry-run/);
+
+  const putHelp = shelf(["put", "--help"]);
+  assert.equal(putHelp.status, 0);
+  assert.match(putHelp.stdout, /shelf put <path>/);
+  assert.match(putHelp.stdout, /--label <label>/);
+
+  const version = shelf(["--version"]);
+  assert.equal(version.status, 0);
+  assert.equal(version.stdout, "shelf 0.1.0\n");
+});
+
+test("unknown flags fail with a usage hint", () => {
+  const result = shelf(["put", "/tmp", "--bogus"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown flag: --bogus/);
+  assert.match(result.stderr, /shelf help/);
+});
+
 test("put refuses a missing path", () => {
   const fixture = fixtureDir();
   const result = shelf(["put", join(fixture, "missing"), "--reason", "debug", "--ttl", "1d", "--ledger", ledgerPath(fixture)]);
@@ -56,7 +79,9 @@ test("put appends JSONL and list emits human and JSON output", () => {
   const rawLedger = readFileSync(ledgerPath(fixture), "utf8").trim().split("\n");
   assert.equal(rawLedger.length, 1);
 
-  assert.match(shelf(["list", "--ledger", ledgerPath(fixture)]).stdout, /debug parser output/);
+  const listed = shelf(["list", "--ledger", ledgerPath(fixture)]).stdout;
+  assert.match(listed, /debug parser output/);
+  assert.match(listed, /ledger:/);
   assert.equal(JSON.parse(shelf(["list", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 1);
 });
 
