@@ -65,6 +65,21 @@ Useful defaults for agents:
 
 Use `--json` when another tool needs to capture the Shelf entry id.
 
+## Idempotent Lookup
+
+Integrations should check the ledger before creating another record for the
+same artifact. Use `find` and `get` for read-only lookup:
+
+```bash
+shelf find --path <path> --owner coding-workflow-pipeline --label <run-id> --json
+shelf get <id> --json
+```
+
+`find` requires at least one selector: `--path`, `--owner`, `--label`, or
+`--status`. Multiple labels are an all-label match. If `find` returns an
+existing record, report that Shelf id instead of calling `put` again. If it
+returns no entries, call `put` and record the new id.
+
 ## Reasons
 
 Write reasons as small audit notes. A good reason lets a future agent decide

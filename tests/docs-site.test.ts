@@ -93,6 +93,8 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /review-required/);
   assert.match(pages, /cleanup-refused/);
   assert.match(pages, /shelf list --status active|--status active/);
+  assert.match(pages, /shelf find --path|shelf find --path/);
+  assert.match(pages, /shelf get <id>|shelf get &lt;id&gt;/);
   assert.match(pages, /shelf resolve <id> --status resolved|shelf resolve &lt;id&gt; --status resolved/);
 });
 

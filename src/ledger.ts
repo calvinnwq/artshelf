@@ -53,6 +53,13 @@ export type ResolveInput = {
   reason: string;
 };
 
+export type FindInput = {
+  path?: string | undefined;
+  owner?: string | undefined;
+  labels: string[];
+  status?: string | undefined;
+};
+
 export function defaultLedgerPath(cwd = process.cwd()): string {
   const repoRoot = findGitRoot(cwd);
   if (repoRoot) return join(repoRoot, ".shelf", "ledger.jsonl");
@@ -118,6 +125,32 @@ export function filterRecordsByStatus(records: ShelfRecord[], status?: string): 
   if (!status) return records;
   const normalized = assertStatus(status);
   return records.filter((record) => record.status === normalized);
+}
+
+export function getRecord(records: ShelfRecord[], id: string): ShelfRecord {
+  if (!id || id.trim().length === 0) throw new Error("get requires <id>");
+  const record = records.find((entry) => entry.id === id);
+  if (!record) throw new Error(`Shelf record not found: ${id}`);
+  return record;
+}
+
+export function findRecords(records: ShelfRecord[], input: FindInput): ShelfRecord[] {
+  const hasQuery = Boolean(input.path || input.owner || input.labels.length > 0 || input.status);
+  if (!hasQuery) {
+    throw new Error("find requires at least one of --path, --owner, --label, or --status");
+  }
+
+  const normalizedPath = input.path ? resolve(input.path) : undefined;
+  const normalizedStatus = input.status ? assertStatus(input.status) : undefined;
+  return records.filter((record) => {
+    if (normalizedPath && record.path !== normalizedPath) return false;
+    if (input.owner && record.owner !== input.owner) return false;
+    if (normalizedStatus && record.status !== normalizedStatus) return false;
+    for (const label of input.labels) {
+      if (!record.labels.includes(label)) return false;
+    }
+    return true;
+  });
 }
 
 export function resolveRecord(ledgerPath: string, input: ResolveInput): ShelfRecord {

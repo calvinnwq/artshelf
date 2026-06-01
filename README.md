@@ -99,6 +99,8 @@ plans, while `shelf list` still keeps the audit trail visible.
 shelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
 shelf list
 shelf list --status active
+shelf find --path <path> --owner coding-workflow-pipeline --label <run-id>
+shelf get <id>
 shelf due
 shelf validate
 shelf cleanup --dry-run
@@ -119,6 +121,7 @@ quickstart, agent usage, and CLI reference. The source repo also keeps the
 The package includes an agent-facing skill at `skills/shelf/SKILL.md`. Agents
 that support local skills can copy or reference this file to learn when to call
 `shelf put`, how to report Shelf ids in handoffs and issue comments, why
+`shelf find` / `shelf get` are the read-only idempotency lookup surface, why
 `cleanup --execute` requires explicit approval for a reviewed plan id, and when
 `shelf resolve <id> --status resolved --reason <text>` may mark confirmed
 handled, missing, or no-longer-needed records without moving or deleting files.
