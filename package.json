@@ -1,17 +1,17 @@
 {
-  "name": "@ngxcalvin/shelf",
+  "name": "@calvinnwq/shelf",
   "version": "0.1.0",
   "description": "Tiny CLI for accountable temporary artifact retention.",
   "type": "module",
   "author": "Calvin",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ngxcalvin/shelf.git"
+    "url": "git+https://github.com/calvinnwq/shelf.git"
   },
   "bugs": {
-    "url": "https://github.com/ngxcalvin/shelf/issues"
+    "url": "https://github.com/calvinnwq/shelf/issues"
   },
-  "homepage": "https://github.com/ngxcalvin/shelf#readme",
+  "homepage": "https://github.com/calvinnwq/shelf#readme",
   "keywords": [
     "artifact-retention",
     "cleanup",

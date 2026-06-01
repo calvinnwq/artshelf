@@ -17,7 +17,7 @@ agent usage contract before package publishing.
 ## Install
 
 ```bash
-git clone https://github.com/ngxcalvin/shelf.git
+git clone https://github.com/calvinnwq/shelf.git
 cd shelf
 pnpm install
 pnpm build
