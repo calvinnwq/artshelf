@@ -41,6 +41,18 @@ test("docs site uses clawpatch-style mobile navigation", () => {
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.button,[\s\S]*\.pill\s*\{[\s\S]*width: 100%/);
 });
 
+test("docs site contains long code blocks inside the content column", () => {
+  const css = read("docs/site.css");
+
+  assert.match(css, /pre\s*\{[\s\S]*max-width: 100%/);
+  assert.match(css, /pre\s*\{[\s\S]*min-width: 0/);
+  assert.match(css, /pre code\s*\{[\s\S]*width: max-content/);
+  assert.match(css, /pre code\s*\{[\s\S]*min-width: 100%/);
+  assert.match(css, /article\s*\{[\s\S]*min-width: 0/);
+  assert.match(css, /article > section\s*\{[\s\S]*min-width: 0/);
+  assert.match(css, /\.docs-content\s*\{[\s\S]*overflow-x: clip/);
+});
+
 test("docs site local links resolve inside docs", () => {
   for (const page of DOC_PAGES) {
     const html = read(page);
