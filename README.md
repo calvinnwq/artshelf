@@ -76,6 +76,27 @@ shelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/sh
 shelf list --ledger /tmp/shelf-ledger.jsonl
 ```
 
+Shelf also keeps a small global registry of known ledgers at
+`~/.shelf/ledgers.json`. `put` registers its ledger automatically, and you can
+register an existing ledger explicitly:
+
+```bash
+shelf ledgers list
+shelf ledgers add --ledger /path/to/repo/.shelf/ledger.jsonl --name my-repo
+```
+
+Use `--all` for one read-only entry point across registered ledgers:
+
+```bash
+shelf review --all --json
+shelf due --all --json
+shelf find --all --owner coding-workflow-pipeline --json
+shelf cleanup --dry-run --all --json
+```
+
+Global execution is intentionally refused. To mutate files, review a dry-run
+plan, then execute it against the specific ledger that produced it.
+
 ## Safety Model
 
 - Ledger-first, not filesystem-scan-first.
@@ -97,13 +118,22 @@ plans, while `shelf list` still keeps the audit trail visible.
 
 ```bash
 shelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
+shelf ledgers list
+shelf ledgers add --ledger <path>
 shelf list
+shelf list --all
 shelf list --status active
 shelf find --path <path> --owner coding-workflow-pipeline --label <run-id>
+shelf find --all --owner coding-workflow-pipeline
 shelf get <id>
+shelf get <id> --all
 shelf due
+shelf due --all
 shelf validate
+shelf validate --all
+shelf review --all
 shelf cleanup --dry-run
+shelf cleanup --dry-run --all
 shelf cleanup --execute --plan-id <id>
 shelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```

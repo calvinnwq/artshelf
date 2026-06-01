@@ -116,6 +116,24 @@ shelf get &lt;id&gt; --json</code></pre>
             </section>
 
             <section>
+              <h2>Ledger Registry</h2>
+              <p>
+                Shelf keeps a user-level registry at `~/.shelf/ledgers.json` so one CLI can
+                review all known ledgers without moving project records into one global file.
+                <code>put</code> registers the ledger it writes to.
+              </p>
+              <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
+shelf ledgers list --json
+shelf review --all --json
+shelf find --all --owner coding-workflow-pipeline --json
+shelf cleanup --dry-run --all --json</code></pre>
+              <div class="note">
+                <code>--all</code> is for discovery and review. Cleanup execution remains
+                ledger-specific and requires a reviewed plan id for that ledger.
+              </div>
+            </section>
+
+            <section>
               <h2>Report The ID</h2>
               <pre><code>Shelf artifacts:
 - shf_20260601_182800_ab12: /tmp/parser-output, debug evidence for SK-123,
@@ -129,8 +147,11 @@ shelf get &lt;id&gt; --json</code></pre>
             <section>
               <h2>Cleanup Boundary</h2>
               <pre><code>shelf validate --json
+shelf validate --all --json
 shelf due --json
-shelf cleanup --dry-run --json</code></pre>
+shelf due --all --json
+shelf cleanup --dry-run --json
+shelf cleanup --dry-run --all --json</code></pre>
               <p>Those read-only review commands are fine for agents.</p>
               <pre><code>shelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
               <div class="note">
@@ -159,8 +180,11 @@ shelf cleanup --dry-run --json</code></pre>
                 read-only.
               </p>
               <pre><code>shelf validate --json
+shelf validate --all --json
 shelf due --json
-shelf cleanup --dry-run --json</code></pre>
+shelf due --all --json
+shelf cleanup --dry-run --json
+shelf cleanup --dry-run --all --json</code></pre>
               <p>
                 Reports should include the ledger path, due/manual-review/missing-path counts,
                 cleanup dry-run plan id, executable entries, skipped entries, and refused entries.

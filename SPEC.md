@@ -225,6 +225,15 @@ Default behavior:
 - Otherwise write user-global.
 - Allow `--ledger <path>` for explicit tests and unusual workflows.
 
+V1 also supports a user-level registry of known ledgers:
+
+- registry: `~/.shelf/ledgers.json`
+- `put` registers the ledger it writes to.
+- `ledgers add` registers an existing ledger explicitly.
+- `--all` reads registered ledgers as one review surface.
+- `cleanup --execute --all` is refused; execution stays scoped to one explicit
+  ledger and one reviewed plan id.
+
 ## Ledger Record Schema
 
 ```json
@@ -315,7 +324,9 @@ Scheduled jobs may run:
 
 ```bash
 shelf due --json
+shelf due --all --json
 shelf cleanup --dry-run --json
+shelf cleanup --dry-run --all --json
 ```
 
 Scheduled jobs must not silently execute cleanup.
@@ -330,6 +341,8 @@ Scheduled jobs must not silently execute cleanup.
 ## V1 Acceptance Criteria
 
 - CLI can record entries to JSONL.
+- CLI can register and list known ledgers.
+- CLI can review registered ledgers through `--all` read-only entry points.
 - CLI refuses records without a reason.
 - CLI requires TTL, retain-until, or manual-review.
 - CLI can list, filter by status, and show due entries.

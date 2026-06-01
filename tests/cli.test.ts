@@ -32,6 +32,10 @@ test("help and version are useful", () => {
   assert.equal(getHelp.status, 0);
   assert.match(getHelp.stdout, /shelf get <id>/);
 
+  const ledgersHelp = shelf(["help", "ledgers"]);
+  assert.equal(ledgersHelp.status, 0);
+  assert.match(ledgersHelp.stdout, /shelf ledgers list/);
+
   const version = shelf(["--version"]);
   assert.equal(version.status, 0);
   assert.equal(version.stdout, "shelf 0.1.0\n");
@@ -177,6 +181,100 @@ test("find and get provide read-only idempotency queries", () => {
   const unbounded = shelf(["find", "--ledger", ledger]);
   assert.equal(unbounded.status, 1);
   assert.match(unbounded.stderr, /find requires at least one/);
+});
+
+test("ledger registry gives one read-only entry point across ledgers", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const firstLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
+  const secondLedger = join(fixture, "two", ".shelf", "ledger.jsonl");
+  const firstArtifact = join(fixture, "first.txt");
+  const secondArtifact = join(fixture, "second.txt");
+  writeFileSync(firstArtifact, "first");
+  writeFileSync(secondArtifact, "second");
+
+  const put = JSON.parse(shelf([
+    "put",
+    firstArtifact,
+    "--reason",
+    "first artifact",
+    "--ttl",
+    "1d",
+    "--owner",
+    "openclaw",
+    "--label",
+    "registry-smoke",
+    "--ledger",
+    firstLedger,
+    "--registry",
+    registry,
+    "--json"
+  ], "2026-06-01T00:00:00Z").stdout);
+  assert.equal(put.ledger.path, firstLedger);
+
+  const add = JSON.parse(shelf([
+    "ledgers",
+    "add",
+    "--ledger",
+    secondLedger,
+    "--name",
+    "second",
+    "--scope",
+    "repo",
+    "--registry",
+    registry,
+    "--json"
+  ], "2026-06-01T00:01:00Z").stdout);
+  assert.equal(add.ledger.name, "second");
+
+  shelf([
+    "put",
+    secondArtifact,
+    "--reason",
+    "second artifact",
+    "--manual-review",
+    "--owner",
+    "openclaw",
+    "--label",
+    "registry-smoke",
+    "--ledger",
+    secondLedger,
+    "--registry",
+    registry
+  ], "2026-06-01T00:02:00Z");
+
+  const ledgers = JSON.parse(shelf(["ledgers", "list", "--registry", registry, "--json"]).stdout).ledgers;
+  assert.deepEqual(ledgers.map((ledger: any) => ledger.name), ["one", "second"]);
+
+  const allList = JSON.parse(shelf(["list", "--all", "--registry", registry, "--json"]).stdout);
+  assert.equal(allList.ledgers.length, 2);
+  assert.equal(allList.ledgers.reduce((count: number, ledger: any) => count + ledger.entries.length, 0), 2);
+
+  const allFind = JSON.parse(shelf(["find", "--all", "--owner", "openclaw", "--label", "registry-smoke", "--registry", registry, "--json"]).stdout);
+  assert.equal(allFind.ledgers.reduce((count: number, ledger: any) => count + ledger.entries.length, 0), 2);
+
+  const allGet = JSON.parse(shelf(["get", put.record.id, "--all", "--registry", registry, "--json"]).stdout);
+  assert.equal(allGet.ledger.path, firstLedger);
+  assert.equal(allGet.record.id, put.record.id);
+
+  const allDue = JSON.parse(shelf(["due", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z").stdout);
+  assert.deepEqual(allDue.ledgers.flatMap((ledger: any) => ledger.entries.map((entry: any) => entry.dueStatus)).sort(), ["due", "manual-review"]);
+
+  const allValidate = JSON.parse(shelf(["validate", "--all", "--registry", registry, "--json"]).stdout);
+  assert.equal(allValidate.ok, true);
+
+  const review = JSON.parse(shelf(["review", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z").stdout);
+  assert.equal(review.ok, true);
+  assert.equal(review.ledgers.length, 2);
+  assert.equal(review.ledgers.reduce((count: number, ledger: any) => count + ledger.plan.entries.length, 0), 2);
+
+  const dryRun = JSON.parse(shelf(["cleanup", "--dry-run", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z").stdout);
+  assert.equal(dryRun.plans.length, 2);
+  assert.equal(dryRun.plans.reduce((count: number, entry: any) => count + entry.plan.entries.length, 0), 2);
+
+  const refused = shelf(["cleanup", "--execute", "--all", "--plan-id", "plan_nope", "--registry", registry]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /cleanup --all is dry-run only/);
 });
 
 test("due classifies kept, due, manual review, and missing paths", () => {

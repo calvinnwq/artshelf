@@ -80,6 +80,30 @@ shelf get <id> --json
 existing record, report that Shelf id instead of calling `put` again. If it
 returns no entries, call `put` and record the new id.
 
+## Ledger Registry
+
+Shelf keeps a user-level registry at `~/.shelf/ledgers.json` so one CLI can
+review all known ledgers without moving project records into one global file.
+`put` registers the ledger it writes to. Register existing ledgers explicitly
+when adopting Shelf for an existing project:
+
+```bash
+shelf ledgers add --ledger <repo>/.shelf/ledger.jsonl --name <project> --scope repo
+shelf ledgers list --json
+```
+
+Use the registry for read-only review and discovery:
+
+```bash
+shelf review --all --json
+shelf due --all --json
+shelf find --all --owner coding-workflow-pipeline --json
+shelf cleanup --dry-run --all --json
+```
+
+Do not use `--all` as permission to mutate files. Cleanup execution remains
+ledger-specific and requires a reviewed plan id for that ledger.
+
 ## Reasons
 
 Write reasons as small audit notes. A good reason lets a future agent decide
@@ -125,8 +149,11 @@ Agents may run read-only cleanup checks:
 
 ```bash
 shelf validate --json
+shelf validate --all --json
 shelf due --json
+shelf due --all --json
 shelf cleanup --dry-run --json
+shelf cleanup --dry-run --all --json
 ```
 
 Agents must not run this without explicit human approval:
