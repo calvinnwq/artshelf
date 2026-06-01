@@ -99,6 +99,7 @@ Retain until 2026-06-04; cleanup=review.
 Agents may run read-only cleanup checks:
 
 ```bash
+shelf validate --json
 shelf due --json
 shelf cleanup --dry-run --json
 ```
@@ -111,6 +112,36 @@ shelf cleanup --execute --plan-id <id>
 
 Approval should name the plan id. Do not generate a fresh plan and execute it in
 the same breath. Review the dry-run first, then execute the reviewed plan id.
+
+## Scheduled Review
+
+Agents may schedule routine Shelf reviews for stale artifacts through their host
+runtime, such as an agent cron, CI job, or recurring task. Keep the scheduled
+job read-only:
+
+```bash
+shelf validate --json
+shelf due --json
+shelf cleanup --dry-run --json
+```
+
+The scheduled job should report the ledger path, due/manual-review/missing-path
+counts, cleanup dry-run plan id, executable entries, skipped entries, and refused
+entries. It should be quiet when nothing needs attention unless the user asked
+for a regular summary.
+
+Use explicit ledger paths when scheduling checks for a known project or user
+ledger. Do not scan arbitrary filesystem locations looking for ledgers unless
+the user has opted into that discovery scope.
+
+Scheduled jobs must not run:
+
+```bash
+shelf cleanup --execute --plan-id <id>
+```
+
+Execution still requires a human to review the dry-run output and approve that
+specific plan id.
 
 ## Handoff Pattern
 

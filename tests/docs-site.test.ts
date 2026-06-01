@@ -56,6 +56,7 @@ test("install docs cover source install and global link", () => {
 
 test("docs site explains cleanup approval boundary", () => {
   const pages = DOC_PAGES.map(read).join("\n");
+  assert.match(pages, /shelf validate --json/);
   assert.match(pages, /cleanup --dry-run/);
   assert.match(pages, /cleanup --execute --plan-id/);
   assert.match(pages, /explicit human approval|reviewed plan id/);
@@ -66,6 +67,24 @@ test("docs menu keeps the reference section focused on user-facing pages", () =>
   for (const page of DOC_PAGES) {
     const html = read(page);
     assert.doesNotMatch(html, /<a href="https:\/\/github\.com\/calvinnwq\/shelf\/blob\/main\/SPEC\.md">V1 spec<\/a>/, page);
+  }
+});
+
+test("agent docs define scheduled review without scheduled execution", () => {
+  const markdownGuide = read("docs/agent-usage.md");
+  const portableSkill = read("skills/shelf/SKILL.md");
+  const agentPage = read("docs/agent-usage.html");
+
+  for (const text of [markdownGuide, portableSkill, agentPage]) {
+    assert.match(text, /Scheduled Review/);
+    assert.match(text, /shelf validate --json/);
+    assert.match(text, /shelf due --json/);
+    assert.match(text, /shelf cleanup --dry-run --json/);
+    assert.match(text, /ledger path/);
+    assert.match(text, /plan id/);
+    assert.match(text, /Do not scan arbitrary filesystem locations|Do not scan arbitrary filesystem/);
+    assert.match(text, /Never\s+schedule|Scheduled jobs must not run/);
+    assert.match(text, /shelf cleanup --execute --plan-id/);
   }
 });
 
