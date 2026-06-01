@@ -91,6 +91,7 @@ Shelf artifact: shf_20260601_182800_ab12, /tmp/parser-output, retain until
 Allowed without extra approval:
 
 ```bash
+shelf validate --json
 shelf due --json
 shelf cleanup --dry-run --json
 ```
@@ -102,6 +103,34 @@ shelf cleanup --execute --plan-id <id>
 ```
 
 Never generate a fresh plan and execute it in the same step.
+
+## Scheduled Review
+
+Agents may schedule routine Shelf checks for stale artifacts through their host
+runtime, such as an agent cron, CI job, or recurring task. Scheduled jobs are
+review/report only.
+
+Allowed in scheduled jobs:
+
+```bash
+shelf validate --json
+shelf due --json
+shelf cleanup --dry-run --json
+```
+
+The report should include the ledger path, due/manual-review/missing-path counts,
+cleanup dry-run plan id, executable entries, skipped entries, and refused
+entries. Stay quiet when nothing needs attention unless a regular summary was
+requested.
+
+Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
+locations for ledgers unless the user opted into that discovery scope.
+
+Never schedule this without explicit human approval for the reviewed plan id:
+
+```bash
+shelf cleanup --execute --plan-id <id>
+```
 
 ## Review
 
