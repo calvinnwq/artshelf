@@ -1,0 +1,26 @@
+{
+  "name": "@ngxcalvin/shelf",
+  "version": "0.1.0",
+  "description": "Tiny CLI for accountable temporary artifact retention.",
+  "type": "module",
+  "bin": {
+    "shelf": "dist/src/cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "SPEC.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test dist/tests/*.test.js",
+    "check": "pnpm run build && pnpm run test"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "license": "MIT"
+}

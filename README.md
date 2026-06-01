@@ -27,3 +27,13 @@ shelf cleanup --execute --plan-id <id>
 - Small enough to actually use.
 
 See [SPEC.md](SPEC.md) for the v1 contract.
+
+## Development
+
+```bash
+pnpm install
+pnpm check
+```
+
+During tests or one-off runs, pass `--ledger <path>` to keep entries out of the
+default repo-local `.shelf/ledger.jsonl`.
