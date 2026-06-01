@@ -1,5 +1,7 @@
 #!/usr/bin/env node
+import { existsSync } from "node:fs";
 import {
+  appendPreparedRecord,
   createCleanupPlan,
   dueEntries,
   executeCleanupPlan,
@@ -7,7 +9,8 @@ import {
   findRecords,
   getRecord,
   normalizeLedgerPath,
-  putRecord,
+  prepareRecord,
+  previewCleanupPlan,
   readLedger,
   resolveRecord,
   validateLedger
@@ -96,7 +99,7 @@ function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
   const path = parsed.positionals[0];
   if (!path) throw new Error("put requires <path>");
 
-  const record = putRecord(ledgerPath, {
+  const record = prepareRecord({
     path,
     reason: requiredStringFlag(parsed, "reason"),
     ttl: stringFlag(parsed, "ttl"),
@@ -108,10 +111,18 @@ function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
     labels: arrayFlag(parsed, "label")
   });
   const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-  const ledger = registerLedger({ ledgerPath, registryPath });
+  appendPreparedRecord(ledgerPath, record);
+  let ledger: LedgerRegistryEntry | undefined;
+  let registryError: string | undefined;
+  try {
+    ledger = registerLedger({ ledgerPath, registryPath });
+  } catch (error) {
+    registryError = (error as Error).message;
+  }
 
-  if (json) return printJson({ ok: true, record, ledgerPath, registryPath, ledger });
+  if (json) return printJson({ ok: true, record, ledgerPath, registryPath, ...(ledger ? { ledger } : {}), ...(registryError ? { registryError } : {}) });
   process.stdout.write(`recorded ${record.id}\npath: ${record.path}\nretains until: ${record.retainUntil ?? "manual review"}\nledger: ${ledgerPath}\n`);
+  if (registryError) process.stdout.write(`registry warning: ${registryError}\n`);
   return 0;
 }
 
@@ -119,8 +130,10 @@ function handleLedgers(parsed: ParsedArgs, json: boolean): number {
   const action = parsed.positionals[0] ?? "list";
   const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
   if (action === "add") {
+    const ledgerPath = normalizeLedgerPath(requiredStringFlag(parsed, "ledger"));
+    if (!existsSync(ledgerPath)) throw new Error(`Ledger does not exist: ${ledgerPath}`);
     const entry = registerLedger({
-      ledgerPath: normalizeLedgerPath(requiredStringFlag(parsed, "ledger")),
+      ledgerPath,
       name: stringFlag(parsed, "name"),
       scope: stringFlag(parsed, "scope"),
       registryPath
@@ -267,9 +280,12 @@ function handleDue(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
 function handleValidate(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-    const results = registeredLedgersOrThrow(registryPath).map((ledger) => ({ ledger, result: validateLedger(ledger.path) }));
+    const results = registeredLedgersOrThrow(registryPath).map((ledger) => ({ ledger, result: validateRegisteredLedger(ledger) }));
     const ok = results.every((entry) => entry.result.ok);
-    if (json) return printJson({ ok, registryPath, ledgers: results });
+    if (json) {
+      printJson({ ok, registryPath, ledgers: results });
+      return ok ? 0 : 1;
+    }
     for (const entry of results) {
       process.stdout.write(`${entry.result.ok ? "ok" : "invalid"} ${entry.ledger.name}: ${entry.result.entries} entries, ${entry.result.errors.length} errors, ${entry.result.warnings.length} warnings\nledger: ${entry.ledger.path}\n`);
     }
@@ -294,7 +310,21 @@ function handleCleanup(parsed: ParsedArgs, ledgerPath: string, json: boolean): n
   if (dryRun) {
     if (boolFlag(parsed, "all")) {
       const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-      const plans = registeredLedgersOrThrow(registryPath).map((ledger) => ({ ledger, plan: createCleanupPlan(ledger.path) }));
+      const ledgers = registeredLedgersOrThrow(registryPath);
+      const validations = ledgers.map((ledger) => ({ ledger, result: validateRegisteredLedger(ledger) }));
+      const ok = validations.every((entry) => entry.result.ok);
+      if (!ok) {
+        if (json) {
+          printJson({ ok, registryPath, ledgers: validations });
+          return 1;
+        }
+        for (const entry of validations.filter((item) => !item.result.ok)) {
+          process.stdout.write(`invalid ${entry.ledger.name}: ${entry.result.errors.join("; ")}\nledger: ${entry.ledger.path}\n`);
+        }
+        process.stdout.write(`registry: ${registryPath}\n`);
+        return 1;
+      }
+      const plans = ledgers.map((ledger) => ({ ledger, plan: createCleanupPlan(ledger.path) }));
       if (json) return printJson({ ok: true, registryPath, plans });
       printPlans(plans);
       process.stdout.write(`registry: ${registryPath}\n`);
@@ -322,13 +352,19 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
     const results = registeredLedgersOrThrow(registryPath).map((ledger) => reviewLedger(ledger));
     const ok = results.every((entry) => entry.validate.ok);
-    if (json) return printJson({ ok, registryPath, ledgers: results });
+    if (json) {
+      printJson({ ok, registryPath, ledgers: results });
+      return ok ? 0 : 1;
+    }
     printReview(results);
     process.stdout.write(`registry: ${registryPath}\n`);
     return ok ? 0 : 1;
   }
-  const result = reviewLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" });
-  if (json) return printJson({ ok: result.validate.ok, ledger: result });
+  const result = reviewLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
+  if (json) {
+    printJson({ ok: result.validate.ok, ledger: result });
+    return result.validate.ok ? 0 : 1;
+  }
   printReview([result]);
   return result.validate.ok ? 0 : 1;
 }
@@ -400,12 +436,45 @@ function registeredLedgersOrThrow(registryPath: string): LedgerRegistryEntry[] {
   return ledgers;
 }
 
-function reviewLedger(ledger: LedgerRegistryEntry): { ledger: LedgerRegistryEntry; validate: ReturnType<typeof validateLedger>; due: DueEntry[]; plan: CleanupPlan } {
+function validateRegisteredLedger(ledger: LedgerRegistryEntry): ReturnType<typeof validateLedger> {
+  if (!existsSync(ledger.path)) {
+    return {
+      ok: false,
+      errors: [`registered ledger is missing: ${ledger.path}`],
+      warnings: [],
+      entries: 0
+    };
+  }
+  return validateLedger(ledger.path);
+}
+
+function reviewLedger(ledger: LedgerRegistryEntry, registered = true): { ledger: LedgerRegistryEntry; validate: ReturnType<typeof validateLedger>; due: DueEntry[]; plan: CleanupPlan } {
+  const validate = registered ? validateRegisteredLedger(ledger) : validateLedger(ledger.path);
+  if (!validate.ok) {
+    return {
+      ledger,
+      validate,
+      due: [],
+      plan: emptyReviewPlan(ledger.path)
+    };
+  }
+
   return {
     ledger,
-    validate: validateLedger(ledger.path),
+    validate,
     due: dueEntries(readLedger(ledger.path)),
-    plan: createCleanupPlan(ledger.path)
+    plan: previewCleanupPlan(ledger.path)
+  };
+}
+
+function emptyReviewPlan(ledgerPath: string): CleanupPlan {
+  return {
+    planId: "not-created",
+    generatedAt: "",
+    ledgerPath,
+    entries: [],
+    skipped: [],
+    planPath: ""
   };
 }
 

@@ -125,8 +125,9 @@ shelf get &lt;id&gt; --json</code></pre>
               <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
 shelf ledgers list --json
 shelf review --all --json
-shelf find --all --owner coding-workflow-pipeline --json
-shelf cleanup --dry-run --all --json</code></pre>
+shelf find --all --owner coding-workflow-pipeline --json</code></pre>
+              <p>Use global cleanup dry-run when you want Shelf to write cleanup plans for each registered ledger without moving files.</p>
+              <pre><code>shelf cleanup --dry-run --all --json</code></pre>
               <div class="note">
                 <code>--all</code> is for discovery and review. Cleanup execution remains
                 ledger-specific and requires a reviewed plan id for that ledger.
@@ -149,10 +150,10 @@ shelf cleanup --dry-run --all --json</code></pre>
               <pre><code>shelf validate --json
 shelf validate --all --json
 shelf due --json
-shelf due --all --json
-shelf cleanup --dry-run --json
+shelf due --all --json</code></pre>
+              <p>Cleanup dry-run is safe to run, but it writes plan files for later review.</p>
+              <pre><code>shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json</code></pre>
-              <p>Those read-only review commands are fine for agents.</p>
               <pre><code>shelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
               <div class="note">
                 Execution needs explicit human approval for the reviewed plan id. Never generate a
@@ -177,13 +178,17 @@ shelf cleanup --dry-run --all --json</code></pre>
               <p>
                 Agents may schedule routine Shelf checks for stale artifacts through their host
                 runtime, such as an agent cron, CI job, or recurring task. Keep scheduled jobs
-                read-only.
+                non-destructive.
               </p>
               <pre><code>shelf validate --json
 shelf validate --all --json
 shelf due --json
-shelf due --all --json
-shelf cleanup --dry-run --json
+shelf due --all --json</code></pre>
+              <p>
+                Scheduled cleanup dry-run may write plan files for later review, but must not
+                move or delete files.
+              </p>
+              <pre><code>shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json</code></pre>
               <p>
                 Reports should include the ledger path, due/manual-review/missing-path counts,

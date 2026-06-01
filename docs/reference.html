@@ -138,8 +138,9 @@ shelf get &lt;id&gt; --json</code></pre>
 shelf review --all --json
 shelf cleanup --dry-run --all --json</code></pre>
               <p>
-                Global cleanup execution is refused. Execute only a specific reviewed plan id
-                against the ledger that produced it.
+                <code>shelf ledgers add</code> requires an existing ledger path. Global cleanup
+                dry-run writes plan files, while global cleanup execution is refused. Execute only
+                a specific reviewed plan id against the ledger that produced it.
               </p>
             </section>
           </article>

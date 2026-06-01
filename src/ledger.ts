@@ -71,6 +71,12 @@ export function normalizeLedgerPath(path?: string): string {
 }
 
 export function putRecord(ledgerPath: string, input: PutInput): ShelfRecord {
+  const record = prepareRecord(input);
+  appendPreparedRecord(ledgerPath, record);
+  return record;
+}
+
+export function prepareRecord(input: PutInput): ShelfRecord {
   const artifactPath = resolve(input.path);
   if (!existsSync(artifactPath)) {
     throw new Error(`Path does not exist: ${input.path}`);
@@ -103,8 +109,11 @@ export function putRecord(ledgerPath: string, input: PutInput): ShelfRecord {
     status: "active"
   };
 
-  appendRecord(ledgerPath, record);
   return record;
+}
+
+export function appendPreparedRecord(ledgerPath: string, record: ShelfRecord): void {
+  appendRecord(ledgerPath, record);
 }
 
 export function readLedger(ledgerPath: string): ShelfRecord[] {
@@ -254,6 +263,16 @@ export function validateLedger(ledgerPath: string): {
 }
 
 export function createCleanupPlan(ledgerPath: string): CleanupPlan {
+  const plan = buildCleanupPlan(ledgerPath);
+  writeJson(plan.planPath, plan);
+  return plan;
+}
+
+export function previewCleanupPlan(ledgerPath: string): CleanupPlan {
+  return buildCleanupPlan(ledgerPath);
+}
+
+function buildCleanupPlan(ledgerPath: string): CleanupPlan {
   const generatedAt = now();
   const records = readLedger(ledgerPath);
   const due = dueEntries(records, generatedAt);
@@ -282,7 +301,6 @@ export function createCleanupPlan(ledgerPath: string): CleanupPlan {
     skipped,
     planPath
   };
-  writeJson(planPath, plan);
   return plan;
 }
 

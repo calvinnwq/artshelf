@@ -98,6 +98,12 @@ Use the registry for read-only review and discovery:
 shelf review --all --json
 shelf due --all --json
 shelf find --all --owner coding-workflow-pipeline --json
+```
+
+Use global cleanup dry-run when you want Shelf to write cleanup plans for each
+registered ledger without moving files:
+
+```bash
 shelf cleanup --dry-run --all --json
 ```
 
@@ -145,13 +151,18 @@ Retain until 2026-06-04; cleanup=review.
 
 ## Cleanup Boundary
 
-Agents may run read-only cleanup checks:
+Agents may run non-destructive cleanup checks:
 
 ```bash
 shelf validate --json
 shelf validate --all --json
 shelf due --json
 shelf due --all --json
+```
+
+Cleanup dry-run is safe to run, but it writes plan files for later review:
+
+```bash
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
@@ -183,11 +194,17 @@ cleanup output while remaining visible in `shelf list --status resolved`.
 
 Agents may schedule routine Shelf reviews for stale artifacts through their host
 runtime, such as an agent cron, CI job, or recurring task. Keep the scheduled
-job read-only:
+job non-destructive:
 
 ```bash
 shelf validate --json
 shelf due --json
+```
+
+Scheduled cleanup dry-run may write plan files for later review, but must not
+move or delete files:
+
+```bash
 shelf cleanup --dry-run --json
 ```
 

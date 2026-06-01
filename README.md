@@ -85,12 +85,18 @@ shelf ledgers list
 shelf ledgers add --ledger /path/to/repo/.shelf/ledger.jsonl --name my-repo
 ```
 
-Use `--all` for one read-only entry point across registered ledgers:
+Use `--all` for one read-only discovery entry point across registered ledgers:
 
 ```bash
 shelf review --all --json
 shelf due --all --json
 shelf find --all --owner coding-workflow-pipeline --json
+```
+
+Use global dry-run cleanup when you want Shelf to write cleanup plans for each
+registered ledger without moving files:
+
+```bash
 shelf cleanup --dry-run --all --json
 ```
 

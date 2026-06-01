@@ -137,13 +137,18 @@ Shelf artifact: shf_20260601_182800_ab12, /tmp/parser-output, retain until
 
 ## Cleanup
 
-Allowed without extra approval:
+Allowed without extra approval because they do not move or delete files:
 
 ```bash
 shelf validate --json
 shelf validate --all --json
 shelf due --json
 shelf due --all --json
+```
+
+Cleanup dry-run is safe to run, but it writes plan files for later review:
+
+```bash
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```

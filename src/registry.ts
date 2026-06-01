@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { now, toIso } from "./time.js";
@@ -52,33 +52,75 @@ export function listRegisteredLedgers(registryPath = normalizeRegistryPath()): L
 export function registerLedger(input: RegisterLedgerInput): LedgerRegistryEntry {
   const registryPath = normalizeRegistryPath(input.registryPath);
   const ledgerPath = resolve(input.ledgerPath);
-  const registry = readRegistry(registryPath);
-  const timestamp = toIso(now());
-  const existingIndex = registry.ledgers.findIndex((entry) => entry.path === ledgerPath);
-  const existing = existingIndex >= 0 ? registry.ledgers[existingIndex] : undefined;
-  const entry: LedgerRegistryEntry = {
-    name: input.name ?? existing?.name ?? inferLedgerName(ledgerPath),
-    path: ledgerPath,
-    scope: input.scope ? assertScope(input.scope) : existing?.scope ?? inferLedgerScope(ledgerPath),
-    createdAt: existing?.createdAt ?? timestamp,
-    updatedAt: timestamp
-  };
+  return withRegistryLock(registryPath, () => {
+    const registry = readRegistry(registryPath);
+    const timestamp = toIso(now());
+    const existingIndex = registry.ledgers.findIndex((entry) => entry.path === ledgerPath);
+    const existing = existingIndex >= 0 ? registry.ledgers[existingIndex] : undefined;
+    const entry: LedgerRegistryEntry = {
+      name: input.name ?? existing?.name ?? inferLedgerName(ledgerPath),
+      path: ledgerPath,
+      scope: input.scope ? assertScope(input.scope) : existing?.scope ?? inferLedgerScope(ledgerPath),
+      createdAt: existing?.createdAt ?? timestamp,
+      updatedAt: timestamp
+    };
 
-  if (existingIndex >= 0) {
-    registry.ledgers[existingIndex] = entry;
-  } else {
-    registry.ledgers.push(entry);
-  }
-  registry.ledgers.sort((left, right) => left.name.localeCompare(right.name) || left.path.localeCompare(right.path));
-  writeRegistry(registryPath, registry);
-  return entry;
+    if (existingIndex >= 0) {
+      registry.ledgers[existingIndex] = entry;
+    } else {
+      registry.ledgers.push(entry);
+    }
+    registry.ledgers.sort((left, right) => left.name.localeCompare(right.name) || left.path.localeCompare(right.path));
+    writeRegistry(registryPath, registry);
+    return entry;
+  });
 }
 
 function writeRegistry(registryPath: string, registry: LedgerRegistry): void {
   mkdirSync(dirname(registryPath), { recursive: true });
-  const tmpPath = `${registryPath}.tmp`;
+  const tmpPath = `${registryPath}.${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}.tmp`;
   writeFileSync(tmpPath, `${JSON.stringify(registry, null, 2)}\n`);
   renameSync(tmpPath, registryPath);
+}
+
+function withRegistryLock<T>(registryPath: string, fn: () => T): T {
+  mkdirSync(dirname(registryPath), { recursive: true });
+  const lockPath = `${registryPath}.lock`;
+  const deadline = Date.now() + 5000;
+  const staleAfterMs = 30_000;
+  while (true) {
+    try {
+      mkdirSync(lockPath);
+      break;
+    } catch (error) {
+      if ((error as { code?: string }).code !== "EEXIST") throw error;
+      if (isStaleLock(lockPath, staleAfterMs)) {
+        rmSync(lockPath, { recursive: true, force: true });
+        continue;
+      }
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for Shelf ledger registry lock: ${registryPath}`);
+      sleep(25);
+    }
+  }
+
+  try {
+    return fn();
+  } finally {
+    rmSync(lockPath, { recursive: true, force: true });
+  }
+}
+
+function sleep(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+function isStaleLock(lockPath: string, staleAfterMs: number): boolean {
+  try {
+    return Date.now() - statSync(lockPath).mtimeMs > staleAfterMs;
+  } catch (error) {
+    if ((error as { code?: string }).code === "ENOENT") return false;
+    throw error;
+  }
 }
 
 function normalizeEntry(entry: Partial<LedgerRegistryEntry>): LedgerRegistryEntry {
