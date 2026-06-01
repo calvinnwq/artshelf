@@ -7,6 +7,7 @@ const DOC_PAGES = [
   "docs/install.html",
   "docs/quickstart.html",
   "docs/agent-usage.html",
+  "docs/openclaw.html",
   "docs/reference.html"
 ];
 
@@ -21,6 +22,7 @@ test("docs site pages share the expected chrome", () => {
     assert.match(html, /href="install\.html"/, page);
     assert.match(html, /href="quickstart\.html"/, page);
     assert.match(html, /href="agent-usage\.html"/, page);
+    assert.match(html, /href="openclaw\.html"/, page);
     assert.match(html, /href="reference\.html"/, page);
   }
 });
@@ -86,6 +88,28 @@ test("agent docs define scheduled review without scheduled execution", () => {
     assert.match(text, /Never\s+schedule|Scheduled jobs must not run/);
     assert.match(text, /shelf cleanup --execute --plan-id/);
   }
+});
+
+test("OpenClaw setup docs cover source install, shim, and safe smoke", () => {
+  const markdownGuide = read("docs/openclaw-setup.md");
+  const page = read("docs/openclaw.html");
+  const readme = read("README.md");
+
+  for (const text of [markdownGuide, page]) {
+    assert.match(text, /OpenClaw/);
+    assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/shelf\.git/);
+    assert.match(text, /pnpm install --frozen-lockfile/);
+    assert.match(text, /pnpm run build/);
+    assert.match(text, /node dist\/src\/cli\.js --version/);
+    assert.match(text, /\.local\/bin\/shelf/);
+    assert.match(text, /OpenClaw local Shelf setup smoke/);
+    assert.match(text, /cleanup --dry-run --json/);
+    assert.match(text, /cleanup --execute/);
+    assert.match(text, /explicit human approval/);
+  }
+
+  assert.match(readme, /docs\/openclaw-setup\.md/);
+  assert.match(readme, /not published to npm/);
 });
 
 function read(path: string): string {
