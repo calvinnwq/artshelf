@@ -98,6 +98,16 @@ commands support `--json`.
 See [SPEC.md](SPEC.md) for the v1 contract and [docs/](docs/) for project docs.
 Agents should start with [docs/agent-usage.md](docs/agent-usage.md).
 
+## Agent Skill
+
+The package includes an agent-facing skill at `skills/shelf/SKILL.md`. Agents
+that support local skills can copy or reference this file to learn when to call
+`shelf put`, how to report Shelf ids in handoffs and issue comments, and why
+`cleanup --execute` requires explicit approval for a reviewed plan id.
+
+After installing from npm, the skill is available under the installed package
+directory. From a source checkout, use `skills/shelf/SKILL.md` directly.
+
 ## Development
 
 ```bash

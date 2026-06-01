@@ -1,5 +1,9 @@
 # Agent Usage
 
+Agents that support local skills can copy or reference
+[`skills/shelf/SKILL.md`](../skills/shelf/SKILL.md). This guide explains the
+same contract in ordinary documentation form.
+
 Shelf works best when agents register artifacts at creation time, while the
 reason is still fresh. Do not wait for a cleanup pass to infer intent from file
 age or path names.

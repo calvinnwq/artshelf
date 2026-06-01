@@ -25,6 +25,7 @@
   "files": [
     "dist/src",
     "docs",
+    "skills",
     "CHANGELOG.md",
     "LICENSE",
     "README.md",
