@@ -27,6 +27,7 @@ pnpm install --frozen-lockfile
 pnpm run build
 npm link
 shelf --version
+shelf doctor
 ```
 
 To remove the linked command later:
