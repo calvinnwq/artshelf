@@ -182,7 +182,9 @@ shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
 
-Agents must not run this without explicit human approval:
+Cleanup execution is approval-only: no daemon, no auto-execute, no global
+execute, and no fresh-plan-then-execute shortcut. Agents must not run this
+without explicit human approval:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
@@ -193,6 +195,9 @@ the same breath. Review the dry-run first, then execute the reviewed plan id.
 No-op dry-runs report `not-created` and do not write plan files. When dry-run or
 execute creates plan or receipt artifacts, Shelf records those artifacts in the
 ledger as `owner=shelf`.
+
+V1 refuses physical `delete`; execution records `cleanup-refused` instead of
+silently deleting files.
 
 Execution writes a receipt and updates touched ledger records to `trashed`,
 `review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
@@ -245,14 +250,15 @@ Use explicit ledger paths when scheduling checks for a known project or user
 ledger. Do not scan arbitrary filesystem locations looking for ledgers unless
 the user has opted into that discovery scope.
 
-Scheduled jobs must not run:
+Scheduled jobs must never run cleanup execution. They may only dry-run and
+report plans for later human review:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
 ```
 
-Execution still requires a human to review the dry-run output and approve that
-specific plan id.
+Any later execution requires a human to review the dry-run output and approve
+that specific plan id.
 
 ## Handoff Pattern
 

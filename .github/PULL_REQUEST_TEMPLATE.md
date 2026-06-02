@@ -4,4 +4,4 @@
 
 - [ ] `pnpm check`
 - [ ] README/SPEC updated if behavior changed
-- [ ] Cleanup behavior remains dry-run-first and plan-id gated
+- [ ] Cleanup execution keeps no daemon/auto-execute/global execute/fresh-plan shortcut/silent deletion paths
