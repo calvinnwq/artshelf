@@ -94,6 +94,9 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /cleanup-refused/);
   assert.match(pages, /shelf list --status active|--status active/);
   assert.match(pages, /shelf find --path|shelf find --path/);
+  assert.match(pages, /shelf ledgers add|shelf ledgers list/);
+  assert.match(pages, /shelf review --all/);
+  assert.match(pages, /cleanup --dry-run --all/);
   assert.match(pages, /shelf get <id>|shelf get &lt;id&gt;/);
   assert.match(pages, /shelf resolve <id> --status resolved|shelf resolve &lt;id&gt; --status resolved/);
 });
@@ -115,6 +118,9 @@ test("agent docs define scheduled review without scheduled execution", () => {
     assert.match(text, /shelf validate --json/);
     assert.match(text, /shelf due --json/);
     assert.match(text, /shelf cleanup --dry-run --json/);
+    assert.match(text, /shelf cleanup --dry-run --all --json/);
+    assert.match(text, /shelf review --all --json/);
+    assert.match(text, /ledger registry|Ledger Registry/);
     assert.match(text, /ledger path/);
     assert.match(text, /plan id/);
     assert.match(text, /Do not scan arbitrary filesystem locations|Do not scan arbitrary filesystem/);

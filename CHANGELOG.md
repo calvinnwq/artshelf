@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Added a user-level ledger registry plus `--all` review commands so Shelf can
+  discover known project/user ledgers from one CLI entry point.
 - Added read-only `find` and `get` commands for ledger lookup and idempotent
   agent integrations.
 - Documented `find` / `get` as the lookup surface agents should use before

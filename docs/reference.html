@@ -64,11 +64,14 @@ $ shelf --version</code></pre>
               <h2>Commands</h2>
               <div class="command-list">
                 <div class="command-row"><code>shelf put &lt;path&gt;</code><p>Append a ledger entry with reason, retention, owner, labels, kind, and cleanup mode.</p></div>
-                <div class="command-row"><code>shelf list</code><p>Show ledger entries and current status. Use <code>--status active|review-required|trashed|cleanup-refused|resolved</code> to filter.</p></div>
+                <div class="command-row"><code>shelf ledgers list</code><p>Show the user-level registry of known repo and user ledgers.</p></div>
+                <div class="command-row"><code>shelf ledgers add --ledger &lt;path&gt; [--scope repo|user|other]</code><p>Register an existing ledger so Shelf can review it through one entry point. Scope is inferred from the path when omitted.</p></div>
+                <div class="command-row"><code>shelf list</code><p>Show ledger entries and current status. Use <code>--all</code> and <code>--status active|review-required|trashed|cleanup-refused|resolved</code> to filter registered ledgers.</p></div>
                 <div class="command-row"><code>shelf find --path &lt;path&gt;</code><p>Read-only lookup for existing records by path, owner, labels, and status.</p></div>
-                <div class="command-row"><code>shelf get &lt;id&gt;</code><p>Read-only audit lookup for one ledger record by Shelf id.</p></div>
-                <div class="command-row"><code>shelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path.</p></div>
-                <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing active or review-required paths.</p></div>
+                <div class="command-row"><code>shelf get &lt;id&gt;</code><p>Read-only audit lookup for one ledger record by Shelf id. Use <code>--all</code> to search registered ledgers.</p></div>
+                <div class="command-row"><code>shelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path. Use <code>--all</code> to read every registered ledger after registry validation.</p></div>
+                <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing active or review-required paths. Use <code>--all</code> to report stale registered ledgers.</p></div>
+                <div class="command-row"><code>shelf review</code><p>Run validate, due, and cleanup plan preview. Use <code>--all</code> to report invalid ledgers with a <code>not-created</code> plan.</p></div>
                 <div class="command-row"><code>shelf cleanup --dry-run</code><p>Create a cleanup plan without moving files.</p></div>
                 <div class="command-row"><code>shelf cleanup --execute --plan-id &lt;id&gt;</code><p>Execute a previously reviewed plan id, write a receipt, and update touched ledger records.</p></div>
                 <div class="command-row"><code>shelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code><p>Mark a handled, missing, or no-longer-needed record as manually resolved.</p></div>
@@ -78,6 +81,9 @@ $ shelf --version</code></pre>
             <section>
               <h2>Global Options</h2>
               <pre><code>--ledger &lt;path&gt;   Use an explicit JSONL ledger
+--registry &lt;path&gt; Use an explicit ledger registry
+--all             Read all registered ledgers for supported commands
+SHELF_REGISTRY    Override the default ledger registry path
 --json            Emit machine-readable JSON
 --help            Show help
 --version         Show version</code></pre>
@@ -113,7 +119,9 @@ $ shelf --version</code></pre>
                 artifact registration. It requires at least one selector and never mutates records.
               </p>
               <pre><code>shelf find --path &lt;path&gt; --owner coding-workflow-pipeline --label &lt;run-id&gt; --json
-shelf get &lt;id&gt; --json</code></pre>
+shelf find --all --owner coding-workflow-pipeline --json
+shelf get &lt;id&gt; --json
+shelf get &lt;id&gt; --all --json</code></pre>
             </section>
 
             <section>
@@ -122,6 +130,23 @@ shelf get &lt;id&gt; --json</code></pre>
                 Inside a git repo, Shelf defaults to `.shelf/ledger.jsonl`. Outside a repo, it
                 defaults to `~/.shelf/ledger.jsonl`. Pass `--ledger &lt;path&gt;` for tests, demos,
                 and controlled smoke runs.
+              </p>
+              <p>
+                Shelf also keeps a user-level registry at `~/.shelf/ledgers.json`. Override it
+                with <code>--registry &lt;path&gt;</code> or <code>SHELF_REGISTRY</code>. The registry
+                is a discovery index for `--all` review commands; project records stay in their
+                own repo-local ledgers.
+              </p>
+              <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
+shelf review --all --json
+shelf cleanup --dry-run --all --json</code></pre>
+              <p>
+                <code>shelf ledgers add</code> requires an existing ledger path. Scope may be
+                <code>repo</code>, <code>user</code>, or <code>other</code>; when omitted, Shelf infers
+                it from the path. All-mode reads report stale or invalid registered ledgers
+                before returning records. Global cleanup dry-run writes plan files, while global cleanup
+                execution is refused. Execute only
+                a specific reviewed plan id against the ledger that produced it.
               </p>
             </section>
           </article>

@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 
 const CLI = new URL("../src/cli.js", import.meta.url);
+const TEST_REGISTRY = join(mkdtempSync(join(tmpdir(), "shelf-test-registry-")), "ledgers.json");
 
 test("help and version are useful", () => {
   const help = shelf(["help"]);
@@ -31,6 +32,10 @@ test("help and version are useful", () => {
   const getHelp = shelf(["help", "get"]);
   assert.equal(getHelp.status, 0);
   assert.match(getHelp.stdout, /shelf get <id>/);
+
+  const ledgersHelp = shelf(["help", "ledgers"]);
+  assert.equal(ledgersHelp.status, 0);
+  assert.match(ledgersHelp.stdout, /shelf ledgers list/);
 
   const version = shelf(["--version"]);
   assert.equal(version.status, 0);
@@ -177,6 +182,315 @@ test("find and get provide read-only idempotency queries", () => {
   const unbounded = shelf(["find", "--ledger", ledger]);
   assert.equal(unbounded.status, 1);
   assert.match(unbounded.stderr, /find requires at least one/);
+});
+
+test("ledger registry gives one read-only entry point across ledgers", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const firstLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
+  const secondLedger = join(fixture, "two", ".shelf", "ledger.jsonl");
+  const firstArtifact = join(fixture, "first.txt");
+  const secondArtifact = join(fixture, "second.txt");
+  writeFileSync(firstArtifact, "first");
+  writeFileSync(secondArtifact, "second");
+
+  const put = JSON.parse(shelf([
+    "put",
+    firstArtifact,
+    "--reason",
+    "first artifact",
+    "--ttl",
+    "1d",
+    "--owner",
+    "openclaw",
+    "--label",
+    "registry-smoke",
+    "--ledger",
+    firstLedger,
+    "--registry",
+    registry,
+    "--json"
+  ], "2026-06-01T00:00:00Z").stdout);
+  assert.equal(put.ledger.path, firstLedger);
+
+  mkdirSync(join(fixture, "two", ".shelf"), { recursive: true });
+  writeFileSync(secondLedger, "");
+  const add = JSON.parse(shelf([
+    "ledgers",
+    "add",
+    "--ledger",
+    secondLedger,
+    "--name",
+    "second",
+    "--scope",
+    "repo",
+    "--registry",
+    registry,
+    "--json"
+  ], "2026-06-01T00:01:00Z").stdout);
+  assert.equal(add.ledger.name, "second");
+
+  shelf([
+    "put",
+    secondArtifact,
+    "--reason",
+    "second artifact",
+    "--manual-review",
+    "--owner",
+    "openclaw",
+    "--label",
+    "registry-smoke",
+    "--ledger",
+    secondLedger,
+    "--registry",
+    registry
+  ], "2026-06-01T00:02:00Z");
+
+  const ledgers = JSON.parse(shelf(["ledgers", "list", "--registry", registry, "--json"]).stdout).ledgers;
+  assert.deepEqual(ledgers.map((ledger: any) => ledger.name), ["one", "second"]);
+
+  const allList = JSON.parse(shelf(["list", "--all", "--registry", registry, "--json"]).stdout);
+  assert.equal(allList.ledgers.length, 2);
+  assert.equal(allList.ledgers.reduce((count: number, ledger: any) => count + ledger.entries.length, 0), 2);
+
+  const allFind = JSON.parse(shelf(["find", "--all", "--owner", "openclaw", "--label", "registry-smoke", "--registry", registry, "--json"]).stdout);
+  assert.equal(allFind.ledgers.reduce((count: number, ledger: any) => count + ledger.entries.length, 0), 2);
+
+  const allGet = JSON.parse(shelf(["get", put.record.id, "--all", "--registry", registry, "--json"]).stdout);
+  assert.equal(allGet.ledger.path, firstLedger);
+  assert.equal(allGet.record.id, put.record.id);
+
+  const allDue = JSON.parse(shelf(["due", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z").stdout);
+  assert.deepEqual(allDue.ledgers.flatMap((ledger: any) => ledger.entries.map((entry: any) => entry.dueStatus)).sort(), ["due", "manual-review"]);
+
+  const allValidate = JSON.parse(shelf(["validate", "--all", "--registry", registry, "--json"]).stdout);
+  assert.equal(allValidate.ok, true);
+
+  const review = JSON.parse(shelf(["review", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z").stdout);
+  assert.equal(review.ok, true);
+  assert.equal(review.ledgers.length, 2);
+  assert.equal(review.ledgers.reduce((count: number, ledger: any) => count + ledger.plan.entries.length, 0), 2);
+  for (const entry of review.ledgers) {
+    assert.equal(existsSync(entry.plan.planPath), false);
+  }
+
+  const dryRun = JSON.parse(shelf(["cleanup", "--dry-run", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z").stdout);
+  assert.equal(dryRun.plans.length, 2);
+  assert.equal(dryRun.plans.reduce((count: number, entry: any) => count + entry.plan.entries.length, 0), 2);
+
+  const refused = shelf(["cleanup", "--execute", "--all", "--plan-id", "plan_nope", "--registry", registry]);
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /cleanup --all is dry-run only/);
+});
+
+test("put records the artifact when registry update fails", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = ledgerPath(fixture);
+  const registry = join(fixture, "registry.json");
+  writeFileSync(artifact, "hello");
+  writeFileSync(registry, "{not json");
+
+  const result = shelf([
+    "put",
+    artifact,
+    "--reason",
+    "partial failure guard",
+    "--ttl",
+    "1d",
+    "--ledger",
+    ledger,
+    "--registry",
+    registry
+  ]);
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(existsSync(ledger), true);
+  assert.equal(readLedger(ledger).length, 1);
+
+  const jsonResult = shelf([
+    "put",
+    artifact,
+    "--reason",
+    "partial failure guard json",
+    "--ttl",
+    "1d",
+    "--ledger",
+    ledger,
+    "--registry",
+    registry,
+    "--json"
+  ]);
+  assert.equal(jsonResult.status, 0, jsonResult.stderr);
+  assert.match(JSON.parse(jsonResult.stdout).registryError, /Unexpected token|Expected property name/);
+});
+
+test("ledgers add requires an existing ledger path", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const missing = join(fixture, "missing", ".shelf", "ledger.jsonl");
+
+  const result = shelf(["ledgers", "add", "--ledger", missing, "--registry", registry]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Ledger does not exist/);
+  assert.equal(existsSync(registry), false);
+});
+
+test("ledgers add falls back from blank names to inferred names", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "repo", ".shelf"), { recursive: true });
+  writeFileSync(ledger, "");
+
+  const result = shelf(["ledgers", "add", "--ledger", ledger, "--name", "   ", "--registry", registry, "--json"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).ledger.name, "repo");
+
+  const list = JSON.parse(shelf(["ledgers", "list", "--registry", registry, "--json"]).stdout);
+  assert.deepEqual(list.ledgers.map((entry: any) => entry.name), ["repo"]);
+});
+
+test("review reports invalid registered ledgers without aborting", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".shelf", "ledger.jsonl");
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+
+  shelf([
+    "put",
+    artifact,
+    "--reason",
+    "good artifact",
+    "--ttl",
+    "1d",
+    "--ledger",
+    goodLedger,
+    "--registry",
+    registry
+  ]);
+  mkdirSync(join(fixture, "bad", ".shelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  shelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = shelf(["review", "--all", "--registry", registry, "--json"]);
+  assert.equal(result.status, 1);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.ledgers.length, 2);
+  const invalid = body.ledgers.find((entry: any) => entry.ledger.name === "bad");
+  assert.ok(invalid);
+  assert.equal(invalid.validate.ok, false);
+  assert.match(invalid.validate.errors[0], /Invalid JSONL/);
+  assert.equal(invalid.plan.planId, "not-created");
+});
+
+test("registered ledgers missing from disk are reported as stale registry entries", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "repo", ".shelf"), { recursive: true });
+  writeFileSync(ledger, "");
+  shelf(["ledgers", "add", "--ledger", ledger, "--registry", registry]);
+  rmSync(ledger);
+
+  const result = shelf(["validate", "--all", "--registry", registry, "--json"]);
+  assert.equal(result.status, 1);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.match(body.ledgers[0].result.errors[0], /registered ledger is missing/);
+
+  const human = shelf(["validate", "--all", "--registry", registry]);
+  assert.equal(human.status, 1);
+  assert.match(human.stdout, /error: registered ledger is missing/);
+
+  for (const args of [
+    ["list", "--all", "--registry", registry, "--json"],
+    ["find", "--all", "--owner", "openclaw", "--registry", registry, "--json"],
+    ["get", "shf_missing", "--all", "--registry", registry, "--json"],
+    ["due", "--all", "--registry", registry, "--json"]
+  ]) {
+    const stale = shelf(args);
+    assert.equal(stale.status, 1, `${args.join(" ")} should report stale registry entries`);
+    const staleBody = JSON.parse(stale.stdout);
+    assert.equal(staleBody.ok, false);
+    assert.match(staleBody.ledgers[0].result.errors[0], /registered ledger is missing/);
+  }
+});
+
+test("single ledger review treats a missing ledger as empty", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+
+  const result = shelf(["review", "--ledger", ledger, "--json"]);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, true);
+  assert.equal(body.ledger.validate.entries, 0);
+  assert.equal(body.ledger.plan.entries.length, 0);
+});
+
+test("cleanup all refuses invalid ledgers before writing any plans", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".shelf", "ledger.jsonl");
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  shelf([
+    "put",
+    artifact,
+    "--reason",
+    "due artifact",
+    "--ttl",
+    "1d",
+    "--ledger",
+    goodLedger,
+    "--registry",
+    registry
+  ], "2026-06-01T00:00:00Z");
+  mkdirSync(join(fixture, "bad", ".shelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  shelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = shelf(["cleanup", "--dry-run", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 1);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(existsSync(join(fixture, "good", ".shelf", "plans")), false);
+});
+
+test("registry preserves concurrent ledger registrations", async () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const jobs = Array.from({ length: 6 }, (_, index) => {
+    const artifact = join(fixture, `artifact-${index}.txt`);
+    writeFileSync(artifact, `artifact ${index}`);
+    return shelfAsync([
+      "put",
+      artifact,
+      "--reason",
+      `concurrent artifact ${index}`,
+      "--ttl",
+      "1d",
+      "--ledger",
+      join(fixture, `repo-${index}`, ".shelf", "ledger.jsonl"),
+      "--registry",
+      registry,
+      "--json"
+    ]);
+  });
+
+  const results = await Promise.all(jobs);
+  for (const result of results) {
+    assert.equal(result.status, 0, result.stderr);
+  }
+
+  const ledgers = JSON.parse(shelf(["ledgers", "list", "--registry", registry, "--json"]).stdout).ledgers;
+  assert.equal(ledgers.length, 6);
+  assert.deepEqual(ledgers.map((ledger: any) => ledger.name).sort(), ["repo-0", "repo-1", "repo-2", "repo-3", "repo-4", "repo-5"]);
 });
 
 test("due classifies kept, due, manual review, and missing paths", () => {
@@ -368,9 +682,28 @@ test("resolve marks missing records as resolved and removes cleanup noise", () =
 function shelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
     encoding: "utf8",
-    env: { ...process.env, ...(now ? { SHELF_NOW: now } : {}) }
+    env: { ...process.env, SHELF_REGISTRY: TEST_REGISTRY, ...(now ? { SHELF_NOW: now } : {}) }
   });
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
+}
+
+function shelfAsync(args: string[], now?: string): Promise<{ status: number; stdout: string; stderr: string }> {
+  return new Promise((resolveResult) => {
+    const child = spawn(process.execPath, [CLI.pathname, ...args], {
+      env: { ...process.env, SHELF_REGISTRY: TEST_REGISTRY, ...(now ? { SHELF_NOW: now } : {}) }
+    });
+    let stdout = "";
+    let stderr = "";
+    child.stdout.on("data", (chunk: any) => {
+      stdout += chunk.toString();
+    });
+    child.stderr.on("data", (chunk: any) => {
+      stderr += chunk.toString();
+    });
+    child.on("close", (status: number | null) => {
+      resolveResult({ status: status ?? 1, stdout, stderr });
+    });
+  });
 }
 
 function fixtureDir(): string {

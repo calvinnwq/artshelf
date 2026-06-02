@@ -18,6 +18,7 @@ declare module "node:assert/strict" {
 }
 
 declare module "node:child_process" {
+  export function spawn(...args: any[]): any;
   export function spawnSync(...args: any[]): any;
 }
 

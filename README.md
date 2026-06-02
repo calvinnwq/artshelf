@@ -68,13 +68,41 @@ shelf cleanup --execute --plan-id plan_20260601_120000_ab12
 ## Explicit Ledgers
 
 By default, Shelf writes repo-local `.shelf/ledger.jsonl` inside a git repo and
-`~/.shelf/ledger.jsonl` outside one. Use `--ledger <path>` for tests, demos, and
-unusual workflows:
+`~/.shelf/ledger.jsonl` outside one. Use `--ledger <path>` and an isolated
+`--registry <path>` for tests, demos, and unusual workflows:
 
 ```bash
-shelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/shelf-ledger.jsonl --json
+shelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/shelf-ledger.jsonl --registry /tmp/shelf-registry.json --json
 shelf list --ledger /tmp/shelf-ledger.jsonl
 ```
+
+Shelf also keeps a small global registry of known ledgers at
+`~/.shelf/ledgers.json`. Override it with `--registry <path>` or
+`SHELF_REGISTRY`. `put` registers its ledger automatically, and you can register
+an existing ledger explicitly:
+
+```bash
+shelf ledgers list
+shelf ledgers add --ledger /path/to/repo/.shelf/ledger.jsonl --name my-repo
+```
+
+Use `--all` for one read-only discovery entry point across registered ledgers:
+
+```bash
+shelf review --all --json
+shelf due --all --json
+shelf find --all --owner coding-workflow-pipeline --json
+```
+
+Use global dry-run cleanup when you want Shelf to write cleanup plans for each
+registered ledger without moving files:
+
+```bash
+shelf cleanup --dry-run --all --json
+```
+
+Global execution is intentionally refused. To mutate files, review a dry-run
+plan, then execute it against the specific ledger that produced it.
 
 ## Safety Model
 
@@ -97,13 +125,23 @@ plans, while `shelf list` still keeps the audit trail visible.
 
 ```bash
 shelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
+shelf ledgers list
+shelf ledgers add --ledger <path>
 shelf list
+shelf list --all
 shelf list --status active
 shelf find --path <path> --owner coding-workflow-pipeline --label <run-id>
+shelf find --all --owner coding-workflow-pipeline
 shelf get <id>
+shelf get <id> --all
 shelf due
+shelf due --all
 shelf validate
+shelf validate --all
+shelf review
+shelf review --all
 shelf cleanup --dry-run
+shelf cleanup --dry-run --all
 shelf cleanup --execute --plan-id <id>
 shelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```
@@ -137,8 +175,8 @@ pnpm install
 pnpm check
 ```
 
-During tests or one-off runs, pass `--ledger <path>` to keep entries out of the
-default repo-local `.shelf/ledger.jsonl`.
+During tests or one-off runs, pass both `--ledger <path>` and `--registry <path>`
+to keep entries and registry updates out of default Shelf storage.
 
 ## Contributing
 

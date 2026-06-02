@@ -77,6 +77,25 @@ shelf get <id> --json
 `--status`. Multiple labels must all match. If a matching record already
 exists, reuse its Shelf id instead of creating a duplicate record.
 
+Use the ledger registry when reviewing all known Shelf state from one entry
+point:
+
+```bash
+shelf ledgers list --json
+shelf review --all --json
+shelf find --all --owner <runtime> --json
+```
+
+`put` registers its ledger automatically. For existing project ledgers, register
+them explicitly:
+
+```bash
+shelf ledgers add --ledger <repo>/.shelf/ledger.jsonl --name <project> --scope repo --json
+```
+
+`--all` is for discovery and review. Do not use it as permission to mutate
+files.
+
 ## What To Register
 
 Register:
@@ -118,12 +137,20 @@ Shelf artifact: shf_20260601_182800_ab12, /tmp/parser-output, retain until
 
 ## Cleanup
 
-Allowed without extra approval:
+Allowed without extra approval because they do not move or delete files:
 
 ```bash
 shelf validate --json
+shelf validate --all --json
 shelf due --json
+shelf due --all --json
+```
+
+Cleanup dry-run is safe to run, but it writes plan files for later review:
+
+```bash
 shelf cleanup --dry-run --json
+shelf cleanup --dry-run --all --json
 ```
 
 Requires explicit approval that names the reviewed plan id:
@@ -186,6 +213,16 @@ When asked to review Shelf state:
 4. Report plan id, executable entries, skipped entries, and refused entries.
 5. Stop before `cleanup --execute` unless the user explicitly approves that
    plan id.
+
+For a whole-machine Shelf review, prefer:
+
+```bash
+shelf review --all --json
+```
+
+If the user asks for cleanup candidates across projects, run
+`shelf cleanup --dry-run --all --json` and report each ledger's plan id. Execute
+only a specific reviewed plan against its specific ledger.
 
 ## Safety
 
