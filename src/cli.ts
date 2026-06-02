@@ -857,6 +857,8 @@ Options:
   shelf cleanup --dry-run --all [--registry <path>] [--json]
   shelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
 
+Cleanup execution is approval-only. There is no daemon, no auto-execute, and no
+global execute path: review a dry-run plan, then execute that one reviewed plan id.
 Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a reviewed plan id.
 Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
 Matching dry-runs reuse the existing plan id and refresh its Shelf-owned plan artifact.
