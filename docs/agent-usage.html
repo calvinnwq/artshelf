@@ -158,6 +158,11 @@ shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
                 Put the id in handoffs, PR comments, issue comments, memory, or task run
                 summaries when the artifact matters for restart.
               </p>
+              <p>
+                If there are no eligible artifacts, say nothing. If eligible artifacts were
+                skipped instead of registered, include the brief skip reason from the
+                completion checklist.
+              </p>
             </section>
 
             <section>

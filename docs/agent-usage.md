@@ -253,8 +253,10 @@ Shelf artifacts:
   retain until 2026-06-04, cleanup=review
 ```
 
-If there are no registered artifacts, say nothing. Do not invent Shelf entries
-after the fact just to make a handoff look tidy.
+If there are no eligible artifacts, say nothing. If eligible artifacts were
+skipped instead of registered, include the brief skip reason from the completion
+checklist. Do not invent Shelf entries after the fact just to make a handoff look
+tidy.
 
 ## Completion Checklist
 
