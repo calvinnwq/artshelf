@@ -238,7 +238,8 @@ plans.
 Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
 locations for ledgers unless the user opted into that discovery scope.
 
-Never schedule this without explicit human approval for the reviewed plan id:
+Never schedule cleanup execution. Scheduled jobs may only dry-run and report
+plans for later human review:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
@@ -270,5 +271,5 @@ only a specific reviewed plan against its specific ledger.
 - Do not register secrets or credential dumps.
 - Do not use Shelf as a replacement for git, workflow ledgers, or backups.
 - Do not silently delete files.
-- Do not treat `cleanup=delete` as permission to delete unless the reviewed
-  plan and user approval both allow it.
+- Do not treat `cleanup=delete` as permission to delete. V1 refuses physical
+  delete and records `cleanup-refused` with `delete is disabled in v1`.
