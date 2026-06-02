@@ -69,9 +69,9 @@ $ shelf --version</code></pre>
                 <div class="command-row"><code>shelf list</code><p>Show ledger entries and current status. Use <code>--all</code> and <code>--status active|review-required|trashed|cleanup-refused|resolved</code> to filter registered ledgers.</p></div>
                 <div class="command-row"><code>shelf find --path &lt;path&gt;</code><p>Read-only lookup for existing records by path, owner, labels, and status.</p></div>
                 <div class="command-row"><code>shelf get &lt;id&gt;</code><p>Read-only audit lookup for one ledger record by Shelf id. Use <code>--all</code> to search registered ledgers.</p></div>
-                <div class="command-row"><code>shelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path. Use <code>--all</code> to read every registered ledger.</p></div>
+                <div class="command-row"><code>shelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path. Use <code>--all</code> to read every registered ledger after registry validation.</p></div>
                 <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing active or review-required paths. Use <code>--all</code> to report stale registered ledgers.</p></div>
-                <div class="command-row"><code>shelf review</code><p>Run validate, due, and cleanup plan preview. Use <code>--all</code> to read every registered ledger.</p></div>
+                <div class="command-row"><code>shelf review</code><p>Run validate, due, and cleanup plan preview. Use <code>--all</code> to report invalid ledgers with a <code>not-created</code> plan.</p></div>
                 <div class="command-row"><code>shelf cleanup --dry-run</code><p>Create a cleanup plan without moving files.</p></div>
                 <div class="command-row"><code>shelf cleanup --execute --plan-id &lt;id&gt;</code><p>Execute a previously reviewed plan id, write a receipt, and update touched ledger records.</p></div>
                 <div class="command-row"><code>shelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code><p>Mark a handled, missing, or no-longer-needed record as manually resolved.</p></div>
@@ -143,7 +143,8 @@ shelf cleanup --dry-run --all --json</code></pre>
               <p>
                 <code>shelf ledgers add</code> requires an existing ledger path. Scope may be
                 <code>repo</code>, <code>user</code>, or <code>other</code>; when omitted, Shelf infers
-                it from the path. Global cleanup dry-run writes plan files, while global cleanup
+                it from the path. All-mode reads report stale or invalid registered ledgers
+                before returning records. Global cleanup dry-run writes plan files, while global cleanup
                 execution is refused. Execute only
                 a specific reviewed plan id against the ledger that produced it.
               </p>

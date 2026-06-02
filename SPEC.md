@@ -109,7 +109,9 @@ shelf list --all --status active --json
 - `cleanup-refused`
 - `resolved`
 
-`--all` reads every registered ledger through the registry.
+`--all` reads every registered ledger through the registry. All-mode reads
+validate registered ledgers first and report stale or invalid entries before
+returning records.
 
 ### `shelf find`
 
@@ -202,7 +204,8 @@ shelf review --all --json
 ```
 
 `review` is the compact report surface for scheduled checks. `--all` reads every
-registered ledger from the registry.
+registered ledger from the registry; stale or invalid ledgers are included with a
+`not-created` plan instead of writing a plan file.
 
 ### `shelf cleanup --dry-run`
 
