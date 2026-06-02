@@ -386,6 +386,19 @@ test("registered ledgers missing from disk are reported as stale registry entrie
   const body = JSON.parse(result.stdout);
   assert.equal(body.ok, false);
   assert.match(body.ledgers[0].result.errors[0], /registered ledger is missing/);
+
+  for (const args of [
+    ["list", "--all", "--registry", registry, "--json"],
+    ["find", "--all", "--owner", "openclaw", "--registry", registry, "--json"],
+    ["get", "shf_missing", "--all", "--registry", registry, "--json"],
+    ["due", "--all", "--registry", registry, "--json"]
+  ]) {
+    const stale = shelf(args);
+    assert.equal(stale.status, 1, `${args.join(" ")} should report stale registry entries`);
+    const staleBody = JSON.parse(stale.stdout);
+    assert.equal(staleBody.ok, false);
+    assert.match(staleBody.ledgers[0].result.errors[0], /registered ledger is missing/);
+  }
 });
 
 test("single ledger review treats a missing ledger as empty", () => {

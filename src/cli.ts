@@ -160,7 +160,9 @@ function handleList(parsed: ParsedArgs, ledgerPath: string, json: boolean): numb
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
     const status = stringFlag(parsed, "status");
-    const results = registeredLedgersOrThrow(registryPath).map((ledger) => ({
+    const validation = validateRegisteredLedgersOrThrow(registryPath);
+    if (!validation.ok) return printRegisteredLedgerValidation(registryPath, validation.results, json);
+    const results = validation.results.map(({ ledger }) => ({
       ledger,
       entries: filterRecordsByStatus(readLedger(ledger.path), status)
     }));
@@ -187,7 +189,9 @@ function handleList(parsed: ParsedArgs, ledgerPath: string, json: boolean): numb
 function handleFind(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-    const results = registeredLedgersOrThrow(registryPath).map((ledger) => ({
+    const validation = validateRegisteredLedgersOrThrow(registryPath);
+    if (!validation.ok) return printRegisteredLedgerValidation(registryPath, validation.results, json);
+    const results = validation.results.map(({ ledger }) => ({
       ledger,
       entries: findRecords(readLedger(ledger.path), {
         path: stringFlag(parsed, "path"),
@@ -225,7 +229,9 @@ function handleGet(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
   if (!id) throw new Error("get requires <id>");
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-    for (const ledger of registeredLedgersOrThrow(registryPath)) {
+    const validation = validateRegisteredLedgersOrThrow(registryPath);
+    if (!validation.ok) return printRegisteredLedgerValidation(registryPath, validation.results, json);
+    for (const { ledger } of validation.results) {
       const record = readLedger(ledger.path).find((entry) => entry.id === id);
       if (record) {
         if (json) return printJson({ ok: true, registryPath, ledger, record });
@@ -257,7 +263,9 @@ function handleResolve(parsed: ParsedArgs, ledgerPath: string, json: boolean): n
 function handleDue(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-    const results = registeredLedgersOrThrow(registryPath).map((ledger) => ({ ledger, entries: dueEntries(readLedger(ledger.path)) }));
+    const validation = validateRegisteredLedgersOrThrow(registryPath);
+    if (!validation.ok) return printRegisteredLedgerValidation(registryPath, validation.results, json);
+    const results = validation.results.map(({ ledger }) => ({ ledger, entries: dueEntries(readLedger(ledger.path)) }));
     if (json) return printJson({ ok: true, registryPath, ledgers: results });
     printDueEntries(results);
     process.stdout.write(`registry: ${registryPath}\n`);
@@ -434,6 +442,25 @@ function registeredLedgersOrThrow(registryPath: string): LedgerRegistryEntry[] {
   const ledgers = listRegisteredLedgers(registryPath);
   if (ledgers.length === 0) throw new Error("No registered Shelf ledgers. Run `shelf ledgers add --ledger <path>` first.");
   return ledgers;
+}
+
+type RegisteredLedgerValidation = { ledger: LedgerRegistryEntry; result: ReturnType<typeof validateLedger> };
+
+function validateRegisteredLedgersOrThrow(registryPath: string): { ok: boolean; results: RegisteredLedgerValidation[] } {
+  const results = registeredLedgersOrThrow(registryPath).map((ledger) => ({ ledger, result: validateRegisteredLedger(ledger) }));
+  return { ok: results.every((entry) => entry.result.ok), results };
+}
+
+function printRegisteredLedgerValidation(registryPath: string, results: RegisteredLedgerValidation[], json: boolean): number {
+  if (json) {
+    printJson({ ok: false, registryPath, ledgers: results });
+    return 1;
+  }
+  for (const entry of results.filter((item) => !item.result.ok)) {
+    process.stdout.write(`invalid ${entry.ledger.name}: ${entry.result.errors.join("; ")}\nledger: ${entry.ledger.path}\n`);
+  }
+  process.stdout.write(`registry: ${registryPath}\n`);
+  return 1;
 }
 
 function validateRegisteredLedger(ledger: LedgerRegistryEntry): ReturnType<typeof validateLedger> {
