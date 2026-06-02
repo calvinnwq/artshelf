@@ -430,6 +430,8 @@ test("single ledger review treats a missing ledger as empty", () => {
   assert.equal(body.ok, true);
   assert.equal(body.ledger.validate.entries, 0);
   assert.equal(body.ledger.plan.entries.length, 0);
+  assert.equal(body.ledger.plan.planId, "not-created");
+  assert.equal(body.ledger.plan.planPath, null);
 });
 
 test("cleanup all refuses invalid ledgers before writing any plans", () => {
@@ -588,6 +590,15 @@ test("cleanup dry-run creates a plan and execute requires a plan id", () => {
   assert.equal(records[2]?.path, receipt.receiptPath);
   assert.equal(records[2]?.cleanup, "review");
   assert.deepEqual(records[2]?.labels, ["shelf", "cleanup-receipt", plan.planId]);
+
+  const replayed = shelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:02:00Z");
+  assert.equal(replayed.status, 0, replayed.stderr);
+  assert.equal(JSON.parse(replayed.stdout).receipt.results[0].status, "skipped");
+  const afterReplay = readLedger(ledger);
+  const receiptRecords = afterReplay.filter((entry: any) => entry.owner === "shelf" && entry.labels.includes("cleanup-receipt"));
+  assert.equal(receiptRecords.length, 1);
+  assert.equal(receiptRecords[0].createdAt, "2026-06-03T00:02:00Z");
+  assert.equal(receiptRecords[0].retainUntil, "2026-07-03T00:02:00Z");
 
   const due = JSON.parse(shelf(["due", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).entries;
   assert.deepEqual(due.map((entry: any) => entry.reason), [

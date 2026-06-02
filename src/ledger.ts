@@ -265,13 +265,7 @@ export function validateLedger(ledgerPath: string): {
 
 export function createCleanupPlan(ledgerPath: string): CleanupPlan {
   const plan = buildCleanupPlan(ledgerPath);
-  if (plan.entries.length === 0) {
-    return {
-      ...plan,
-      planId: "not-created",
-      planPath: null
-    };
-  }
+  if (plan.entries.length === 0) return noCreatedPlan(plan);
   const existingPlan = matchingExistingCleanupPlan(ledgerPath, plan);
   if (existingPlan) {
     const refreshedPlan = {
@@ -281,7 +275,13 @@ export function createCleanupPlan(ledgerPath: string): CleanupPlan {
     };
     if (!refreshedPlan.planPath) throw new Error("cleanup plan path was not created");
     writeJson(refreshedPlan.planPath, refreshedPlan);
-    refreshShelfPlanArtifact(ledgerPath, refreshedPlan.planId, refreshedPlan.planPath);
+    registerShelfArtifact(ledgerPath, refreshedPlan.planPath, {
+      reason: `Shelf cleanup dry-run plan ${refreshedPlan.planId}`,
+      ttl: "14d",
+      kind: "run-artifact",
+      cleanup: "trash",
+      labels: ["shelf", "cleanup-plan", refreshedPlan.planId]
+    });
     return refreshedPlan;
   }
   if (!plan.planPath) throw new Error("cleanup plan path was not created");
@@ -297,7 +297,16 @@ export function createCleanupPlan(ledgerPath: string): CleanupPlan {
 }
 
 export function previewCleanupPlan(ledgerPath: string): CleanupPlan {
-  return buildCleanupPlan(ledgerPath);
+  const plan = buildCleanupPlan(ledgerPath);
+  return plan.entries.length === 0 ? noCreatedPlan(plan) : plan;
+}
+
+function noCreatedPlan(plan: CleanupPlan): CleanupPlan {
+  return {
+    ...plan,
+    planId: "not-created",
+    planPath: null
+  };
 }
 
 function buildCleanupPlan(ledgerPath: string): CleanupPlan {
@@ -399,7 +408,7 @@ function registerShelfArtifact(
   path: string,
   input: Pick<PutInput, "reason" | "ttl" | "kind" | "cleanup" | "labels">
 ): void {
-  const record = prepareRecord({
+  const prepared = prepareRecord({
     path,
     reason: input.reason,
     ttl: input.ttl,
@@ -408,44 +417,37 @@ function registerShelfArtifact(
     owner: "shelf",
     labels: input.labels
   });
-  appendPreparedRecord(ledgerPath, record);
-}
-
-function refreshShelfPlanArtifact(ledgerPath: string, planId: string, path: string): void {
   const records = readLedger(ledgerPath);
   const index = records.findIndex((record) => (
     record.owner === "shelf" &&
     record.status === "active" &&
     record.path === path &&
-    record.labels.includes("cleanup-plan") &&
-    record.labels.includes(planId)
+    sameLabels(record.labels, input.labels)
   ));
 
   if (index === -1) {
-    registerShelfArtifact(ledgerPath, path, {
-      reason: `Shelf cleanup dry-run plan ${planId}`,
-      ttl: "14d",
-      kind: "run-artifact",
-      cleanup: "trash",
-      labels: ["shelf", "cleanup-plan", planId]
-    });
+    appendPreparedRecord(ledgerPath, prepared);
     return;
   }
 
   const current = records[index];
   if (!current) return;
-  const refreshedAt = now();
   records[index] = {
     ...current,
-    reason: `Shelf cleanup dry-run plan ${planId}`,
-    createdAt: toIso(refreshedAt),
-    retainUntil: toIso(addTtl(refreshedAt, "14d")),
-    retention: { mode: "ttl", ttl: "14d" },
-    kind: "run-artifact",
-    cleanup: "trash",
-    labels: ["shelf", "cleanup-plan", planId]
+    reason: prepared.reason,
+    createdAt: prepared.createdAt,
+    ...(prepared.retainUntil ? { retainUntil: prepared.retainUntil } : {}),
+    retention: prepared.retention,
+    kind: prepared.kind,
+    cleanup: prepared.cleanup,
+    labels: prepared.labels
   };
   writeLedger(ledgerPath, records);
+}
+
+function sameLabels(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((label, index) => label === right[index]);
 }
 
 function matchingExistingCleanupPlan(ledgerPath: string, plan: CleanupPlan): CleanupPlan | null {
