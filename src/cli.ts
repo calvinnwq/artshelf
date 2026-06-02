@@ -81,6 +81,8 @@ function main(argv: string[]): number {
         return handleCleanup(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "review":
         return handleReview(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      case "doctor":
+        return handleDoctor(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "resolve":
         return handleResolve(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case undefined:
@@ -379,6 +381,126 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
   return result.validate.ok ? 0 : 1;
 }
 
+type DoctorLedger = {
+  name: string;
+  path: string;
+  scope: LedgerRegistryEntry["scope"];
+  status: "ok" | "missing" | "invalid";
+  ok: boolean;
+  entries: number;
+  errors: string[];
+  warnings: string[];
+};
+
+type DoctorReport = {
+  ok: boolean;
+  version: string;
+  node: string;
+  ledgerPath: string;
+  ledgerExists: boolean;
+  registryPath: string;
+  registryExists: boolean;
+  registryOk: boolean;
+  registryError: string | null;
+  ledgers: DoctorLedger[];
+  summary: { ledgers: number; ok: number; stale: number; invalid: number; warnings: number };
+  cleanupSafety: {
+    executeRequiresLedgerAndPlanId: boolean;
+    globalExecuteRefused: boolean;
+    deleteRefusedInV1: boolean;
+    dryRunBeforeMutation: boolean;
+  };
+  errors: string[];
+};
+
+function handleDoctor(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const report = buildDoctorReport(ledgerPath, normalizeRegistryPath(stringFlag(parsed, "registry")));
+  if (json) {
+    printJson(report);
+    return report.ok ? 0 : 1;
+  }
+  printDoctor(report);
+  return report.ok ? 0 : 1;
+}
+
+function buildDoctorReport(ledgerPath: string, registryPath: string): DoctorReport {
+  const errors: string[] = [];
+  let registryOk = true;
+  let registryError: string | null = null;
+  let entries: LedgerRegistryEntry[] = [];
+  try {
+    entries = listRegisteredLedgers(registryPath);
+  } catch (error) {
+    registryOk = false;
+    registryError = (error as Error).message;
+    errors.push(`registry could not be read: ${registryPath} (${registryError})`);
+  }
+
+  const ledgers: DoctorLedger[] = entries.map((entry) => {
+    const result = validateRegisteredLedger(entry);
+    const status: DoctorLedger["status"] = result.ok ? "ok" : existsSync(entry.path) ? "invalid" : "missing";
+    if (!result.ok) {
+      for (const message of result.errors) errors.push(`${entry.name}: ${message}`);
+    }
+    return {
+      name: entry.name,
+      path: entry.path,
+      scope: entry.scope,
+      status,
+      ok: result.ok,
+      entries: result.entries,
+      errors: result.errors,
+      warnings: result.warnings
+    };
+  });
+
+  const summary = {
+    ledgers: ledgers.length,
+    ok: ledgers.filter((ledger) => ledger.status === "ok").length,
+    stale: ledgers.filter((ledger) => ledger.status === "missing").length,
+    invalid: ledgers.filter((ledger) => ledger.status === "invalid").length,
+    warnings: ledgers.reduce((count, ledger) => count + ledger.warnings.length, 0)
+  };
+
+  return {
+    ok: registryOk && summary.stale === 0 && summary.invalid === 0,
+    version: VERSION,
+    node: process.version,
+    ledgerPath,
+    ledgerExists: existsSync(ledgerPath),
+    registryPath,
+    registryExists: existsSync(registryPath),
+    registryOk,
+    registryError,
+    ledgers,
+    summary,
+    cleanupSafety: {
+      executeRequiresLedgerAndPlanId: true,
+      globalExecuteRefused: true,
+      deleteRefusedInV1: true,
+      dryRunBeforeMutation: true
+    },
+    errors
+  };
+}
+
+function printDoctor(report: DoctorReport): void {
+  process.stdout.write(`shelf ${report.version} (node ${report.node})\n`);
+  process.stdout.write(`health: ${report.ok ? "ok" : "needs attention"}\n`);
+  process.stdout.write(`ledger: ${report.ledgerPath}${report.ledgerExists ? "" : " (absent)"}\n`);
+  process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"}\n`);
+  if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
+  process.stdout.write(`registered ledgers: ${report.summary.ledgers} (${report.summary.ok} ok, ${report.summary.stale} stale, ${report.summary.invalid} invalid)\n`);
+  for (const ledger of report.ledgers) {
+    process.stdout.write(`  ${ledger.status} ${ledger.name} ${ledger.path}\n`);
+    for (const message of ledger.errors) process.stdout.write(`    error: ${message}\n`);
+  }
+  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; physical delete is refused in v1\n");
+  if (!report.ok) {
+    for (const message of report.errors) process.stdout.write(`error: ${message}\n`);
+  }
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, ...rest] = argv;
   const flags = new Map<string, string | boolean | string[]>();
@@ -656,6 +778,22 @@ Review runs validate, due, and cleanup plan preview without moving files or writ
     return;
   }
 
+  if (command === "doctor") {
+    process.stdout.write(`Usage:
+  shelf doctor [--registry <path>] [--ledger <path>] [--json]
+
+Doctor reports whether Shelf is healthy on this machine: CLI version, default
+ledger and global registry paths, registered ledger health (stale/missing/invalid),
+and the cleanup safety posture. Execute still requires an explicit ledger and a
+reviewed plan id.
+
+Run it after install, when --all commands behave unexpectedly, or on a schedule to
+catch stale registry entries. Doctor is read-only. A healthy machine exits 0; a
+broken registry or registered ledger exits non-zero with actionable errors.
+`);
+    return;
+  }
+
   process.stdout.write(`Shelf ${VERSION}
 
 Usage:
@@ -675,6 +813,7 @@ Usage:
   shelf validate --all [--json]
   shelf review [--json]
   shelf review --all [--json]
+  shelf doctor [--json]
   shelf cleanup --dry-run [--json]
   shelf cleanup --dry-run --all [--json]
   shelf cleanup --execute --plan-id <id> [--json]

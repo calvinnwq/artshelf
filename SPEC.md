@@ -207,6 +207,33 @@ shelf review --all --json
 registered ledger from the registry; stale, invalid, and valid no-op ledgers are
 included with a `not-created` plan instead of writing a plan file.
 
+### `shelf doctor`
+
+Reports whether Shelf is healthy on the current machine without mutating
+anything.
+
+```bash
+shelf doctor
+shelf doctor --json
+shelf doctor --registry <path>
+```
+
+Doctor reports:
+
+- CLI version and build availability.
+- The default ledger path and global registry path, and whether they exist.
+- Registered ledger health, flagging stale (missing from disk) and invalid
+  (unparseable or malformed) entries.
+- The cleanup safety posture, including that `cleanup --execute` still requires
+  an explicit ledger and a reviewed `--plan-id`, that global execute is refused,
+  and that physical delete is refused in v1.
+
+A healthy machine exits 0. A broken registry file or any stale or invalid
+registered ledger exits non-zero with actionable errors. Humans should run
+`shelf doctor` after install or when `--all` commands behave unexpectedly; agents
+may run it on a schedule to catch stale registry entries before relying on
+cleanup planning. Doctor never creates plans, receipts, or records.
+
 ### `shelf cleanup --dry-run`
 
 Creates a cleanup plan when there are executable cleanup entries, but does not
@@ -437,6 +464,8 @@ Scheduled jobs must not silently execute cleanup.
 - CLI can find existing records by path/owner/label/status and get records by id.
 - CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
+- CLI reports machine and registry health through `shelf doctor`, exiting
+  non-zero when the registry or a registered ledger is broken.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Shelf

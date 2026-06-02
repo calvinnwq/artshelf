@@ -777,6 +777,129 @@ test("resolve marks missing records as resolved and removes cleanup noise", () =
   assert.match(unsupported.stderr, /resolve currently supports --status resolved/);
 });
 
+test("doctor reports a healthy machine and exits zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  writeFileSync(artifact, "hello");
+  shelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
+
+  const result = shelf(["doctor", "--registry", registry, "--json"]);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, true);
+  assert.equal(body.version, "0.1.0");
+  assert.equal(body.registryPath, registry);
+  assert.equal(body.registryExists, true);
+  assert.equal(body.registryOk, true);
+  assert.equal(body.ledgers.length, 1);
+  assert.equal(body.ledgers[0].name, "repo");
+  assert.equal(body.ledgers[0].status, "ok");
+  assert.equal(body.summary.ledgers, 1);
+  assert.equal(body.summary.ok, 1);
+  assert.equal(body.summary.stale, 0);
+  assert.equal(body.summary.invalid, 0);
+  assert.equal(body.cleanupSafety.executeRequiresLedgerAndPlanId, true);
+  assert.equal(body.cleanupSafety.globalExecuteRefused, true);
+  assert.equal(body.cleanupSafety.deleteRefusedInV1, true);
+  assert.deepEqual(body.errors, []);
+});
+
+test("doctor reports stale registered ledgers and exits non-zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "repo", ".shelf"), { recursive: true });
+  writeFileSync(ledger, "");
+  shelf(["ledgers", "add", "--ledger", ledger, "--registry", registry]);
+  rmSync(ledger);
+
+  const result = shelf(["doctor", "--registry", registry, "--json"]);
+  assert.equal(result.status, 1);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.ledgers[0].status, "missing");
+  assert.match(body.ledgers[0].errors[0], /registered ledger is missing/);
+  assert.match(body.errors.join("\n"), /registered ledger is missing/);
+
+  const human = shelf(["doctor", "--registry", registry]);
+  assert.equal(human.status, 1);
+  assert.match(human.stdout, /missing/);
+});
+
+test("doctor reports invalid registered ledgers and exits non-zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, "bad", ".shelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "bad", ".shelf"), { recursive: true });
+  writeFileSync(ledger, "{not json\n");
+  shelf(["ledgers", "add", "--ledger", ledger, "--name", "bad", "--registry", registry]);
+
+  const result = shelf(["doctor", "--registry", registry, "--json"]);
+  assert.equal(result.status, 1);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.ledgers[0].status, "invalid");
+  assert.match(body.ledgers[0].errors[0], /Invalid JSONL/);
+  assert.equal(body.summary.invalid, 1);
+});
+
+test("doctor reports a corrupt registry as an actionable error without crashing", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  writeFileSync(registry, "{not json");
+
+  const result = shelf(["doctor", "--registry", registry, "--json"]);
+  assert.equal(result.status, 1);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.registryOk, false);
+  assert.equal(typeof body.registryError, "string");
+  assert.match(body.errors.join("\n"), /registry/i);
+});
+
+test("doctor treats a fresh machine with no registry as healthy", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "missing-registry.json");
+
+  const result = shelf(["doctor", "--registry", registry, "--json"]);
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, true);
+  assert.equal(body.registryExists, false);
+  assert.equal(body.registryOk, true);
+  assert.equal(body.ledgers.length, 0);
+  assert.equal(body.summary.ledgers, 0);
+});
+
+test("doctor human output summarizes health and cleanup safety", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  writeFileSync(artifact, "hello");
+  shelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
+
+  const result = shelf(["doctor", "--registry", registry]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /shelf 0\.1\.0/);
+  assert.match(result.stdout, /health: ok/);
+  assert.match(result.stdout, /registry:/);
+  assert.match(result.stdout, /plan id/i);
+  assert.match(result.stdout, /execute/i);
+});
+
+test("doctor help explains the command", () => {
+  const main = shelf(["help"]);
+  assert.match(main.stdout, /shelf doctor/);
+
+  const help = shelf(["help", "doctor"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /shelf doctor/);
+  assert.match(help.stdout, /--json/);
+});
+
 function shelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
     encoding: "utf8",

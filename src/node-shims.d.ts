@@ -4,6 +4,7 @@ declare const process: {
   env: Record<string, string | undefined>;
   execPath: string;
   exitCode?: number;
+  version: string;
   stdout: { write(value: string): void };
   stderr: { write(value: string): void };
 };
