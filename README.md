@@ -44,10 +44,11 @@ Record a scratch directory for three days:
 shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
 ```
 
-List the ledger:
+Check the ledger:
 
 ```bash
 shelf list
+shelf status
 ```
 
 Review cleanup before anything moves:
