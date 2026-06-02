@@ -83,6 +83,8 @@ function main(argv: string[]): number {
         return handleReview(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "doctor":
         return handleDoctor(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      case "status":
+        return handleStatus(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "resolve":
         return handleResolve(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case undefined:
@@ -501,6 +503,162 @@ function printDoctor(report: DoctorReport): void {
   }
 }
 
+type StatusCounts = {
+  active: number;
+  due: number;
+  manualReview: number;
+  missingPath: number;
+  kept: number;
+  pendingCleanup: number;
+};
+
+type StatusLedger = {
+  name: string;
+  path: string;
+  scope: LedgerRegistryEntry["scope"];
+  status: "ok" | "missing" | "invalid";
+  ok: boolean;
+  counts: StatusCounts;
+  errors: string[];
+};
+
+type StatusReport = {
+  ok: boolean;
+  registryPath: string;
+  registryExists: boolean;
+  registryOk: boolean;
+  registryError: string | null;
+  ledgers: StatusLedger[];
+  totals: StatusCounts & { ledgers: number; ok: number; stale: number; invalid: number };
+};
+
+function handleStatus(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  if (boolFlag(parsed, "all")) {
+    const report = buildStatusReport(normalizeRegistryPath(stringFlag(parsed, "registry")));
+    if (json) {
+      printJson(report);
+      return report.ok ? 0 : 1;
+    }
+    printStatusAll(report);
+    return report.ok ? 0 : 1;
+  }
+  const ledger = statusLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
+  if (json) {
+    printJson({ ok: ledger.ok, ledger });
+    return ledger.ok ? 0 : 1;
+  }
+  printStatusSingle(ledger);
+  return ledger.ok ? 0 : 1;
+}
+
+function buildStatusReport(registryPath: string): StatusReport {
+  let registryOk = true;
+  let registryError: string | null = null;
+  let entries: LedgerRegistryEntry[] = [];
+  try {
+    entries = listRegisteredLedgers(registryPath);
+  } catch (error) {
+    registryOk = false;
+    registryError = (error as Error).message;
+  }
+
+  const ledgers = entries.map((entry) => statusLedger(entry));
+  const totals = {
+    ledgers: ledgers.length,
+    ok: ledgers.filter((ledger) => ledger.status === "ok").length,
+    stale: ledgers.filter((ledger) => ledger.status === "missing").length,
+    invalid: ledgers.filter((ledger) => ledger.status === "invalid").length,
+    active: sumStatusCounts(ledgers, "active"),
+    due: sumStatusCounts(ledgers, "due"),
+    manualReview: sumStatusCounts(ledgers, "manualReview"),
+    missingPath: sumStatusCounts(ledgers, "missingPath"),
+    kept: sumStatusCounts(ledgers, "kept"),
+    pendingCleanup: sumStatusCounts(ledgers, "pendingCleanup")
+  };
+
+  return {
+    ok: registryOk && totals.stale === 0 && totals.invalid === 0,
+    registryPath,
+    registryExists: existsSync(registryPath),
+    registryOk,
+    registryError,
+    ledgers,
+    totals
+  };
+}
+
+function statusLedger(ledger: LedgerRegistryEntry, registered = true): StatusLedger {
+  const validate = registered ? validateRegisteredLedger(ledger) : validateLedger(ledger.path);
+  if (!validate.ok) {
+    return {
+      name: ledger.name,
+      path: ledger.path,
+      scope: ledger.scope,
+      status: existsSync(ledger.path) ? "invalid" : "missing",
+      ok: false,
+      counts: emptyStatusCounts(),
+      errors: validate.errors
+    };
+  }
+
+  const records = readLedger(ledger.path);
+  const due = dueEntries(records);
+  const counts: StatusCounts = {
+    active: records.filter((record) => record.status === "active").length,
+    due: due.filter((entry) => entry.dueStatus === "due").length,
+    manualReview: due.filter((entry) => entry.dueStatus === "manual-review").length,
+    missingPath: due.filter((entry) => entry.dueStatus === "missing-path").length,
+    kept: due.filter((entry) => entry.dueStatus === "kept").length,
+    pendingCleanup: previewCleanupPlan(ledger.path).entries.length
+  };
+
+  return {
+    name: ledger.name,
+    path: ledger.path,
+    scope: ledger.scope,
+    status: "ok",
+    ok: true,
+    counts,
+    errors: []
+  };
+}
+
+function emptyStatusCounts(): StatusCounts {
+  return { active: 0, due: 0, manualReview: 0, missingPath: 0, kept: 0, pendingCleanup: 0 };
+}
+
+function sumStatusCounts(ledgers: StatusLedger[], key: keyof StatusCounts): number {
+  return ledgers.reduce((total, ledger) => total + ledger.counts[key], 0);
+}
+
+function formatStatusCounts(counts: StatusCounts): string {
+  return `active ${counts.active} · due ${counts.due} · manual-review ${counts.manualReview} · missing ${counts.missingPath} · kept ${counts.kept} · pending ${counts.pendingCleanup}`;
+}
+
+function printStatusAll(report: StatusReport): void {
+  process.stdout.write(`shelf status: ${report.ok ? "ok" : "needs attention"}\n`);
+  process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"} — ${report.totals.ledgers} ledgers (${report.totals.ok} ok, ${report.totals.stale} stale, ${report.totals.invalid} invalid)\n`);
+  if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
+  for (const ledger of report.ledgers) {
+    if (ledger.status === "ok") {
+      process.stdout.write(`[${ledger.name}] ${formatStatusCounts(ledger.counts)}\n`);
+    } else {
+      process.stdout.write(`[${ledger.name}] ${ledger.status}: ${ledger.errors.join("; ")}\n`);
+    }
+  }
+  process.stdout.write(`total: ${formatStatusCounts(report.totals)}\n`);
+}
+
+function printStatusSingle(ledger: StatusLedger): void {
+  process.stdout.write(`shelf status: ${ledger.ok ? "ok" : ledger.status}\n`);
+  process.stdout.write(`ledger: ${ledger.path}\n`);
+  if (ledger.ok) {
+    process.stdout.write(`${formatStatusCounts(ledger.counts)}\n`);
+  } else {
+    for (const message of ledger.errors) process.stdout.write(`error: ${message}\n`);
+  }
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, ...rest] = argv;
   const flags = new Map<string, string | boolean | string[]>();
@@ -794,6 +952,23 @@ broken registry or registered ledger exits non-zero with actionable errors.
     return;
   }
 
+  if (command === "status") {
+    process.stdout.write(`Usage:
+  shelf status [--ledger <path>] [--json]
+  shelf status --all [--registry <path>] [--json]
+
+Status is the lightweight daily "what is going on?" view. It reports registry
+health, total ledgers, and per-ledger counts of active artifacts, kept, due,
+manual-review, and missing-path entries, plus the pending cleanup count.
+
+Human output is short enough to paste into a chat; \`shelf status --all --json\`
+is suitable for cron and reporting. Status is read-only: it never creates plans
+or receipts and never mutates records. A healthy machine exits 0; a broken
+registry or any stale or invalid registered ledger exits non-zero.
+`);
+    return;
+  }
+
   process.stdout.write(`Shelf ${VERSION}
 
 Usage:
@@ -814,6 +989,8 @@ Usage:
   shelf review [--json]
   shelf review --all [--json]
   shelf doctor [--json]
+  shelf status [--json]
+  shelf status --all [--json]
   shelf cleanup --dry-run [--json]
   shelf cleanup --dry-run --all [--json]
   shelf cleanup --execute --plan-id <id> [--json]

@@ -149,6 +149,8 @@ shelf validate --all
 shelf review
 shelf review --all
 shelf doctor
+shelf status
+shelf status --all
 shelf cleanup --dry-run
 shelf cleanup --dry-run --all
 shelf cleanup --execute --plan-id <id>

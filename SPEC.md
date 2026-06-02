@@ -234,6 +234,33 @@ registered ledger exits non-zero with actionable errors. Humans should run
 may run it on a schedule to catch stale registry entries before relying on
 cleanup planning. Doctor never creates plans, receipts, or records.
 
+### `shelf status`
+
+The lightweight daily "what is going on?" view across ledgers.
+
+```bash
+shelf status
+shelf status --json
+shelf status --all --json
+shelf status --all --registry <path> --json
+```
+
+Status reports:
+
+- Registry health and the number of registered ledgers (with single `--ledger`
+  it reports just that ledger).
+- Per-ledger and aggregated counts of active artifacts, kept, due,
+  manual-review, and missing-path entries.
+- The pending cleanup count: how many entries a cleanup plan would currently
+  contain, computed read-only without writing a plan.
+
+`shelf status --all --json` is suitable for cron and reporting, and the human
+output is short enough to paste into a chat. Status is strictly read-only: it
+never creates plans or receipts and never mutates records. A healthy machine
+exits 0; a broken registry or any stale or invalid registered ledger exits
+non-zero. Due entries are normal operational state and do not change the exit
+code. With single `--ledger`, a not-yet-created ledger reports empty counts.
+
 ### `shelf cleanup --dry-run`
 
 Creates a cleanup plan when there are executable cleanup entries, but does not
@@ -466,6 +493,9 @@ Scheduled jobs must not silently execute cleanup.
 - CLI validates ledger shape.
 - CLI reports machine and registry health through `shelf doctor`, exiting
   non-zero when the registry or a registered ledger is broken.
+- CLI reports a read-only daily dashboard through `shelf status`, with
+  `--all --json` suitable for cron and human output short enough to paste into
+  a chat; status never creates plans, receipts, or records.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Shelf
