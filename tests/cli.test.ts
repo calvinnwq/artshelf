@@ -336,6 +336,21 @@ test("ledgers add requires an existing ledger path", () => {
   assert.equal(existsSync(registry), false);
 });
 
+test("ledgers add falls back from blank names to inferred names", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "repo", ".shelf"), { recursive: true });
+  writeFileSync(ledger, "");
+
+  const result = shelf(["ledgers", "add", "--ledger", ledger, "--name", "   ", "--registry", registry, "--json"]);
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).ledger.name, "repo");
+
+  const list = JSON.parse(shelf(["ledgers", "list", "--registry", registry, "--json"]).stdout);
+  assert.deepEqual(list.ledgers.map((entry: any) => entry.name), ["repo"]);
+});
+
 test("review reports invalid registered ledgers without aborting", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
@@ -386,6 +401,10 @@ test("registered ledgers missing from disk are reported as stale registry entrie
   const body = JSON.parse(result.stdout);
   assert.equal(body.ok, false);
   assert.match(body.ledgers[0].result.errors[0], /registered ledger is missing/);
+
+  const human = shelf(["validate", "--all", "--registry", registry]);
+  assert.equal(human.status, 1);
+  assert.match(human.stdout, /error: registered ledger is missing/);
 
   for (const args of [
     ["list", "--all", "--registry", registry, "--json"],

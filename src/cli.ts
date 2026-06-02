@@ -296,6 +296,8 @@ function handleValidate(parsed: ParsedArgs, ledgerPath: string, json: boolean): 
     }
     for (const entry of results) {
       process.stdout.write(`${entry.result.ok ? "ok" : "invalid"} ${entry.ledger.name}: ${entry.result.entries} entries, ${entry.result.errors.length} errors, ${entry.result.warnings.length} warnings\nledger: ${entry.ledger.path}\n`);
+      for (const error of entry.result.errors) process.stdout.write(`error: ${error}\n`);
+      for (const warning of entry.result.warnings) process.stdout.write(`warning: ${warning}\n`);
     }
     process.stdout.write(`registry: ${registryPath}\n`);
     return ok ? 0 : 1;

@@ -57,8 +57,9 @@ export function registerLedger(input: RegisterLedgerInput): LedgerRegistryEntry 
     const timestamp = toIso(now());
     const existingIndex = registry.ledgers.findIndex((entry) => entry.path === ledgerPath);
     const existing = existingIndex >= 0 ? registry.ledgers[existingIndex] : undefined;
+    const name = normalizeName(input.name);
     const entry: LedgerRegistryEntry = {
-      name: input.name ?? existing?.name ?? inferLedgerName(ledgerPath),
+      name: name ?? existing?.name ?? inferLedgerName(ledgerPath),
       path: ledgerPath,
       scope: input.scope ? assertScope(input.scope) : existing?.scope ?? inferLedgerScope(ledgerPath),
       createdAt: existing?.createdAt ?? timestamp,
@@ -134,6 +135,11 @@ function normalizeEntry(entry: Partial<LedgerRegistryEntry>): LedgerRegistryEntr
     createdAt: entry.createdAt,
     updatedAt: entry.updatedAt
   };
+}
+
+function normalizeName(name: string | undefined): string | undefined {
+  const trimmed = name?.trim();
+  return trimmed ? trimmed : undefined;
 }
 
 function inferLedgerName(ledgerPath: string): string {
