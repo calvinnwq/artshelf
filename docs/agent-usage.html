@@ -91,7 +91,8 @@ corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
 npm link
-shelf --version</code></pre>
+shelf --version
+shelf doctor</code></pre>
             </section>
 
             <section>
@@ -139,6 +140,7 @@ shelf get &lt;id&gt; --json</code></pre>
               <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
 shelf ledgers list --json
 shelf review --all --json
+shelf status --all --json
 shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
               <p>Use global cleanup dry-run when you want Shelf to write cleanup plans for registered ledgers with cleanup entries, without moving files.</p>
               <pre><code>shelf cleanup --dry-run --all --json</code></pre>
@@ -205,6 +207,14 @@ shelf cleanup --dry-run --all --json</code></pre>
 shelf validate --all --json
 shelf due --json
 shelf due --all --json</code></pre>
+              <p>
+                Read-only health and dashboard checks are also safe to schedule. Run
+                <code>shelf doctor --json</code> to catch a broken or stale registry before
+                relying on cleanup planning, and <code>shelf status --all --json</code> for a
+                compact cron summary.
+              </p>
+              <pre><code>shelf doctor --json
+shelf status --all --json</code></pre>
               <p>
                 Scheduled cleanup dry-run may write plan files for later review when cleanup entries
                 exist, but must not move or delete files. Matching dry-runs reuse the existing plan

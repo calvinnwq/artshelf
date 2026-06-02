@@ -54,6 +54,7 @@ pnpm install --frozen-lockfile
 pnpm run build
 npm link
 shelf --version
+shelf doctor
 ```
 
 For now, do not choose an npm registry install or a custom shim. npm publishing
@@ -106,6 +107,7 @@ Use the registry for read-only review and discovery:
 
 ```bash
 shelf review --all --json
+shelf status --all --json
 shelf due --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
@@ -216,6 +218,15 @@ job non-destructive:
 ```bash
 shelf validate --json
 shelf due --json
+```
+
+Read-only health and dashboard checks are also safe to schedule. Run
+`shelf doctor --json` to catch a broken or stale registry before relying on
+cleanup planning, and `shelf status --all --json` for a compact cron summary:
+
+```bash
+shelf doctor --json
+shelf status --all --json
 ```
 
 Scheduled cleanup dry-run may write plan files for later review when cleanup

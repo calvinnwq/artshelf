@@ -207,6 +207,62 @@ shelf review --all --json
 registered ledger from the registry; stale, invalid, and valid no-op ledgers are
 included with a `not-created` plan instead of writing a plan file.
 
+### `shelf doctor`
+
+Reports whether Shelf is healthy on the current machine without mutating
+anything.
+
+```bash
+shelf doctor
+shelf doctor --json
+shelf doctor --ledger <path>
+shelf doctor --registry <path>
+```
+
+Doctor reports:
+
+- CLI version and Node runtime version.
+- The selected/default ledger path and selected/global registry path, and whether they exist.
+- Registered ledger health, flagging stale (missing from disk) and invalid
+  (unparseable or malformed) entries.
+- The cleanup safety posture, including that `cleanup --execute` is scoped to
+  one selected/default ledger and still requires a reviewed `--plan-id`, that
+  global execute is refused, and that physical delete is refused in v1.
+
+A healthy machine exits 0. A broken registry file or any stale or invalid
+registered ledger exits non-zero with actionable errors. Humans should run
+`shelf doctor` after install or when `--all` commands behave unexpectedly; agents
+may run it on a schedule to catch stale registry entries before relying on
+cleanup planning. Doctor never creates plans, receipts, or records.
+
+### `shelf status`
+
+The lightweight daily "what is going on?" view across ledgers.
+
+```bash
+shelf status
+shelf status --json
+shelf status --all --json
+shelf status --all --registry <path> --json
+```
+
+Status reports:
+
+- Registry health and the number of registered ledgers (with single `--ledger`
+  it reports just that ledger).
+- Per-ledger and aggregated counts of active artifacts, kept, due,
+  manual-review, and missing-path entries.
+- The pending cleanup count: how many entries a cleanup plan would currently
+  contain, computed read-only without writing a plan.
+
+`shelf status --all --json` is suitable for cron and reporting, and the human
+output is short enough to paste into a chat. Status is strictly read-only: it
+never creates plans or receipts and never mutates records. A healthy machine
+exits 0. In `--all` mode, a broken registry or any stale or invalid registered
+ledger exits non-zero. Due entries are normal operational state and do not change
+the exit code. With single `--ledger`, a not-yet-created ledger reports empty
+counts.
+
 ### `shelf cleanup --dry-run`
 
 Creates a cleanup plan when there are executable cleanup entries, but does not
@@ -413,6 +469,8 @@ Scheduled jobs may run:
 ```bash
 shelf due --json
 shelf due --all --json
+shelf doctor --json
+shelf status --all --json
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
@@ -437,6 +495,11 @@ Scheduled jobs must not silently execute cleanup.
 - CLI can find existing records by path/owner/label/status and get records by id.
 - CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
+- CLI reports machine and registry health through `shelf doctor`, exiting
+  non-zero when the registry or a registered ledger is broken.
+- CLI reports a read-only daily dashboard through `shelf status`, with
+  `--all --json` suitable for cron and human output short enough to paste into
+  a chat; status never creates plans, receipts, or records.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Shelf
@@ -445,8 +508,8 @@ Scheduled jobs must not silently execute cleanup.
 - Cleanup execute writes a receipt.
 - All core commands support `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
-  `--all` review, stale-registry, dry-run, global-dry-run, and execute-plan
-  behavior.
+  `shelf doctor`, the `shelf status` dashboard, `--all` review, stale-registry,
+  dry-run, global-dry-run, and execute-plan behavior.
 
 ## Deferred
 

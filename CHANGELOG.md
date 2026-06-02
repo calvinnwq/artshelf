@@ -16,6 +16,15 @@
   Shelf-owned ledger artifacts.
 - Reuse unchanged cleanup dry-run plans by refreshing the existing plan timestamp
   and Shelf-owned plan record instead of creating duplicate plan files.
+- Added a read-only `shelf doctor` command that reports CLI and runtime version,
+  the selected/default ledger path, selected/global registry path,
+  registered-ledger health (stale or invalid entries), and the cleanup safety
+  posture, exiting non-zero when the registry or a registered ledger is broken.
+- Added a read-only `shelf status` dashboard: single-ledger mode reports
+  selected-ledger counts, while `--all` adds registry health, total ledgers, and
+  aggregated active, kept, due, manual-review, missing-path, and pending-cleanup
+  counts, with `--all --json` suited to cron and human output short enough to
+  paste into a chat.
 
 ## 0.1.0 - 2026-06-01
 

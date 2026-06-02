@@ -27,6 +27,7 @@ pnpm install --frozen-lockfile
 pnpm run build
 npm link
 shelf --version
+shelf doctor
 ```
 
 To remove the linked command later:
@@ -43,10 +44,11 @@ Record a scratch directory for three days:
 shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
 ```
 
-List the ledger:
+Check the ledger:
 
 ```bash
 shelf list
+shelf status
 ```
 
 Review cleanup before anything moves:
@@ -91,6 +93,7 @@ Use `--all` for one read-only discovery entry point across registered ledgers:
 
 ```bash
 shelf review --all --json
+shelf status --all --json
 shelf due --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
@@ -148,6 +151,9 @@ shelf validate
 shelf validate --all
 shelf review
 shelf review --all
+shelf doctor
+shelf status
+shelf status --all
 shelf cleanup --dry-run
 shelf cleanup --dry-run --all
 shelf cleanup --execute --plan-id <id>

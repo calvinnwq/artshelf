@@ -34,14 +34,15 @@ Check the installed CLI first:
 
 ```bash
 shelf --version
+shelf doctor
 shelf help put
 ```
 
 If Shelf is not installed, ask the user where to clone the repo before making
 changes. Do not hard-code a personal repo path. The supported setup method for
 now is local only: clone the repo, build it, run `npm link`, then verify
-`shelf --version`. Do not use an npm registry install or custom shim until the
-docs say that method is supported.
+`shelf --version` and `shelf doctor`. Do not use an npm registry install or
+custom shim until the docs say that method is supported.
 
 ```bash
 git clone https://github.com/calvinnwq/shelf.git "$SHELF_REPO"
@@ -51,6 +52,7 @@ pnpm install --frozen-lockfile
 pnpm run build
 npm link
 shelf --version
+shelf doctor
 ```
 
 Common registration:
@@ -88,6 +90,7 @@ point:
 ```bash
 shelf ledgers list --json
 shelf review --all --json
+shelf status --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
 
@@ -212,6 +215,15 @@ Allowed in scheduled jobs:
 shelf validate --json
 shelf due --json
 shelf cleanup --dry-run --json
+```
+
+Read-only health and dashboard checks are also safe to schedule. Run
+`shelf doctor --json` to catch a broken or stale registry before relying on
+cleanup planning, and `shelf status --all --json` for a compact cron summary:
+
+```bash
+shelf doctor --json
+shelf status --all --json
 ```
 
 The report should include the ledger path, due/manual-review/missing-path counts,
