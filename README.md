@@ -56,6 +56,10 @@ shelf due
 shelf cleanup --dry-run
 ```
 
+Because this example keeps the artifact for three days, an immediate dry-run
+reports `not-created` and writes no plan. Execute only after `due` shows cleanup
+entries and a dry-run returns a real plan id.
+
 Execute only from a reviewed plan id:
 
 ```bash
