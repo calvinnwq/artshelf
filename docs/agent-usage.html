@@ -23,7 +23,6 @@
         <div class="nav-section">
           <p class="nav-section-title">Agents</p>
           <a href="agent-usage.html" aria-current="page">Agent usage</a>
-          <a href="openclaw.html">OpenClaw setup</a>
           <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
         </div>
         <div class="nav-section">
@@ -40,7 +39,7 @@
             <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Agent usage</span></nav>
             <div class="hero">
               <div>
-                <p class="eyebrow">For OpenClaw, Codex, Claude, and other agents</p>
+                <p class="eyebrow">For local agents and automation</p>
                 <h1>Register artifacts while intent is fresh.</h1>
                 <p class="lede">
                   Agents should use Shelf when temporary files need accountability, restart
@@ -54,7 +53,7 @@
   --ttl 3d \
   --kind run-artifact \
   --cleanup review \
-  --owner openclaw \
+  --owner agent \
   --label &lt;project&gt; \
   --json</code></pre>
               </div>
@@ -64,6 +63,21 @@
 
         <main class="wrap">
           <article>
+            <section>
+              <h2>Registration Trigger</h2>
+              <p>
+                Treat Shelf as a finalization check, not an optional cleanup habit. Before an
+                agent reports a task as done, it should check whether the task created, copied,
+                exported, quarantined, backed up, or preserved any non-source file or directory
+                that may outlive the current command.
+              </p>
+              <p>
+                Register eligible artifacts immediately. If an eligible artifact is skipped,
+                state the reason: source-controlled, regeneratable, secret-bearing, already
+                tracked by another durable ledger, or explicitly not retained by request.
+              </p>
+            </section>
+
             <section>
               <h2>Install Behavior</h2>
               <p>
@@ -106,7 +120,7 @@ shelf --version</code></pre>
                 artifact. <code>find</code> and <code>get</code> are read-only; they never move,
                 resolve, or delete files.
               </p>
-              <pre><code>shelf find --path &lt;path&gt; --owner coding-workflow-pipeline --label &lt;run-id&gt; --json
+              <pre><code>shelf find --path &lt;path&gt; --owner &lt;agent-or-runtime&gt; --label &lt;task-or-run-id&gt; --json
 shelf get &lt;id&gt; --json</code></pre>
               <p>
                 <code>find</code> requires at least one selector. Multiple labels are an all-label
@@ -125,22 +139,23 @@ shelf get &lt;id&gt; --json</code></pre>
               <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
 shelf ledgers list --json
 shelf review --all --json
-shelf find --all --owner coding-workflow-pipeline --json</code></pre>
-              <p>Use global cleanup dry-run when you want Shelf to write cleanup plans for each registered ledger without moving files.</p>
+shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
+              <p>Use global cleanup dry-run when you want Shelf to write cleanup plans for registered ledgers with cleanup entries, without moving files.</p>
               <pre><code>shelf cleanup --dry-run --all --json</code></pre>
               <div class="note">
                 <code>--all</code> is for discovery and review. Cleanup execution remains
                 ledger-specific and requires a reviewed plan id for that ledger.
               </div>
+              <p>If the executable cleanup entries have not changed, dry-run reuses the existing plan id and refreshes the same plan file instead of creating duplicate plans.</p>
             </section>
 
             <section>
               <h2>Report The ID</h2>
               <pre><code>Shelf artifacts:
-- shf_20260601_182800_ab12: /tmp/parser-output, debug evidence for SK-123,
+- shf_20260601_182800_ab12: /tmp/parser-output, debug evidence for issue-123,
   retain until 2026-06-04, cleanup=review</code></pre>
               <p>
-                Put the id in handoffs, PR comments, Linear comments, daily memory, or task run
+                Put the id in handoffs, PR comments, issue comments, memory, or task run
                 summaries when the artifact matters for restart.
               </p>
             </section>
@@ -151,7 +166,7 @@ shelf find --all --owner coding-workflow-pipeline --json</code></pre>
 shelf validate --all --json
 shelf due --json
 shelf due --all --json</code></pre>
-              <p>Cleanup dry-run is safe to run, but it writes plan files for later review.</p>
+              <p>Cleanup dry-run is safe to run. It writes plan files for later review only when there are executable cleanup entries; no-op dry-runs report <code>not-created</code> and write no plan file. Matching dry-runs reuse the existing plan id and refresh the plan timestamp.</p>
               <pre><code>shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json</code></pre>
               <pre><code>shelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
@@ -159,6 +174,7 @@ shelf cleanup --dry-run --all --json</code></pre>
                 Execution needs explicit human approval for the reviewed plan id. Never generate a
                 fresh plan and execute it in the same step. Execution writes a receipt and updates
                 touched ledger records to `trashed`, `review-required`, or `cleanup-refused`.
+                Shelf records generated plans and receipts as `owner=shelf` artifacts.
               </div>
               <p>
                 Agents may mark a ledger record manually resolved when the user confirms the
@@ -185,8 +201,9 @@ shelf validate --all --json
 shelf due --json
 shelf due --all --json</code></pre>
               <p>
-                Scheduled cleanup dry-run may write plan files for later review, but must not
-                move or delete files.
+                Scheduled cleanup dry-run may write plan files for later review when cleanup entries
+                exist, but must not move or delete files. Matching dry-runs reuse the existing plan
+                id and refresh the plan timestamp.
               </p>
               <pre><code>shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json</code></pre>
@@ -203,12 +220,21 @@ shelf cleanup --dry-run --all --json</code></pre>
             </section>
 
             <section>
+              <h2>Completion Checklist</h2>
+              <ol>
+                <li>Did you create, copy, export, quarantine, back up, or preserve any non-source file or directory?</li>
+                <li>Will any of those paths outlive this command?</li>
+                <li>If yes, did you register them with Shelf or state why Shelf is not appropriate?</li>
+              </ol>
+              <div class="note">Do not call work done while known eligible artifacts are neither registered nor explicitly skipped.</div>
+            </section>
+
+            <section>
               <h2>Portable Skill</h2>
               <p>
                 The repo ships a portable skill at
                 <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">skills/shelf/SKILL.md</a>.
                 Agents that support local skills can copy or reference it directly.
-                OpenClaw-specific local setup lives in <a href="openclaw.html">OpenClaw setup</a>.
               </p>
             </section>
           </article>

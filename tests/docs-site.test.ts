@@ -7,7 +7,6 @@ const DOC_PAGES = [
   "docs/install.html",
   "docs/quickstart.html",
   "docs/agent-usage.html",
-  "docs/openclaw.html",
   "docs/reference.html"
 ];
 
@@ -23,7 +22,6 @@ test("docs site pages share the expected chrome", () => {
     assert.match(html, /href="install\.html"/, page);
     assert.match(html, /href="quickstart\.html"/, page);
     assert.match(html, /href="agent-usage\.html"/, page);
-    assert.match(html, /href="openclaw\.html"/, page);
     assert.match(html, /href="reference\.html"/, page);
   }
 });
@@ -70,6 +68,7 @@ test("docs site local links resolve inside docs", () => {
 test("install docs cover the local clone, build, and npm link path", () => {
   const readme = read("README.md");
   const install = read("docs/install.html");
+  const packageJson = read("package.json");
 
   for (const text of [readme, install]) {
     assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/shelf\.git/);
@@ -80,6 +79,11 @@ test("install docs cover the local clone, build, and npm link path", () => {
     assert.match(text, /shelf --version/);
     assert.doesNotMatch(text, /Optional global link|optional local global link/);
   }
+
+  assert.match(readme, /pnpm docs:serve/);
+  assert.match(install, /pnpm docs:serve/);
+  assert.match(install, /127\.0\.0\.1:8080/);
+  assert.match(packageJson, /"docs:serve": "python3 -m http\.server 8080 --directory docs"/);
 });
 
 test("docs site explains cleanup approval boundary", () => {
@@ -97,6 +101,9 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /shelf ledgers add|shelf ledgers list/);
   assert.match(pages, /shelf review --all/);
   assert.match(pages, /cleanup --dry-run --all/);
+  assert.match(pages, /not-created/);
+  assert.match(pages, /owner=shelf/);
+  assert.match(pages, /reuse the existing plan id|reuses the existing plan id/);
   assert.match(pages, /shelf get <id>|shelf get &lt;id&gt;/);
   assert.match(pages, /shelf resolve <id> --status resolved|shelf resolve &lt;id&gt; --status resolved/);
 });
@@ -129,6 +136,20 @@ test("agent docs define scheduled review without scheduled execution", () => {
   }
 });
 
+test("agent docs define registration triggers and completion checks", () => {
+  const markdownGuide = read("docs/agent-usage.md");
+  const portableSkill = read("skills/shelf/SKILL.md");
+  const agentPage = read("docs/agent-usage.html");
+
+  for (const text of [markdownGuide, portableSkill, agentPage]) {
+    assert.match(text, /created,\s+copied,\s+exported,\s+quarantined,\s+backed up,\s+or preserved/);
+    assert.match(text, /may outlive/);
+    assert.match(text, /eligible artifact/);
+    assert.match(text, /skip reason|state why|record a clear skip reason/);
+    assert.match(text, /Do not call work done|Before finalizing|Completion Checklist/);
+  }
+});
+
 test("agent install guidance prompts for paths and avoids unsupported install methods", () => {
   const markdownGuide = read("docs/agent-usage.md");
   const portableSkill = read("skills/shelf/SKILL.md");
@@ -146,29 +167,24 @@ test("agent install guidance prompts for paths and avoids unsupported install me
   }
 });
 
-test("OpenClaw setup docs prompt for path, use npm link, and safe smoke", () => {
-  const markdownGuide = read("docs/openclaw-setup.md");
-  const page = read("docs/openclaw.html");
+test("docs and portable skill stay workflow-agnostic", () => {
   const readme = read("README.md");
+  const docsAndSkill = [
+    readme,
+    read("SPEC.md"),
+    read("docs/agent-usage.md"),
+    read("docs/index.html"),
+    read("docs/install.html"),
+    read("docs/quickstart.html"),
+    read("docs/agent-usage.html"),
+    read("docs/reference.html"),
+    read("skills/shelf/SKILL.md")
+  ].join("\n");
 
-  for (const text of [markdownGuide, page]) {
-    assert.match(text, /OpenClaw/);
-    assert.match(text, /ask|Ask/);
-    assert.match(text, /user-approved checkout path|where Shelf should be cloned/);
-    assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/shelf\.git/);
-    assert.match(text, /pnpm install --frozen-lockfile/);
-    assert.match(text, /pnpm run build/);
-    assert.match(text, /npm link/);
-    assert.match(text, /shelf --version/);
-    assert.doesNotMatch(text, /\/Users\/ngxcalvin\/repos\/shelf/);
-    assert.doesNotMatch(text, /\.local\/bin\/shelf/);
-    assert.match(text, /OpenClaw local Shelf setup smoke/);
-    assert.match(text, /cleanup --dry-run --json/);
-    assert.match(text, /cleanup --execute/);
-    assert.match(text, /explicit human approval/);
-  }
-
-  assert.match(readme, /docs\/openclaw-setup\.md/);
+  assert.doesNotMatch(docsAndSkill, /OpenClaw|openclaw/);
+  assert.doesNotMatch(docsAndSkill, /coding-workflow|coding_workflow|workflow_plan|shelf-register|artifactRetention/);
+  assert.doesNotMatch(docsAndSkill, /\/Users\/ngxcalvin|Calvin's/);
+  assert.doesNotMatch(docsAndSkill, /\.agent-workflows|\.gnhf|no-mistakes|ShakedownKit|Momentum/);
   assert.match(readme, /not published to npm/);
 });
 

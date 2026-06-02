@@ -14,8 +14,13 @@ fresh. Do not infer intent later from filesystem age or path names.
 
 ## Contract
 
+- Mandatory trigger: before final response, handoff, status, or "done"
+  reporting, check whether the task created, copied, exported, quarantined,
+  backed up, or preserved any non-source file or directory that may outlive the
+  current command.
 - Use `shelf put` for meaningful temporary artifacts, backups, run outputs, and
-  debug evidence.
+  debug evidence immediately after the path exists.
+- If an eligible artifact is not registered, record a clear skip reason.
 - Include a clear reason, retention rule, cleanup mode, owner, and useful
   labels.
 - Capture the Shelf id in handoffs, PRs, issue comments, memory, or run
@@ -69,7 +74,7 @@ Use read-only lookup before `put` when a workflow needs idempotent artifact
 registration:
 
 ```bash
-shelf find --path <path> --owner <runtime> --label <run-id> --json
+shelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id> --json
 shelf get <id> --json
 ```
 
@@ -83,7 +88,7 @@ point:
 ```bash
 shelf ledgers list --json
 shelf review --all --json
-shelf find --all --owner <runtime> --json
+shelf find --all --owner <agent-or-runtime> --json
 ```
 
 `put` registers its ledger automatically. For existing project ledgers, register
@@ -115,6 +120,10 @@ Skip:
 - artifacts already owned by a durable workflow ledger
 - secrets or credential dumps
 
+If you skip an otherwise eligible artifact, report the reason briefly. Examples:
+source-controlled, regeneratable, secret-bearing, already tracked by another
+durable ledger, or user asked not to retain it.
+
 ## Defaults
 
 - `kind=scratch` for temporary working directories.
@@ -123,8 +132,8 @@ Skip:
 - `kind=quarantine` for isolated questionable files.
 - `cleanup=review` when judgment is needed later.
 - `cleanup=trash` only when disposal after the retention window is clearly safe.
-- `owner=<runtime>` should name the runtime or agent, such as `codex`,
-  `claude`, `openclaw`, or `manual`.
+- `owner=<agent-or-runtime>` should name the agent, tool, CI job, or human
+  process that created the artifact.
 
 ## Report
 
@@ -134,6 +143,19 @@ After registration, include the Shelf id where the future reader will look:
 Shelf artifact: shf_20260601_182800_ab12, /tmp/parser-output, retain until
 2026-06-04, cleanup=review.
 ```
+
+## Completion Check
+
+Before finalizing a task, review your own file actions:
+
+1. Did you create, copy, export, quarantine, back up, or preserve any non-source
+   file or directory?
+2. Will any of those paths outlive this command?
+3. If yes, did you register them with Shelf or state why Shelf is not
+   appropriate?
+
+Do not call work done while known eligible artifacts are neither registered nor
+explicitly skipped.
 
 ## Cleanup
 
@@ -146,7 +168,8 @@ shelf due --json
 shelf due --all --json
 ```
 
-Cleanup dry-run is safe to run, but it writes plan files for later review:
+Cleanup dry-run is safe to run. It writes plan files for later review only when
+there are executable cleanup entries:
 
 ```bash
 shelf cleanup --dry-run --json
@@ -159,10 +182,12 @@ Requires explicit approval that names the reviewed plan id:
 shelf cleanup --execute --plan-id <id>
 ```
 
+No-op dry-runs report `not-created` and do not write plan files.
 Never generate a fresh plan and execute it in the same step.
 Execution writes a receipt and updates touched ledger records to `trashed`,
 `review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
 future due and dry-run cleanup output.
+Shelf records generated plans and receipts as `owner=shelf` artifacts.
 
 You may mark a record manually resolved when the user confirms the artifact was
 inspected, is already missing, or is no longer needed:
@@ -193,6 +218,10 @@ The report should include the ledger path, due/manual-review/missing-path counts
 cleanup dry-run plan id, executable entries, skipped entries, and refused
 entries. Stay quiet when nothing needs attention unless a regular summary was
 requested.
+
+Repeated dry-runs with the same executable cleanup entries reuse the existing
+plan id and refresh that plan file's timestamp instead of creating duplicate
+plans.
 
 Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
 locations for ledgers unless the user opted into that discovery scope.

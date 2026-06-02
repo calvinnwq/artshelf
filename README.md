@@ -35,9 +35,6 @@ To remove the linked command later:
 npm unlink -g shelf
 ```
 
-For Calvin's OpenClaw setup, see the copy-paste guide in
-[docs/openclaw-setup.md](docs/openclaw-setup.md).
-
 ## Quickstart
 
 Record a scratch directory for three days:
@@ -91,11 +88,11 @@ Use `--all` for one read-only discovery entry point across registered ledgers:
 ```bash
 shelf review --all --json
 shelf due --all --json
-shelf find --all --owner coding-workflow-pipeline --json
+shelf find --all --owner <agent-or-runtime> --json
 ```
 
-Use global dry-run cleanup when you want Shelf to write cleanup plans for each
-registered ledger without moving files:
+Use global dry-run cleanup when you want Shelf to write cleanup plans for
+registered ledgers with cleanup entries, without moving files:
 
 ```bash
 shelf cleanup --dry-run --all --json
@@ -103,6 +100,8 @@ shelf cleanup --dry-run --all --json
 
 Global execution is intentionally refused. To mutate files, review a dry-run
 plan, then execute it against the specific ledger that produced it.
+Repeated dry-runs with the same executable cleanup entries reuse the existing
+plan id and refresh its timestamp instead of creating duplicate plan files.
 
 ## Safety Model
 
@@ -117,9 +116,14 @@ V1 only moves `cleanup=trash` entries into Shelf's local trash folder. Entries
 marked `cleanup=review` become `review-required`, and physical `delete` is
 refused as `cleanup-refused`.
 
-After `cleanup --execute`, Shelf writes a receipt and updates touched ledger
-records. Handled records stop appearing in `due` and future dry-run cleanup
-plans, while `shelf list` still keeps the audit trail visible.
+Dry-run cleanup writes a plan only when there are executable cleanup entries.
+No-op dry-runs report `not-created` and avoid writing plan files. When Shelf does
+write a plan, it also records that plan in the ledger as a Shelf-owned artifact.
+
+After `cleanup --execute`, Shelf writes a receipt, records the receipt as a
+Shelf-owned artifact, and updates touched ledger records. Handled records stop
+appearing in `due` and future dry-run cleanup plans, while `shelf list` still
+keeps the audit trail visible.
 
 ## Commands
 
@@ -130,8 +134,8 @@ shelf ledgers add --ledger <path>
 shelf list
 shelf list --all
 shelf list --status active
-shelf find --path <path> --owner coding-workflow-pipeline --label <run-id>
-shelf find --all --owner coding-workflow-pipeline
+shelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id>
+shelf find --all --owner <agent-or-runtime>
 shelf get <id>
 shelf get <id> --all
 shelf due
@@ -151,8 +155,7 @@ commands support `--json`.
 
 See the [docs site](https://calvinnwq.github.io/shelf/) for install,
 quickstart, agent usage, and CLI reference. The source repo also keeps the
-[v1 spec](SPEC.md), [agent usage guide](docs/agent-usage.md), and
-[OpenClaw setup guide](docs/openclaw-setup.md).
+[v1 spec](SPEC.md) and [agent usage guide](docs/agent-usage.md).
 
 ## Agent Skill
 
@@ -174,6 +177,14 @@ distribution for agent skills can come later.
 pnpm install
 pnpm check
 ```
+
+Preview the static docs site locally:
+
+```bash
+pnpm docs:serve
+```
+
+Then open <http://127.0.0.1:8080/>.
 
 During tests or one-off runs, pass both `--ledger <path>` and `--registry <path>`
 to keep entries and registry updates out of default Shelf storage.

@@ -23,7 +23,6 @@
         <div class="nav-section">
           <p class="nav-section-title">Agents</p>
           <a href="agent-usage.html">Agent usage</a>
-          <a href="openclaw.html">OpenClaw setup</a>
           <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
         </div>
         <div class="nav-section">
@@ -72,8 +71,8 @@ $ shelf --version</code></pre>
                 <div class="command-row"><code>shelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path. Use <code>--all</code> to read every registered ledger after registry validation.</p></div>
                 <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing active or review-required paths. Use <code>--all</code> to report stale registered ledgers.</p></div>
                 <div class="command-row"><code>shelf review</code><p>Run validate, due, and cleanup plan preview. Use <code>--all</code> to report invalid ledgers with a <code>not-created</code> plan.</p></div>
-                <div class="command-row"><code>shelf cleanup --dry-run</code><p>Create a cleanup plan without moving files.</p></div>
-                <div class="command-row"><code>shelf cleanup --execute --plan-id &lt;id&gt;</code><p>Execute a previously reviewed plan id, write a receipt, and update touched ledger records.</p></div>
+                <div class="command-row"><code>shelf cleanup --dry-run</code><p>Create a cleanup plan without moving files when cleanup entries exist; no-op dry-runs report <code>not-created</code>, and matching dry-runs reuse the existing plan id.</p></div>
+                <div class="command-row"><code>shelf cleanup --execute --plan-id &lt;id&gt;</code><p>Execute a previously reviewed plan id, write a receipt, register the receipt artifact, and update touched ledger records.</p></div>
                 <div class="command-row"><code>shelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code><p>Mark a handled, missing, or no-longer-needed record as manually resolved.</p></div>
               </div>
             </section>
@@ -118,8 +117,8 @@ SHELF_REGISTRY    Override the default ledger registry path
                 Use <code>find</code> before <code>put</code> when an integration needs idempotent
                 artifact registration. It requires at least one selector and never mutates records.
               </p>
-              <pre><code>shelf find --path &lt;path&gt; --owner coding-workflow-pipeline --label &lt;run-id&gt; --json
-shelf find --all --owner coding-workflow-pipeline --json
+              <pre><code>shelf find --path &lt;path&gt; --owner &lt;agent-or-runtime&gt; --label &lt;task-or-run-id&gt; --json
+shelf find --all --owner &lt;agent-or-runtime&gt; --json
 shelf get &lt;id&gt; --json
 shelf get &lt;id&gt; --all --json</code></pre>
             </section>
@@ -144,8 +143,8 @@ shelf cleanup --dry-run --all --json</code></pre>
                 <code>shelf ledgers add</code> requires an existing ledger path. Scope may be
                 <code>repo</code>, <code>user</code>, or <code>other</code>; when omitted, Shelf infers
                 it from the path. All-mode reads report stale or invalid registered ledgers
-                before returning records. Global cleanup dry-run writes plan files, while global cleanup
-                execution is refused. Execute only
+                before returning records. Global cleanup dry-run writes plan files only for ledgers
+                with cleanup entries, while global cleanup execution is refused. Execute only
                 a specific reviewed plan id against the ledger that produced it.
               </p>
             </section>
