@@ -225,9 +225,9 @@ Doctor reports:
 - The selected/default ledger path and selected/global registry path, and whether they exist.
 - Registered ledger health, flagging stale (missing from disk) and invalid
   (unparseable or malformed) entries.
-- The cleanup safety posture, including that `cleanup --execute` still requires
-  an explicit ledger and a reviewed `--plan-id`, that global execute is refused,
-  and that physical delete is refused in v1.
+- The cleanup safety posture, including that `cleanup --execute` is scoped to
+  one selected/default ledger and still requires a reviewed `--plan-id`, that
+  global execute is refused, and that physical delete is refused in v1.
 
 A healthy machine exits 0. A broken registry file or any stale or invalid
 registered ledger exits non-zero with actionable errors. Humans should run
