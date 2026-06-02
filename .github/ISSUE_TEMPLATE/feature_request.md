@@ -10,4 +10,4 @@ labels: enhancement
 
 ## Safety Notes
 
-How should this stay ledger-first, previewable, and plan-id gated?
+How should this preserve the no-daemon, no-auto-execute, no-global-execute, no-fresh-plan shortcut, and no-silent-physical-deletion boundaries?

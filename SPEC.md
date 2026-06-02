@@ -53,7 +53,8 @@ Required:
 Optional:
 
 - `--kind scratch|backup|run-artifact|evidence|cache|quarantine|other`
-- `--cleanup trash|review|delete`
+- `--cleanup trash|review|delete` (`delete` records intent, but v1 refuses
+  physical delete as `cleanup-refused`)
 - `--owner <string>`
 - `--label <label>` repeatable
 - `--ledger <path>`

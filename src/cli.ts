@@ -946,7 +946,8 @@ Review runs validate, due, and cleanup plan preview without moving files or writ
 Doctor reports whether Shelf is healthy on this machine: CLI version, selected
 or default ledger path, selected or global registry path, registered ledger health
 (stale/missing/invalid), and the cleanup safety posture. Execute is scoped to one
-selected or default ledger and still requires a reviewed plan id.
+selected or default ledger and still requires a reviewed plan id; --all execute
+and physical delete are refused in v1.
 
 Run it after install, when --all commands behave unexpectedly, or on a schedule to
 catch stale registry entries. Doctor is read-only. A healthy machine exits 0; a

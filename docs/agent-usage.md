@@ -250,7 +250,7 @@ Use explicit ledger paths when scheduling checks for a known project or user
 ledger. Do not scan arbitrary filesystem locations looking for ledgers unless
 the user has opted into that discovery scope.
 
-Scheduled jobs must never run cleanup execution. They may only dry-run and
+Scheduled jobs must not run cleanup execution. They may only dry-run and
 report plans for later human review:
 
 ```bash
