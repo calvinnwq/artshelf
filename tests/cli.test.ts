@@ -557,6 +557,13 @@ test("cleanup dry-run creates a plan and execute requires a plan id", () => {
   const plan = JSON.parse(dryRun.stdout).plan;
   assert.equal(plan.entries.length, 1);
   assert.equal(existsSync(plan.planPath), true);
+  const afterDryRun = readLedger(ledger);
+  assert.equal(afterDryRun.length, 2);
+  assert.equal(afterDryRun[1]?.owner, "shelf");
+  assert.equal(afterDryRun[1]?.kind, "run-artifact");
+  assert.equal(afterDryRun[1]?.cleanup, "trash");
+  assert.deepEqual(afterDryRun[1]?.labels, ["shelf", "cleanup-plan", plan.planId]);
+  assert.equal(afterDryRun[1]?.path, plan.planPath);
 
   const executed = shelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z");
   assert.equal(executed.status, 0, executed.stderr);
@@ -575,14 +582,61 @@ test("cleanup dry-run creates a plan and execute requires a plan id", () => {
   assert.equal(record.receiptPath, receipt.receiptPath);
   assert.equal(record.targetPath, result.target);
   assert.equal(record.cleanedAt, "2026-06-03T00:01:00Z");
+  assert.equal(records.length, 3);
+  assert.equal(records[1]?.reason, `Shelf cleanup dry-run plan ${plan.planId}`);
+  assert.equal(records[2]?.reason, `Shelf cleanup receipt for plan ${plan.planId}`);
+  assert.equal(records[2]?.path, receipt.receiptPath);
+  assert.equal(records[2]?.cleanup, "review");
+  assert.deepEqual(records[2]?.labels, ["shelf", "cleanup-receipt", plan.planId]);
 
   const due = JSON.parse(shelf(["due", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).entries;
-  assert.deepEqual(due, []);
+  assert.deepEqual(due.map((entry: any) => entry.reason), [
+    `Shelf cleanup dry-run plan ${plan.planId}`,
+    `Shelf cleanup receipt for plan ${plan.planId}`
+  ]);
+  assert.deepEqual(due.map((entry: any) => entry.dueStatus), ["kept", "kept"]);
 
   const followupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+  assert.equal(followupPlan.planId, "not-created");
+  assert.equal(followupPlan.planPath, null);
   assert.equal(followupPlan.entries.length, 0);
-  assert.equal(followupPlan.skipped.length, 0);
+  assert.equal(followupPlan.skipped.length, 2);
+  assert.equal(existsSync(join(fixture, ".shelf", "plans", "not-created.json")), false);
   assert.equal(JSON.parse(shelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("cleanup dry-run reuses an unchanged existing plan", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const first = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const second = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+
+  assert.equal(second.planId, first.planId);
+  assert.equal(second.planPath, first.planPath);
+  assert.equal(second.generatedAt, "2026-06-04T00:00:00Z");
+  assert.equal(second.entries.length, 1);
+  assert.equal(second.entries[0].id, first.entries[0].id);
+  assert.equal(second.skipped.length, 1);
+  assert.equal(second.skipped[0].reason, "retention has not expired");
+
+  const stored = JSON.parse(readFileSync(first.planPath, "utf8"));
+  assert.equal(stored.generatedAt, "2026-06-04T00:00:00Z");
+  assert.equal(stored.planId, first.planId);
+
+  const records = readLedger(ledger);
+  const planRecords = records.filter((record: any) => record.owner === "shelf" && record.labels.includes("cleanup-plan"));
+  assert.equal(planRecords.length, 1);
+  assert.equal(planRecords[0].createdAt, "2026-06-04T00:00:00Z");
+  assert.equal(planRecords[0].retainUntil, "2026-06-18T00:00:00Z");
+
+  const executed = shelf(["cleanup", "--execute", "--plan-id", first.planId, "--ledger", ledger, "--json"], "2026-06-04T00:01:00Z");
+  assert.equal(executed.status, 0, executed.stderr);
+  assert.equal(JSON.parse(executed.stdout).receipt.results[0].status, "trashed");
 });
 
 test("cleanup execute records review and refused outcomes as terminal ledger state", () => {
@@ -603,14 +657,22 @@ test("cleanup execute records review and refused outcomes as terminal ledger sta
   assert.deepEqual(receipt.results.map((result: any) => result.status).sort(), ["refused", "review-required"]);
 
   const records = readLedger(ledger);
-  assert.deepEqual(records.map((record: any) => record.status).sort(), ["cleanup-refused", "review-required"]);
-  assert.equal(records.every((record: any) => record.cleanupPlanId === plan.planId), true);
-  assert.equal(records.every((record: any) => record.receiptPath === receipt.receiptPath), true);
-  assert.equal(records.every((record: any) => record.cleanedAt === "2026-06-03T00:01:00Z"), true);
+  const handled = records.filter((record: any) => record.owner !== "shelf");
+  const shelfArtifacts = records.filter((record: any) => record.owner === "shelf");
+  assert.deepEqual(handled.map((record: any) => record.status).sort(), ["cleanup-refused", "review-required"]);
+  assert.equal(handled.every((record: any) => record.cleanupPlanId === plan.planId), true);
+  assert.equal(handled.every((record: any) => record.receiptPath === receipt.receiptPath), true);
+  assert.equal(handled.every((record: any) => record.cleanedAt === "2026-06-03T00:01:00Z"), true);
+  assert.deepEqual(shelfArtifacts.map((record: any) => record.reason), [
+    `Shelf cleanup dry-run plan ${plan.planId}`,
+    `Shelf cleanup receipt for plan ${plan.planId}`
+  ]);
   assert.equal(existsSync(review), true);
   assert.equal(existsSync(refused), true);
 
   const followupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+  assert.equal(followupPlan.planId, "not-created");
+  assert.equal(followupPlan.planPath, null);
   assert.equal(followupPlan.entries.length, 0);
 });
 
@@ -626,10 +688,34 @@ test("list filters by status after cleanup state changes", () => {
 
   const active = JSON.parse(shelf(["list", "--status", "active", "--ledger", ledger, "--json"]).stdout).entries;
   const trashed = JSON.parse(shelf(["list", "--status", "trashed", "--ledger", ledger, "--json"]).stdout).entries;
-  assert.equal(active.length, 0);
+  assert.deepEqual(active.map((record: any) => record.owner), ["shelf", "shelf"]);
   assert.equal(trashed.length, 1);
   assert.equal(trashed[0].status, "trashed");
   assert.match(shelf(["list", "--status", "not-real", "--ledger", ledger]).stderr, /Unknown status: not-real/);
+});
+
+test("cleanup dry-run does not write a plan when there are no cleanup entries", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "still kept", "--ttl", "7d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const dryRun = shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-02T00:00:00Z");
+  assert.equal(dryRun.status, 0, dryRun.stderr);
+  const plan = JSON.parse(dryRun.stdout).plan;
+  assert.equal(plan.planId, "not-created");
+  assert.equal(plan.planPath, null);
+  assert.equal(plan.entries.length, 0);
+  assert.equal(plan.skipped.length, 1);
+  assert.equal(existsSync(join(fixture, ".shelf", "plans")), false);
+  assert.equal(readLedger(ledger).length, 1);
+
+  const human = shelf(["cleanup", "--dry-run", "--ledger", ledger], "2026-06-02T00:00:00Z");
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /plan not-created: 0 entries, 1 skipped/);
+  assert.match(human.stdout, /plan: not created/);
 });
 
 test("resolve marks missing records as resolved and removes cleanup noise", () => {
