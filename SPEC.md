@@ -220,7 +220,7 @@ shelf doctor --registry <path>
 
 Doctor reports:
 
-- CLI version and build availability.
+- CLI version and Node runtime version.
 - The default ledger path and global registry path, and whether they exist.
 - Registered ledger health, flagging stale (missing from disk) and invalid
   (unparseable or malformed) entries.
@@ -257,9 +257,10 @@ Status reports:
 `shelf status --all --json` is suitable for cron and reporting, and the human
 output is short enough to paste into a chat. Status is strictly read-only: it
 never creates plans or receipts and never mutates records. A healthy machine
-exits 0; a broken registry or any stale or invalid registered ledger exits
-non-zero. Due entries are normal operational state and do not change the exit
-code. With single `--ledger`, a not-yet-created ledger reports empty counts.
+exits 0. In `--all` mode, a broken registry or any stale or invalid registered
+ledger exits non-zero. Due entries are normal operational state and do not change
+the exit code. With single `--ledger`, a not-yet-created ledger reports empty
+counts.
 
 ### `shelf cleanup --dry-run`
 
