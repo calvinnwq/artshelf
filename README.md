@@ -115,7 +115,11 @@ plan id and refresh its timestamp instead of creating duplicate plan files.
 - Ledger-first, not filesystem-scan-first.
 - Dry-run before mutation.
 - Execute only from a reviewed plan id.
+- No daemon or auto-execute path.
+- No global execute; `--all` is dry-run only.
+- No fresh-plan-then-execute shortcut.
 - Trash/review by default, not delete.
+- No silent deletion; v1 refuses physical `delete`.
 - Agent-friendly JSON output from every command.
 - Small enough to actually use.
 

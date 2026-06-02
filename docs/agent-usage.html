@@ -178,10 +178,12 @@ shelf due --all --json</code></pre>
 shelf cleanup --dry-run --all --json</code></pre>
               <pre><code>shelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
               <div class="note">
-                Execution needs explicit human approval for the reviewed plan id. Never generate a
-                fresh plan and execute it in the same step. Execution writes a receipt and updates
-                touched ledger records to `trashed`, `review-required`, or `cleanup-refused`.
-                Shelf records generated plans and receipts as `owner=shelf` artifacts.
+                Execution is approval-only: no daemon, no auto-execute, no global execute, and no
+                fresh-plan-then-execute shortcut. Execution needs explicit human approval for the
+                reviewed plan id, writes a receipt, and updates touched ledger records to
+                `trashed`, `review-required`, or `cleanup-refused`. V1 refuses physical
+                <code>delete</code> instead of silently deleting files. Shelf records generated
+                plans and receipts as `owner=shelf` artifacts.
               </div>
               <p>
                 Agents may mark a ledger record manually resolved when the user confirms the
@@ -230,7 +232,8 @@ shelf cleanup --dry-run --all --json</code></pre>
               <div class="note">
                 Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
                 locations for ledgers unless the user opted into that discovery scope. Never
-                schedule <code>shelf cleanup --execute --plan-id &lt;id&gt;</code>.
+                schedule cleanup execution; scheduled jobs may only dry-run and report plans for
+                later human review.
               </div>
             </section>
 

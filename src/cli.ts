@@ -841,7 +841,7 @@ function printHelp(command?: string): void {
 
 Options:
   --kind scratch|backup|run-artifact|evidence|cache|quarantine|other
-  --cleanup trash|review|delete
+  --cleanup trash|review|delete  (v1 refuses physical delete)
   --owner <name>
   --label <label>        Repeatable
   --ledger <path>
@@ -857,7 +857,10 @@ Options:
   shelf cleanup --dry-run --all [--registry <path>] [--json]
   shelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
 
+Cleanup execution is approval-only. There is no daemon, no auto-execute, and no
+global execute path: review a dry-run plan, then execute that one reviewed plan id.
 Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a reviewed plan id.
+V1 refuses physical delete and records cleanup-refused instead of deleting files.
 Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
 Matching dry-runs reuse the existing plan id and refresh its Shelf-owned plan artifact.
 Execute writes and registers a Shelf-owned receipt artifact.
@@ -943,7 +946,8 @@ Review runs validate, due, and cleanup plan preview without moving files or writ
 Doctor reports whether Shelf is healthy on this machine: CLI version, selected
 or default ledger path, selected or global registry path, registered ledger health
 (stale/missing/invalid), and the cleanup safety posture. Execute is scoped to one
-selected or default ledger and still requires a reviewed plan id.
+selected or default ledger and still requires a reviewed plan id; --all execute
+and physical delete are refused in v1.
 
 Run it after install, when --all commands behave unexpectedly, or on a schedule to
 catch stale registry entries. Doctor is read-only. A healthy machine exits 0; a

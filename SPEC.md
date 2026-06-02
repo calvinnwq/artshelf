@@ -53,7 +53,8 @@ Required:
 Optional:
 
 - `--kind scratch|backup|run-artifact|evidence|cache|quarantine|other`
-- `--cleanup trash|review|delete`
+- `--cleanup trash|review|delete` (`delete` records intent, but v1 refuses
+  physical delete as `cleanup-refused`)
 - `--owner <string>`
 - `--label <label>` repeatable
 - `--ledger <path>`
@@ -316,9 +317,10 @@ Rules:
 - Updates touched ledger records so handled artifacts stop appearing as active
   cleanup candidates.
 - Uses trash/review behavior by default.
-- `delete` remains allowed only when the ledger entry explicitly says
-  `cleanup=delete`; v1 may still choose to refuse physical delete until we have
-  enough dogfood evidence.
+- `delete` is refused in v1: even when a ledger entry says `cleanup=delete`,
+  execute records a `cleanup-refused` receipt (`delete is disabled in v1`) and
+  never removes the file. Physical delete stays disabled until we have enough
+  dogfood evidence to enable it.
 
 ### `shelf resolve`
 
@@ -431,6 +433,25 @@ Manually resolved records include:
 
 ## Cleanup Safety Model
 
+Cleanup execution is intentionally boring and approval-only. Five boundaries
+hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
+...) must preserve them rather than add a shortcut around them:
+
+- **No daemon.** Shelf never runs in the background or watches the clock. It
+  only does work while you are running a `shelf` command.
+- **No auto-execute.** No command cleans up as a side effect. The only thing
+  that moves or trashes a file is `shelf cleanup --execute`, run by a human.
+- **No global execute.** `cleanup --execute --all` is refused; `--all` is
+  dry-run only. Execution is always scoped to a single reviewed plan id.
+- **No fresh-plan-then-execute.** `cleanup --execute` refuses to compute a new
+  live set. It acts only on a plan id that an earlier `cleanup --dry-run`
+  produced and a human reviewed; it will not plan and execute in one step.
+- **No silent deletion.** Cleanup trashes or flags for review and writes a
+  receipt to the ledger. v1 refuses physical `delete`, so nothing leaves the
+  filesystem without an auditable trail.
+
+Operational rules that back those boundaries:
+
 - Dry-run first.
 - Execute only by plan id.
 - Trash/review before delete.
@@ -475,7 +496,8 @@ shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
 
-Scheduled jobs must not silently execute cleanup.
+Scheduled jobs must never run `shelf cleanup --execute`; they may only dry-run
+and report plans for later human review.
 
 ## Dogfood Scenarios
 
