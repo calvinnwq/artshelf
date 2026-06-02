@@ -17,9 +17,9 @@
 - Reuse unchanged cleanup dry-run plans by refreshing the existing plan timestamp
   and Shelf-owned plan record instead of creating duplicate plan files.
 - Added a read-only `shelf doctor` command that reports CLI and runtime version,
-  the default ledger and registry paths, registered-ledger health (stale or
-  invalid entries), and the cleanup safety posture, exiting non-zero when the
-  registry or a registered ledger is broken.
+  the selected/default ledger path, selected/global registry path,
+  registered-ledger health (stale or invalid entries), and the cleanup safety
+  posture, exiting non-zero when the registry or a registered ledger is broken.
 - Added a read-only `shelf status` dashboard: single-ledger mode reports
   selected-ledger counts, while `--all` adds registry health, total ledgers, and
   aggregated active, kept, due, manual-review, missing-path, and pending-cleanup
