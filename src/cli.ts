@@ -957,14 +957,16 @@ broken registry or registered ledger exits non-zero with actionable errors.
   shelf status [--ledger <path>] [--json]
   shelf status --all [--registry <path>] [--json]
 
-Status is the lightweight daily "what is going on?" view. It reports registry
-health, total ledgers, and per-ledger counts of active artifacts, kept, due,
-manual-review, and missing-path entries, plus the pending cleanup count.
+Status is the lightweight daily "what is going on?" view. Without --all, it
+reports counts for the selected or default ledger only. With --all, it adds
+registry health, total ledgers, and aggregated counts across registered ledgers.
+Counts include active artifacts, kept, due, manual-review, missing-path, and
+pending cleanup entries.
 
 Human output is short enough to paste into a chat; \`shelf status --all --json\`
 is suitable for cron and reporting. Status is read-only: it never creates plans
-or receipts and never mutates records. A healthy machine exits 0; a broken
-registry or any stale or invalid registered ledger exits non-zero.
+or receipts and never mutates records. A healthy selected ledger exits 0; with
+--all, a broken registry or any stale or invalid registered ledger exits non-zero.
 `);
     return;
   }

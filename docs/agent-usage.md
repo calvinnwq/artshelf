@@ -54,6 +54,7 @@ pnpm install --frozen-lockfile
 pnpm run build
 npm link
 shelf --version
+shelf doctor
 ```
 
 For now, do not choose an npm registry install or a custom shim. npm publishing
