@@ -940,10 +940,10 @@ Review runs validate, due, and cleanup plan preview without moving files or writ
     process.stdout.write(`Usage:
   shelf doctor [--registry <path>] [--ledger <path>] [--json]
 
-Doctor reports whether Shelf is healthy on this machine: CLI version, default
-ledger and global registry paths, registered ledger health (stale/missing/invalid),
-and the cleanup safety posture. Execute still requires an explicit ledger and a
-reviewed plan id.
+Doctor reports whether Shelf is healthy on this machine: CLI version, selected
+or default ledger path, selected or global registry path, registered ledger health
+(stale/missing/invalid), and the cleanup safety posture. Execute still requires
+an explicit ledger and a reviewed plan id.
 
 Run it after install, when --all commands behave unexpectedly, or on a schedule to
 catch stale registry entries. Doctor is read-only. A healthy machine exits 0; a

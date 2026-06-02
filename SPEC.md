@@ -215,13 +215,14 @@ anything.
 ```bash
 shelf doctor
 shelf doctor --json
+shelf doctor --ledger <path>
 shelf doctor --registry <path>
 ```
 
 Doctor reports:
 
 - CLI version and Node runtime version.
-- The default ledger path and global registry path, and whether they exist.
+- The selected/default ledger path and selected/global registry path, and whether they exist.
 - Registered ledger health, flagging stale (missing from disk) and invalid
   (unparseable or malformed) entries.
 - The cleanup safety posture, including that `cleanup --execute` still requires
@@ -468,6 +469,8 @@ Scheduled jobs may run:
 ```bash
 shelf due --json
 shelf due --all --json
+shelf doctor --json
+shelf status --all --json
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
@@ -505,8 +508,8 @@ Scheduled jobs must not silently execute cleanup.
 - Cleanup execute writes a receipt.
 - All core commands support `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
-  `--all` review, stale-registry, dry-run, global-dry-run, and execute-plan
-  behavior.
+  `shelf doctor`, the `shelf status` dashboard, `--all` review, stale-registry,
+  dry-run, global-dry-run, and execute-plan behavior.
 
 ## Deferred
 

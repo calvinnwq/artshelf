@@ -135,11 +135,12 @@ shelf get &lt;id&gt; --all --json</code></pre>
               <p>
                 Shelf also keeps a user-level registry at `~/.shelf/ledgers.json`. Override it
                 with <code>--registry &lt;path&gt;</code> or <code>SHELF_REGISTRY</code>. The registry
-                is a discovery index for `--all` review commands; project records stay in their
-                own repo-local ledgers.
+                is a discovery index for `--all` review and status commands; project records stay
+                in their own repo-local ledgers.
               </p>
               <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
 shelf review --all --json
+shelf status --all --json
 shelf cleanup --dry-run --all --json</code></pre>
               <p>
                 <code>shelf ledgers add</code> requires an existing ledger path. Scope may be

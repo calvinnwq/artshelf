@@ -90,6 +90,7 @@ point:
 ```bash
 shelf ledgers list --json
 shelf review --all --json
+shelf status --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
 

@@ -107,6 +107,7 @@ Use the registry for read-only review and discovery:
 
 ```bash
 shelf review --all --json
+shelf status --all --json
 shelf due --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
