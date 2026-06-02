@@ -841,7 +841,7 @@ function printHelp(command?: string): void {
 
 Options:
   --kind scratch|backup|run-artifact|evidence|cache|quarantine|other
-  --cleanup trash|review|delete
+  --cleanup trash|review|delete  (v1 refuses physical delete)
   --owner <name>
   --label <label>        Repeatable
   --ledger <path>
@@ -860,6 +860,7 @@ Options:
 Cleanup execution is approval-only. There is no daemon, no auto-execute, and no
 global execute path: review a dry-run plan, then execute that one reviewed plan id.
 Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a reviewed plan id.
+V1 refuses physical delete and records cleanup-refused instead of deleting files.
 Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
 Matching dry-runs reuse the existing plan id and refresh its Shelf-owned plan artifact.
 Execute writes and registers a Shelf-owned receipt artifact.
