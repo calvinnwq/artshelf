@@ -35,7 +35,7 @@
     "build": "tsc -p tsconfig.json",
     "test": "node --test dist/tests/*.test.js",
     "check": "pnpm run build && pnpm run test",
-    "docs:serve": "python3 -m http.server 8080 --directory docs",
+    "docs:serve": "python3 -m http.server 8080 --bind 127.0.0.1 --directory docs",
     "start": "node dist/src/cli.js"
   },
   "devDependencies": {

@@ -503,7 +503,7 @@ function emptyReviewPlan(ledgerPath: string): CleanupPlan {
     ledgerPath,
     entries: [],
     skipped: [],
-    planPath: ""
+    planPath: null
   };
 }
 

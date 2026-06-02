@@ -385,6 +385,7 @@ test("review reports invalid registered ledgers without aborting", () => {
   assert.equal(invalid.validate.ok, false);
   assert.match(invalid.validate.errors[0], /Invalid JSONL/);
   assert.equal(invalid.plan.planId, "not-created");
+  assert.equal(invalid.plan.planPath, null);
 });
 
 test("registered ledgers missing from disk are reported as stale registry entries", () => {

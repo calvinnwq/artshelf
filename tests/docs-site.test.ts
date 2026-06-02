@@ -83,7 +83,7 @@ test("install docs cover the local clone, build, and npm link path", () => {
   assert.match(readme, /pnpm docs:serve/);
   assert.match(install, /pnpm docs:serve/);
   assert.match(install, /127\.0\.0\.1:8080/);
-  assert.match(packageJson, /"docs:serve": "python3 -m http\.server 8080 --directory docs"/);
+  assert.match(packageJson, /"docs:serve": "python3 -m http\.server 8080 --bind 127\.0\.0\.1 --directory docs"/);
 });
 
 test("docs site explains cleanup approval boundary", () => {
