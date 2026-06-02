@@ -530,6 +530,7 @@ Options:
   --owner <name>
   --label <label>        Repeatable
   --ledger <path>
+  --registry <path>
   --json
 `);
     return;
@@ -607,6 +608,16 @@ Resolved records stay in the audit trail but no longer participate in due or cle
     return;
   }
 
+  if (command === "review") {
+    process.stdout.write(`Usage:
+  shelf review [--ledger <path>] [--json]
+  shelf review --all [--registry <path>] [--json]
+
+Review runs validate, due, and cleanup plan preview without moving files or writing a plan.
+`);
+    return;
+  }
+
   process.stdout.write(`Shelf ${VERSION}
 
 Usage:
@@ -624,6 +635,7 @@ Usage:
   shelf due --all [--json]
   shelf validate [--json]
   shelf validate --all [--json]
+  shelf review [--json]
   shelf review --all [--json]
   shelf cleanup --dry-run [--json]
   shelf cleanup --dry-run --all [--json]
@@ -633,6 +645,7 @@ Usage:
 Global options:
   --ledger <path>        Use an explicit JSONL ledger
   --registry <path>      Use an explicit ledger registry
+  --all                  Read all registered ledgers for supported commands
   --json                 Emit machine-readable JSON
   --help                 Show help
   --version              Show version

@@ -44,7 +44,7 @@
                 <h1>Register first, clean later.</h1>
                 <p class="lede">
                   Shelf works best when the artifact is registered the moment it is created.
-                  Start with an explicit ledger path when testing.
+                  Start with explicit ledger and registry paths when testing.
                 </p>
               </div>
               <div class="terminal">
@@ -56,7 +56,8 @@ $ shelf put /tmp/shelf-demo \
   --ttl 1d \
   --kind scratch \
   --cleanup review \
-  --ledger /tmp/shelf-ledger.jsonl</code></pre>
+  --ledger /tmp/shelf-ledger.jsonl \
+  --registry /tmp/shelf-registry.json</code></pre>
               </div>
             </div>
           </div>
@@ -80,6 +81,7 @@ echo "debug output" &gt; /tmp/shelf-demo/output.txt</code></pre>
   --owner manual \
   --label quickstart \
   --ledger /tmp/shelf-ledger.jsonl \
+  --registry /tmp/shelf-registry.json \
   --json</code></pre>
               <p>Capture the returned `id` anywhere future cleanup context matters.</p>
             </section>

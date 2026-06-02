@@ -56,6 +56,8 @@ Optional:
 - `--cleanup trash|review|delete`
 - `--owner <string>`
 - `--label <label>` repeatable
+- `--ledger <path>`
+- `--registry <path>`
 - `--json`
 
 Defaults:
@@ -65,7 +67,24 @@ Defaults:
 - `owner=manual`
 
 `put` should refuse to record a path that does not exist unless a future flag
-explicitly supports planned artifacts.
+explicitly supports planned artifacts. After appending the record, `put`
+registers the ledger in the ledger registry.
+
+### `shelf ledgers`
+
+Lists or registers known Shelf ledgers.
+
+```bash
+shelf ledgers list
+shelf ledgers add --ledger <path> --name <project> --scope repo
+```
+
+Rules:
+
+- `list` reads the registry without mutating ledgers.
+- `add` requires an existing ledger path.
+- `--name` defaults from the ledger path when omitted.
+- `--scope` is `repo`, `user`, or `other`.
 
 ### `shelf list`
 
@@ -76,6 +95,7 @@ shelf list
 shelf list --json
 shelf list --status active
 shelf list --status resolved --json
+shelf list --all --status active --json
 ```
 
 `--status` filters the audit trail to one record status:
@@ -86,6 +106,8 @@ shelf list --status resolved --json
 - `cleanup-refused`
 - `resolved`
 
+`--all` reads every registered ledger through the registry.
+
 ### `shelf find`
 
 Read-only ledger query for integrations that need idempotent artifact
@@ -94,6 +116,7 @@ registration without parsing `list` output.
 ```bash
 shelf find --path <path> --json
 shelf find --path <path> --owner coding-workflow-pipeline --label <run-id> --status active --json
+shelf find --all --owner coding-workflow-pipeline --json
 ```
 
 Accepted selectors:
@@ -104,7 +127,8 @@ Accepted selectors:
 - `--status active|review-required|trashed|cleanup-refused|resolved`
 
 `find` requires at least one selector. It never creates, resolves, moves, or
-deletes records.
+deletes records. `--all` applies the same selector set to every registered
+ledger.
 
 ### `shelf get`
 
@@ -113,9 +137,11 @@ Read-only lookup of a single ledger record by Shelf id.
 ```bash
 shelf get <id>
 shelf get <id> --json
+shelf get <id> --all --json
 ```
 
-`get` is for audit and handoff follow-up. Missing ids are an error.
+`get` is for audit and handoff follow-up. Missing ids are an error. `--all`
+searches registered ledgers until the id is found.
 
 ### `shelf due`
 
@@ -126,6 +152,7 @@ by cleanup execution remain visible through `list` and validation.
 ```bash
 shelf due
 shelf due --json
+shelf due --all --json
 ```
 
 V1 due statuses:
@@ -135,6 +162,8 @@ V1 due statuses:
 - `missing-path`
 - `kept`
 
+`--all` classifies active entries across registered ledgers.
+
 ### `shelf validate`
 
 Checks ledger health without mutating files.
@@ -142,6 +171,7 @@ Checks ledger health without mutating files.
 ```bash
 shelf validate
 shelf validate --json
+shelf validate --all --json
 ```
 
 V1 validation checks:
@@ -155,6 +185,22 @@ V1 validation checks:
 - resolved records include `resolvedAt` and `resolutionReason`
 - active and review-required recorded paths still exist, reported as warnings not hard failures
 
+`--all` validates registered ledgers and reports stale registry entries when a
+registered ledger is missing from disk.
+
+### `shelf review`
+
+Runs validation, due classification, and cleanup plan preview without mutating
+files or writing a plan.
+
+```bash
+shelf review --json
+shelf review --all --json
+```
+
+`review` is the compact report surface for scheduled checks. `--all` reads every
+registered ledger from the registry.
+
 ### `shelf cleanup --dry-run`
 
 Creates a cleanup plan but does not mutate artifacts.
@@ -162,6 +208,7 @@ Creates a cleanup plan but does not mutate artifacts.
 ```bash
 shelf cleanup --dry-run
 shelf cleanup --dry-run --json
+shelf cleanup --dry-run --all --json
 ```
 
 The plan must include:
@@ -172,6 +219,9 @@ The plan must include:
 - planned action per entry
 - skipped/refused entries with reasons
 - plan file path
+
+`--all` creates dry-run plans for registered ledgers only after every registered
+ledger validates. Global cleanup execution is refused.
 
 ### `shelf cleanup --execute`
 
@@ -228,6 +278,7 @@ Default behavior:
 V1 also supports a user-level registry of known ledgers:
 
 - registry: `~/.shelf/ledgers.json`
+- `SHELF_REGISTRY` or `--registry <path>` can override the registry path.
 - `put` registers the ledger it writes to.
 - `ledgers add` registers an existing ledger explicitly.
 - `--all` reads registered ledgers as one review surface.

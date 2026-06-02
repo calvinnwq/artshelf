@@ -10,8 +10,9 @@ pnpm install
 pnpm check
 ```
 
-Use `--ledger <path>` in examples and tests so you do not write to your default
-repo-local or user-global ledger by accident.
+Use both `--ledger <path>` and `--registry <path>` in examples and tests so you
+do not write to your default repo-local/user-global ledger or registry by
+accident.
 
 ## Pull Requests
 

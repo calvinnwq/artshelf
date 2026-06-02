@@ -68,17 +68,18 @@ shelf cleanup --execute --plan-id plan_20260601_120000_ab12
 ## Explicit Ledgers
 
 By default, Shelf writes repo-local `.shelf/ledger.jsonl` inside a git repo and
-`~/.shelf/ledger.jsonl` outside one. Use `--ledger <path>` for tests, demos, and
-unusual workflows:
+`~/.shelf/ledger.jsonl` outside one. Use `--ledger <path>` and an isolated
+`--registry <path>` for tests, demos, and unusual workflows:
 
 ```bash
-shelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/shelf-ledger.jsonl --json
+shelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/shelf-ledger.jsonl --registry /tmp/shelf-registry.json --json
 shelf list --ledger /tmp/shelf-ledger.jsonl
 ```
 
 Shelf also keeps a small global registry of known ledgers at
-`~/.shelf/ledgers.json`. `put` registers its ledger automatically, and you can
-register an existing ledger explicitly:
+`~/.shelf/ledgers.json`. Override it with `--registry <path>` or
+`SHELF_REGISTRY`. `put` registers its ledger automatically, and you can register
+an existing ledger explicitly:
 
 ```bash
 shelf ledgers list
@@ -137,6 +138,7 @@ shelf due
 shelf due --all
 shelf validate
 shelf validate --all
+shelf review
 shelf review --all
 shelf cleanup --dry-run
 shelf cleanup --dry-run --all
@@ -173,8 +175,8 @@ pnpm install
 pnpm check
 ```
 
-During tests or one-off runs, pass `--ledger <path>` to keep entries out of the
-default repo-local `.shelf/ledger.jsonl`.
+During tests or one-off runs, pass both `--ledger <path>` and `--registry <path>`
+to keep entries and registry updates out of default Shelf storage.
 
 ## Contributing
 
