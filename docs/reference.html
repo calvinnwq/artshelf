@@ -65,7 +65,7 @@ $ shelf --version</code></pre>
               <div class="command-list">
                 <div class="command-row"><code>shelf put &lt;path&gt;</code><p>Append a ledger entry with reason, retention, owner, labels, kind, and cleanup mode.</p></div>
                 <div class="command-row"><code>shelf ledgers list</code><p>Show the user-level registry of known repo and user ledgers.</p></div>
-                <div class="command-row"><code>shelf ledgers add --ledger &lt;path&gt;</code><p>Register an existing ledger so Shelf can review it through one entry point.</p></div>
+                <div class="command-row"><code>shelf ledgers add --ledger &lt;path&gt; [--scope repo|user|other]</code><p>Register an existing ledger so Shelf can review it through one entry point. Scope is inferred from the path when omitted.</p></div>
                 <div class="command-row"><code>shelf list</code><p>Show ledger entries and current status. Use <code>--all</code> and <code>--status active|review-required|trashed|cleanup-refused|resolved</code> to filter registered ledgers.</p></div>
                 <div class="command-row"><code>shelf find --path &lt;path&gt;</code><p>Read-only lookup for existing records by path, owner, labels, and status.</p></div>
                 <div class="command-row"><code>shelf get &lt;id&gt;</code><p>Read-only audit lookup for one ledger record by Shelf id. Use <code>--all</code> to search registered ledgers.</p></div>
@@ -137,12 +137,14 @@ shelf get &lt;id&gt; --all --json</code></pre>
                 is a discovery index for `--all` review commands; project records stay in their
                 own repo-local ledgers.
               </p>
-              <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt;
+              <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
 shelf review --all --json
 shelf cleanup --dry-run --all --json</code></pre>
               <p>
-                <code>shelf ledgers add</code> requires an existing ledger path. Global cleanup
-                dry-run writes plan files, while global cleanup execution is refused. Execute only
+                <code>shelf ledgers add</code> requires an existing ledger path. Scope may be
+                <code>repo</code>, <code>user</code>, or <code>other</code>; when omitted, Shelf infers
+                it from the path. Global cleanup dry-run writes plan files, while global cleanup
+                execution is refused. Execute only
                 a specific reviewed plan id against the ledger that produced it.
               </p>
             </section>

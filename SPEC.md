@@ -86,7 +86,8 @@ Rules:
 - `list` reads the registry without mutating ledgers.
 - `add` requires an existing ledger path.
 - `--name` defaults from the ledger path when omitted.
-- `--scope` is `repo`, `user`, or `other`.
+- `--scope` is optional; when omitted, Shelf infers `repo`, `user`, or
+  `other` from the ledger path.
 
 ### `shelf list`
 
@@ -423,7 +424,9 @@ Scheduled jobs must not silently execute cleanup.
 - Cleanup execute refuses to run without a plan id.
 - Cleanup execute writes a receipt.
 - All core commands support `--json`.
-- Tests cover record/list/find/get/status-filter/due/validate/resolve/dry-run/execute-plan behavior.
+- Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
+  `--all` review, stale-registry, dry-run, global-dry-run, and execute-plan
+  behavior.
 
 ## Deferred
 
