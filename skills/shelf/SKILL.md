@@ -214,6 +214,15 @@ shelf due --json
 shelf cleanup --dry-run --json
 ```
 
+Read-only health and dashboard checks are also safe to schedule. Run
+`shelf doctor --json` to catch a broken or stale registry before relying on
+cleanup planning, and `shelf status --all --json` for a compact cron summary:
+
+```bash
+shelf doctor --json
+shelf status --all --json
+```
+
 The report should include the ledger path, due/manual-review/missing-path counts,
 cleanup dry-run plan id, executable entries, skipped entries, and refused
 entries. Stay quiet when nothing needs attention unless a regular summary was

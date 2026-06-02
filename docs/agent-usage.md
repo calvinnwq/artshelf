@@ -218,6 +218,15 @@ shelf validate --json
 shelf due --json
 ```
 
+Read-only health and dashboard checks are also safe to schedule. Run
+`shelf doctor --json` to catch a broken or stale registry before relying on
+cleanup planning, and `shelf status --all --json` for a compact cron summary:
+
+```bash
+shelf doctor --json
+shelf status --all --json
+```
+
 Scheduled cleanup dry-run may write plan files for later review when cleanup
 entries exist, but must not move or delete files:
 
