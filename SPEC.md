@@ -495,7 +495,8 @@ shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
 
-Scheduled jobs must not silently execute cleanup.
+Scheduled jobs must never run `shelf cleanup --execute`; they may only dry-run
+and report plans for later human review.
 
 ## Dogfood Scenarios
 
