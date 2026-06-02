@@ -8,6 +8,14 @@
   agent integrations.
 - Documented `find` / `get` as the lookup surface agents should use before
   creating duplicate records with `put`.
+- Tightened portable agent trigger guidance and removed setup-specific docs so
+  Shelf remains workflow-agnostic.
+- Added `pnpm docs:serve` for local static docs preview.
+- Changed cleanup dry-run to avoid writing plan files when there are no
+  executable cleanup entries, and registered Shelf-created plans/receipts as
+  Shelf-owned ledger artifacts.
+- Reuse unchanged cleanup dry-run plans by refreshing the existing plan timestamp
+  and Shelf-owned plan record instead of creating duplicate plan files.
 
 ## 0.1.0 - 2026-06-01
 
@@ -16,4 +24,4 @@
   plans, plan-id-based cleanup execution, `list --status`, and manual `resolve`.
 - Added Node test coverage and public-ready repository bootstrap.
 - Added GitHub Pages docs, source-install instructions, packaged agent skill,
-  OpenClaw local setup guide, and scheduled-review guidance for agents.
+  and scheduled-review guidance for agents.

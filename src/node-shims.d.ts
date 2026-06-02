@@ -30,6 +30,7 @@ declare module "node:fs" {
   export const constants: any;
   export function existsSync(path: string): boolean;
   export function mkdirSync(path: string, options?: any): void;
+  export function readdirSync(path: string): string[];
   export function readFileSync(path: string, encoding: string): string;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: any): void;

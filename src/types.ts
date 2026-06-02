@@ -59,5 +59,5 @@ export type CleanupPlan = {
   ledgerPath: string;
   entries: CleanupPlanEntry[];
   skipped: Array<{ id: string; path: string; reason: string; dueStatus: DueStatus }>;
-  planPath: string;
+  planPath: string | null;
 };

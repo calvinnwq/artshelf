@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   writeFileSync
@@ -264,12 +265,48 @@ export function validateLedger(ledgerPath: string): {
 
 export function createCleanupPlan(ledgerPath: string): CleanupPlan {
   const plan = buildCleanupPlan(ledgerPath);
+  if (plan.entries.length === 0) return noCreatedPlan(plan);
+  const existingPlan = matchingExistingCleanupPlan(ledgerPath, plan);
+  if (existingPlan) {
+    const refreshedPlan = {
+      ...plan,
+      planId: existingPlan.planId,
+      planPath: existingPlan.planPath
+    };
+    if (!refreshedPlan.planPath) throw new Error("cleanup plan path was not created");
+    writeJson(refreshedPlan.planPath, refreshedPlan);
+    registerShelfArtifact(ledgerPath, refreshedPlan.planPath, {
+      reason: `Shelf cleanup dry-run plan ${refreshedPlan.planId}`,
+      ttl: "14d",
+      kind: "run-artifact",
+      cleanup: "trash",
+      labels: ["shelf", "cleanup-plan", refreshedPlan.planId]
+    });
+    return refreshedPlan;
+  }
+  if (!plan.planPath) throw new Error("cleanup plan path was not created");
   writeJson(plan.planPath, plan);
+  registerShelfArtifact(ledgerPath, plan.planPath, {
+    reason: `Shelf cleanup dry-run plan ${plan.planId}`,
+    ttl: "14d",
+    kind: "run-artifact",
+    cleanup: "trash",
+    labels: ["shelf", "cleanup-plan", plan.planId]
+  });
   return plan;
 }
 
 export function previewCleanupPlan(ledgerPath: string): CleanupPlan {
-  return buildCleanupPlan(ledgerPath);
+  const plan = buildCleanupPlan(ledgerPath);
+  return plan.entries.length === 0 ? noCreatedPlan(plan) : plan;
+}
+
+function noCreatedPlan(plan: CleanupPlan): CleanupPlan {
+  return {
+    ...plan,
+    planId: "not-created",
+    planPath: null
+  };
 }
 
 function buildCleanupPlan(ledgerPath: string): CleanupPlan {
@@ -356,7 +393,90 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   const executedAt = toIso(now());
   writeJson(receiptPath, { planId, executedAt, results });
   updateLedgerAfterCleanup(ledgerPath, records, { planId, receiptPath, executedAt, results });
+  registerShelfArtifact(ledgerPath, receiptPath, {
+    reason: `Shelf cleanup receipt for plan ${planId}`,
+    ttl: "30d",
+    kind: "run-artifact",
+    cleanup: "review",
+    labels: ["shelf", "cleanup-receipt", planId]
+  });
   return { planId, receiptPath, results };
+}
+
+function registerShelfArtifact(
+  ledgerPath: string,
+  path: string,
+  input: Pick<PutInput, "reason" | "ttl" | "kind" | "cleanup" | "labels">
+): void {
+  const prepared = prepareRecord({
+    path,
+    reason: input.reason,
+    ttl: input.ttl,
+    kind: input.kind,
+    cleanup: input.cleanup,
+    owner: "shelf",
+    labels: input.labels
+  });
+  const records = readLedger(ledgerPath);
+  const index = records.findIndex((record) => (
+    record.owner === "shelf" &&
+    record.status === "active" &&
+    record.path === path &&
+    sameLabels(record.labels, input.labels)
+  ));
+
+  if (index === -1) {
+    appendPreparedRecord(ledgerPath, prepared);
+    return;
+  }
+
+  const current = records[index];
+  if (!current) return;
+  records[index] = {
+    ...current,
+    reason: prepared.reason,
+    createdAt: prepared.createdAt,
+    ...(prepared.retainUntil ? { retainUntil: prepared.retainUntil } : {}),
+    retention: prepared.retention,
+    kind: prepared.kind,
+    cleanup: prepared.cleanup,
+    labels: prepared.labels
+  };
+  writeLedger(ledgerPath, records);
+}
+
+function sameLabels(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) return false;
+  return left.every((label, index) => label === right[index]);
+}
+
+function matchingExistingCleanupPlan(ledgerPath: string, plan: CleanupPlan): CleanupPlan | null {
+  const plansDir = join(dirname(ledgerPath), "plans");
+  if (!existsSync(plansDir)) return null;
+
+  const filenames = readdirSync(plansDir).filter((name) => name.endsWith(".json")).sort().reverse();
+  for (const filename of filenames) {
+    const planPath = join(plansDir, filename);
+    try {
+      const candidate = JSON.parse(readFileSync(planPath, "utf8")) as CleanupPlan;
+      if (candidate.ledgerPath !== ledgerPath) continue;
+      if (cleanupPlanEntriesFingerprint(candidate) !== cleanupPlanEntriesFingerprint(plan)) continue;
+      return { ...candidate, planPath };
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+}
+
+function cleanupPlanEntriesFingerprint(plan: CleanupPlan): string {
+  return JSON.stringify(plan.entries.map((entry) => ({
+    id: entry.id,
+    path: entry.path,
+    action: entry.action,
+    dueStatus: entry.dueStatus
+  })));
 }
 
 function appendRecord(ledgerPath: string, record: ShelfRecord): void {

@@ -120,8 +120,8 @@ registration without parsing `list` output.
 
 ```bash
 shelf find --path <path> --json
-shelf find --path <path> --owner coding-workflow-pipeline --label <run-id> --status active --json
-shelf find --all --owner coding-workflow-pipeline --json
+shelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id> --status active --json
+shelf find --all --owner <agent-or-runtime> --json
 ```
 
 Accepted selectors:
@@ -204,12 +204,17 @@ shelf review --all --json
 ```
 
 `review` is the compact report surface for scheduled checks. `--all` reads every
-registered ledger from the registry; stale or invalid ledgers are included with a
-`not-created` plan instead of writing a plan file.
+registered ledger from the registry; stale, invalid, and valid no-op ledgers are
+included with a `not-created` plan instead of writing a plan file.
 
 ### `shelf cleanup --dry-run`
 
-Creates a cleanup plan but does not mutate artifacts.
+Creates a cleanup plan when there are executable cleanup entries, but does not
+mutate artifacts. If there are no executable cleanup entries, dry-run reports
+`planId=not-created`, `planPath=null`, and does not write a plan file.
+If an existing plan has the same executable cleanup entries, Shelf reuses that
+plan id, refreshes `generatedAt`, rewrites the same plan file, and refreshes the
+Shelf-owned plan artifact record instead of creating a duplicate plan.
 
 ```bash
 shelf cleanup --dry-run
@@ -217,7 +222,7 @@ shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
 
-The plan must include:
+Written plans must include:
 
 - `planId`
 - generated timestamp
@@ -226,8 +231,14 @@ The plan must include:
 - skipped/refused entries with reasons
 - plan file path
 
-`--all` creates dry-run plans for registered ledgers only after every registered
-ledger validates. Global cleanup execution is refused.
+`--all` creates dry-run plans only for registered ledgers that have executable
+cleanup entries, and only after every registered ledger validates. Global
+cleanup execution is refused.
+
+When a dry-run writes a cleanup plan, Shelf appends or refreshes a Shelf-owned
+ledger record for the plan file with `owner=shelf`, `kind=run-artifact`,
+`ttl=14d`, `cleanup=trash`, and labels including `shelf`, `cleanup-plan`, and the
+plan id.
 
 ### `shelf cleanup --execute`
 
@@ -242,7 +253,10 @@ Rules:
 
 - Requires `--plan-id`.
 - Refuses to generate a fresh live cleanup set during execute.
-- Writes a cleanup receipt.
+- Writes a cleanup receipt and appends or refreshes a Shelf-owned ledger record
+  for that receipt with `owner=shelf`, `kind=run-artifact`, `ttl=30d`,
+  `cleanup=review`, and labels including `shelf`, `cleanup-receipt`, and the
+  plan id.
 - Updates touched ledger records so handled artifacts stop appearing as active
   cleanup candidates.
 - Uses trash/review behavior by default.
@@ -408,7 +422,7 @@ Scheduled jobs must not silently execute cleanup.
 ## Dogfood Scenarios
 
 1. Record a repo-local `tmp/` scratch directory with a 3-day TTL.
-2. Record an OpenClaw config backup with manual review retention.
+2. Record a config backup with manual review retention.
 3. Generate a dry-run cleanup plan after TTL expiry using fixture data.
 4. Execute a cleanup plan in a temporary test fixture and verify receipt output.
 
@@ -423,7 +437,10 @@ Scheduled jobs must not silently execute cleanup.
 - CLI can find existing records by path/owner/label/status and get records by id.
 - CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
-- Cleanup dry-run creates a plan id.
+- Cleanup dry-run creates a plan id only when there are executable cleanup
+  entries; no-op dry-runs do not write plan files.
+- Cleanup dry-run and execute register the plan/receipt artifacts that Shelf
+  creates.
 - Cleanup execute refuses to run without a plan id.
 - Cleanup execute writes a receipt.
 - All core commands support `--json`.
@@ -434,7 +451,7 @@ Scheduled jobs must not silently execute cleanup.
 ## Deferred
 
 - Cron integration.
-- OpenClaw/Codex/Claude skill adapters.
+- Agent skill adapters.
 - GitHub Action.
 - Fake/demo mode.
 - Rollback command.

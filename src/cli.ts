@@ -342,7 +342,7 @@ function handleCleanup(parsed: ParsedArgs, ledgerPath: string, json: boolean): n
     }
     const plan = createCleanupPlan(ledgerPath);
     if (json) return printJson({ ok: true, plan });
-    process.stdout.write(`plan ${plan.planId}: ${plan.entries.length} entries, ${plan.skipped.length} skipped\nplan: ${plan.planPath}\nledger: ${ledgerPath}\n`);
+    printPlan(plan, ledgerPath);
     return 0;
   }
 
@@ -503,7 +503,7 @@ function emptyReviewPlan(ledgerPath: string): CleanupPlan {
     ledgerPath,
     entries: [],
     skipped: [],
-    planPath: ""
+    planPath: null
   };
 }
 
@@ -535,8 +535,14 @@ function printDueEntries(results: Array<{ ledger: LedgerRegistryEntry; entries: 
 
 function printPlans(results: Array<{ ledger: LedgerRegistryEntry; plan: CleanupPlan }>): void {
   for (const result of results) {
-    process.stdout.write(`plan ${result.plan.planId} [${result.ledger.name}]: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped\nplan: ${result.plan.planPath}\nledger: ${result.ledger.path}\n`);
+    process.stdout.write(`plan ${result.plan.planId} [${result.ledger.name}]: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped\n`);
+    process.stdout.write(`plan: ${result.plan.planPath ?? "not created"}\nledger: ${result.ledger.path}\n`);
   }
+}
+
+function printPlan(plan: CleanupPlan, ledgerPath: string): void {
+  process.stdout.write(`plan ${plan.planId}: ${plan.entries.length} entries, ${plan.skipped.length} skipped\n`);
+  process.stdout.write(`plan: ${plan.planPath ?? "not created"}\nledger: ${ledgerPath}\n`);
 }
 
 function printReview(results: Array<{ ledger: LedgerRegistryEntry; validate: ReturnType<typeof validateLedger>; due: DueEntry[]; plan: CleanupPlan }>): void {
@@ -572,6 +578,9 @@ Options:
   shelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
 
 Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a reviewed plan id.
+Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
+Matching dry-runs reuse the existing plan id and refresh its Shelf-owned plan artifact.
+Execute writes and registers a Shelf-owned receipt artifact.
 Global --all mode is dry-run only.
 `);
     return;

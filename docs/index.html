@@ -26,7 +26,6 @@
         <div class="nav-section">
           <p class="nav-section-title">Agents</p>
           <a href="agent-usage.html">Agent usage</a>
-          <a href="openclaw.html">OpenClaw setup</a>
           <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
         </div>
         <div class="nav-section">
@@ -55,7 +54,6 @@
                   <a class="button primary" href="install.html">Install from source</a>
                   <a class="button" href="quickstart.html">Quickstart</a>
                   <a class="button" href="agent-usage.html">Agent usage</a>
-                  <a class="button" href="openclaw.html">OpenClaw setup</a>
                   <a class="button" href="https://github.com/calvinnwq/shelf">GitHub</a>
                 </div>
               </div>
@@ -70,7 +68,8 @@
 recorded shf_20260601_182800_ab12
 retains until: 2026-06-04T08:28:00Z
 
-$ shelf cleanup --dry-run --json</code></pre>
+$ shelf cleanup --dry-run --json
+{ "plan": { "planId": "not-created", "planPath": null } }</code></pre>
               </div>
             </div>
           </div>
@@ -103,7 +102,7 @@ $ shelf cleanup --dry-run --json</code></pre>
                 </div>
                 <div class="card">
                   <h3>Review due items</h3>
-                  <p>Use `shelf due` and `shelf cleanup --dry-run` to inspect what needs attention.</p>
+                  <p>Use `shelf due` and `shelf cleanup --dry-run` to inspect what needs attention; no-op previews report `not-created`.</p>
                 </div>
                 <div class="card">
                   <h3>Execute by plan</h3>
@@ -121,15 +120,11 @@ $ shelf cleanup --dry-run --json</code></pre>
                 </a>
                 <a class="doc-card" href="quickstart.html">
                   <strong>Try the workflow</strong>
-                  <span>Register a temp artifact, inspect the ledger, and create a dry-run plan.</span>
+                  <span>Register a temp artifact, inspect the ledger, and preview cleanup.</span>
                 </a>
                 <a class="doc-card" href="agent-usage.html">
                   <strong>Wire up agents</strong>
-                  <span>Teach OpenClaw, Codex, Claude, or other agents when to call Shelf.</span>
-                </a>
-                <a class="doc-card" href="openclaw.html">
-                  <strong>Install for OpenClaw</strong>
-                  <span>Ask for a checkout path, link with npm, and smoke-test safely.</span>
+                  <span>Teach agents when to call Shelf and how to report Shelf ids.</span>
                 </a>
                 <a class="doc-card" href="reference.html">
                   <strong>Look up commands</strong>
