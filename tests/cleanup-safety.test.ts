@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -92,6 +92,25 @@ test("read-only status, review, and doctor never execute cleanup", () => {
   assert.equal(existsSync(join(shelfDir, "receipts")), false, "read-only commands must not write receipts");
   assert.equal(existsSync(join(shelfDir, "trash")), false, "read-only commands must not trash files");
 });
+
+test("SPEC's Cleanup Safety Model section names the five execution boundaries in plain language", () => {
+  const section = specSection("Cleanup Safety Model");
+  assert.match(section, /no daemon/i, "must say there is no daemon");
+  assert.match(section, /no auto-execute/i, "must say there is no auto-execute");
+  assert.match(section, /no global execute/i, "must say there is no global execute");
+  assert.match(section, /no fresh-plan-then-execute/i, "must say there is no fresh-plan-then-execute");
+  assert.match(section, /no silent delet/i, "must say there is no silent deletion");
+});
+
+function specSection(title: string): string {
+  const spec = readFileSync("SPEC.md", "utf8");
+  const heading = `## ${title}`;
+  const start = spec.indexOf(heading);
+  assert.notEqual(start, -1, `SPEC.md is missing the "${title}" section`);
+  const rest = spec.slice(start + heading.length);
+  const end = rest.indexOf("\n## ");
+  return end === -1 ? rest : rest.slice(0, end);
+}
 
 function shelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
