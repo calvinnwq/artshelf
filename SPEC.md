@@ -204,8 +204,8 @@ shelf review --all --json
 ```
 
 `review` is the compact report surface for scheduled checks. `--all` reads every
-registered ledger from the registry; stale or invalid ledgers are included with a
-`not-created` plan instead of writing a plan file.
+registered ledger from the registry; stale, invalid, and valid no-op ledgers are
+included with a `not-created` plan instead of writing a plan file.
 
 ### `shelf cleanup --dry-run`
 
@@ -235,9 +235,10 @@ Written plans must include:
 cleanup entries, and only after every registered ledger validates. Global
 cleanup execution is refused.
 
-When a dry-run writes a cleanup plan, Shelf appends a Shelf-owned ledger record
-for the plan file with `owner=shelf`, `kind=run-artifact`, `cleanup=trash`, and
-labels including `shelf`, `cleanup-plan`, and the plan id.
+When a dry-run writes a cleanup plan, Shelf appends or refreshes a Shelf-owned
+ledger record for the plan file with `owner=shelf`, `kind=run-artifact`,
+`ttl=14d`, `cleanup=trash`, and labels including `shelf`, `cleanup-plan`, and the
+plan id.
 
 ### `shelf cleanup --execute`
 
@@ -252,8 +253,10 @@ Rules:
 
 - Requires `--plan-id`.
 - Refuses to generate a fresh live cleanup set during execute.
-- Writes a cleanup receipt and appends a Shelf-owned ledger record for that
-  receipt with labels including `shelf`, `cleanup-receipt`, and the plan id.
+- Writes a cleanup receipt and appends or refreshes a Shelf-owned ledger record
+  for that receipt with `owner=shelf`, `kind=run-artifact`, `ttl=30d`,
+  `cleanup=review`, and labels including `shelf`, `cleanup-receipt`, and the
+  plan id.
 - Updates touched ledger records so handled artifacts stop appearing as active
   cleanup candidates.
 - Uses trash/review behavior by default.

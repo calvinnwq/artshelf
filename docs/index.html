@@ -68,7 +68,8 @@
 recorded shf_20260601_182800_ab12
 retains until: 2026-06-04T08:28:00Z
 
-$ shelf cleanup --dry-run --json</code></pre>
+$ shelf cleanup --dry-run --json
+{ "plan": { "planId": "not-created", "planPath": null } }</code></pre>
               </div>
             </div>
           </div>
@@ -101,7 +102,7 @@ $ shelf cleanup --dry-run --json</code></pre>
                 </div>
                 <div class="card">
                   <h3>Review due items</h3>
-                  <p>Use `shelf due` and `shelf cleanup --dry-run` to inspect what needs attention.</p>
+                  <p>Use `shelf due` and `shelf cleanup --dry-run` to inspect what needs attention; no-op previews report `not-created`.</p>
                 </div>
                 <div class="card">
                   <h3>Execute by plan</h3>
@@ -119,7 +120,7 @@ $ shelf cleanup --dry-run --json</code></pre>
                 </a>
                 <a class="doc-card" href="quickstart.html">
                   <strong>Try the workflow</strong>
-                  <span>Register a temp artifact, inspect the ledger, and create a dry-run plan.</span>
+                  <span>Register a temp artifact, inspect the ledger, and preview cleanup.</span>
                 </a>
                 <a class="doc-card" href="agent-usage.html">
                   <strong>Wire up agents</strong>
