@@ -68,7 +68,9 @@ Defaults:
 
 `put` should refuse to record a path that does not exist unless a future flag
 explicitly supports planned artifacts. After appending the record, `put`
-registers the ledger in the ledger registry.
+registers the ledger in the ledger registry. Registry registration is
+best-effort: if it fails, the record remains appended and output includes a
+registry warning or `registryError`.
 
 ### `shelf ledgers`
 
@@ -284,6 +286,23 @@ V1 also supports a user-level registry of known ledgers:
 - `--all` reads registered ledgers as one review surface.
 - `cleanup --execute --all` is refused; execution stays scoped to one explicit
   ledger and one reviewed plan id.
+
+## Ledger Registry Schema
+
+```json
+{
+  "version": 1,
+  "ledgers": [
+    {
+      "name": "my-repo",
+      "path": "/absolute/path/to/repo/.shelf/ledger.jsonl",
+      "scope": "repo",
+      "createdAt": "2026-06-01T05:42:00Z",
+      "updatedAt": "2026-06-01T05:42:00Z"
+    }
+  ]
+}
+```
 
 ## Ledger Record Schema
 

@@ -68,9 +68,9 @@ $ shelf --version</code></pre>
                 <div class="command-row"><code>shelf ledgers add --ledger &lt;path&gt;</code><p>Register an existing ledger so Shelf can review it through one entry point.</p></div>
                 <div class="command-row"><code>shelf list</code><p>Show ledger entries and current status. Use <code>--all</code> and <code>--status active|review-required|trashed|cleanup-refused|resolved</code> to filter registered ledgers.</p></div>
                 <div class="command-row"><code>shelf find --path &lt;path&gt;</code><p>Read-only lookup for existing records by path, owner, labels, and status.</p></div>
-                <div class="command-row"><code>shelf get &lt;id&gt;</code><p>Read-only audit lookup for one ledger record by Shelf id.</p></div>
+                <div class="command-row"><code>shelf get &lt;id&gt;</code><p>Read-only audit lookup for one ledger record by Shelf id. Use <code>--all</code> to search registered ledgers.</p></div>
                 <div class="command-row"><code>shelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path. Use <code>--all</code> to read every registered ledger.</p></div>
-                <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing active or review-required paths.</p></div>
+                <div class="command-row"><code>shelf validate</code><p>Validate JSONL shape and warn about missing active or review-required paths. Use <code>--all</code> to report stale registered ledgers.</p></div>
                 <div class="command-row"><code>shelf review</code><p>Run validate, due, and cleanup plan preview. Use <code>--all</code> to read every registered ledger.</p></div>
                 <div class="command-row"><code>shelf cleanup --dry-run</code><p>Create a cleanup plan without moving files.</p></div>
                 <div class="command-row"><code>shelf cleanup --execute --plan-id &lt;id&gt;</code><p>Execute a previously reviewed plan id, write a receipt, and update touched ledger records.</p></div>
@@ -120,7 +120,8 @@ SHELF_REGISTRY    Override the default ledger registry path
               </p>
               <pre><code>shelf find --path &lt;path&gt; --owner coding-workflow-pipeline --label &lt;run-id&gt; --json
 shelf find --all --owner coding-workflow-pipeline --json
-shelf get &lt;id&gt; --json</code></pre>
+shelf get &lt;id&gt; --json
+shelf get &lt;id&gt; --all --json</code></pre>
             </section>
 
             <section>
