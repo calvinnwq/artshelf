@@ -182,6 +182,7 @@ shelf validate --json
 shelf validate --all --json
 shelf due --json
 shelf due --all --json
+shelf review --all --json
 ```
 
 Cleanup dry-run is safe to run. It writes plan files for later review only when
