@@ -8,6 +8,11 @@ created in `tmp/`, repo folders, or backup locations and then forgotten. Shelf
 records why an artifact exists at creation time, then makes later cleanup
 visible and reviewable.
 
+Shelf centers on three core workflows: **register a temp artifact** the moment it
+is created, **review everything safely** before anything moves, and **approve
+cleanup safely** from a reviewed plan. The reference sections further down stay
+out of the way until you need them.
+
 ## Status
 
 Shelf is an early v1 MVP. Version 0.1.0 is a GitHub/source-first release and is
@@ -36,37 +41,46 @@ To remove the linked command later:
 npm unlink -g shelf
 ```
 
-## Quickstart
+## Core Workflows
 
-Record a scratch directory for three days:
+Shelf is built around three core workflows. Start here; the reference sections
+below are there when you need them, not before.
+
+### 1. Register a temp artifact
+
+Record an artifact the moment it is created, while the reason is still fresh:
 
 ```bash
 shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
 ```
 
-Check the ledger:
+Shelf returns an id. Capture it anywhere future cleanup context matters.
+
+### 2. Review everything safely
+
+Inspect the ledger and preview cleanup without moving anything:
 
 ```bash
 shelf list
 shelf status
-```
-
-Review cleanup before anything moves:
-
-```bash
 shelf due
 shelf cleanup --dry-run
 ```
 
 Because this example keeps the artifact for three days, an immediate dry-run
-reports `not-created` and writes no plan. Execute only after `due` shows cleanup
-entries and a dry-run returns a real plan id.
+reports `not-created` and writes no plan. A dry-run returns a real plan id only
+after `due` shows cleanup entries.
 
-Execute only from a reviewed plan id:
+### 3. Approve cleanup safely
+
+Execute only from a reviewed plan id, and only after a human approves it:
 
 ```bash
 shelf cleanup --execute --plan-id plan_20260601_120000_ab12
 ```
+
+There is no auto-execute, no global execute, and no fresh-plan-then-execute
+shortcut. Execution writes a receipt and updates the touched ledger records.
 
 ## Explicit Ledgers
 
