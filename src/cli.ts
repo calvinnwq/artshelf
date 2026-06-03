@@ -24,7 +24,7 @@ import type { LedgerRegistryEntry } from "./registry.js";
 import type { CleanupPlan, DueEntry, ShelfRecord } from "./types.js";
 
 const VERSION = "0.1.0";
-const BOOLEAN_FLAGS = new Set(["all", "json", "manual-review", "dry-run", "execute", "help", "version"]);
+const BOOLEAN_FLAGS = new Set(["all", "json", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
   "cleanup",
   "kind",
@@ -147,17 +147,105 @@ function handleLedgers(parsed: ParsedArgs, json: boolean): number {
     return 0;
   }
   if (action === "list") {
-    const ledgers = listRegisteredLedgers(registryPath);
-    if (json) return printJson({ ok: true, registryPath, ledgers });
-    if (ledgers.length === 0) {
-      process.stdout.write(`no registered Shelf ledgers\nregistry: ${registryPath}\n`);
+    if (boolFlag(parsed, "plain")) {
+      const ledgers = listRegisteredLedgers(registryPath);
+      if (json) return printJson({ ok: true, registryPath, ledgers });
+      if (ledgers.length === 0) {
+        process.stdout.write(`no registered Shelf ledgers\nregistry: ${registryPath}\n`);
+        return 0;
+      }
+      for (const ledger of ledgers) process.stdout.write(`${ledger.name} ${ledger.scope} ${ledger.path}\n`);
+      process.stdout.write(`registry: ${registryPath}\n`);
       return 0;
     }
-    for (const ledger of ledgers) process.stdout.write(`${ledger.name} ${ledger.scope} ${ledger.path}\n`);
-    process.stdout.write(`registry: ${registryPath}\n`);
-    return 0;
+
+    const report = buildLedgersReport(registryPath);
+    if (json) {
+      printJson(report);
+      return report.ok ? 0 : 1;
+    }
+    printLedgersList(report);
+    return report.ok ? 0 : 1;
   }
   throw new Error(`Unknown ledgers action: ${action}`);
+}
+
+type LedgerListing = LedgerRegistryEntry & {
+  status: "ok" | "missing" | "invalid";
+  ok: boolean;
+  entries: number;
+  errors: string[];
+  warnings: string[];
+};
+
+type LedgersReport = {
+  ok: boolean;
+  registryPath: string;
+  registryExists: boolean;
+  registryOk: boolean;
+  registryError: string | null;
+  ledgers: LedgerListing[];
+  summary: { ledgers: number; ok: number; stale: number; invalid: number; warnings: number };
+};
+
+function buildLedgersReport(registryPath: string): LedgersReport {
+  let registryOk = true;
+  let registryError: string | null = null;
+  let entries: LedgerRegistryEntry[] = [];
+  try {
+    entries = listRegisteredLedgers(registryPath);
+  } catch (error) {
+    registryOk = false;
+    registryError = (error as Error).message;
+  }
+
+  const ledgers: LedgerListing[] = entries.map((entry) => {
+    const result = validateRegisteredLedger(entry);
+    const status: LedgerListing["status"] = result.ok ? "ok" : existsSync(entry.path) ? "invalid" : "missing";
+    return {
+      ...entry,
+      status,
+      ok: result.ok,
+      entries: result.entries,
+      errors: result.errors,
+      warnings: result.warnings
+    };
+  });
+
+  const summary = {
+    ledgers: ledgers.length,
+    ok: ledgers.filter((ledger) => ledger.status === "ok").length,
+    stale: ledgers.filter((ledger) => ledger.status === "missing").length,
+    invalid: ledgers.filter((ledger) => ledger.status === "invalid").length,
+    warnings: ledgers.reduce((count, ledger) => count + ledger.warnings.length, 0)
+  };
+
+  return {
+    ok: registryOk && summary.stale === 0 && summary.invalid === 0,
+    registryPath,
+    registryExists: existsSync(registryPath),
+    registryOk,
+    registryError,
+    ledgers,
+    summary
+  };
+}
+
+function printLedgersList(report: LedgersReport): void {
+  process.stdout.write(`shelf ledgers: ${report.ok ? "ok" : "needs attention"}\n`);
+  process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"} — ${report.summary.ledgers} ledgers (${report.summary.ok} ok, ${report.summary.stale} stale, ${report.summary.invalid} invalid)\n`);
+  if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
+  if (report.ledgers.length === 0) {
+    process.stdout.write("no registered Shelf ledgers\n");
+    return;
+  }
+  for (const ledger of report.ledgers) {
+    if (ledger.status === "ok") {
+      process.stdout.write(`[${ledger.name}] ok ${ledger.scope}: ${ledger.entries} entries, ${ledger.warnings.length} warnings — ${ledger.path}\n`);
+    } else {
+      process.stdout.write(`[${ledger.name}] ${ledger.status} ${ledger.scope}: ${ledger.errors.join("; ")} — ${ledger.path}\n`);
+    }
+  }
 }
 
 function handleList(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
@@ -366,12 +454,13 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
     const results = registeredLedgersOrThrow(registryPath).map((ledger) => reviewLedger(ledger));
     const ok = results.every((entry) => entry.validate.ok);
+    const summary = summarizeReview(results);
+    const nextAction = reviewNextAction(summary);
     if (json) {
-      printJson({ ok, registryPath, ledgers: results });
+      printJson({ ok, registryPath, summary, nextAction, ledgers: results });
       return ok ? 0 : 1;
     }
-    printReview(results);
-    process.stdout.write(`registry: ${registryPath}\n`);
+    printReviewAll(results, summary, nextAction, registryPath);
     return ok ? 0 : 1;
   }
   const result = reviewLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
@@ -757,7 +846,28 @@ function validateRegisteredLedger(ledger: LedgerRegistryEntry): ReturnType<typeo
   return validateLedger(ledger.path);
 }
 
-function reviewLedger(ledger: LedgerRegistryEntry, registered = true): { ledger: LedgerRegistryEntry; validate: ReturnType<typeof validateLedger>; due: DueEntry[]; plan: CleanupPlan } {
+type ReviewResult = {
+  ledger: LedgerRegistryEntry;
+  validate: ReturnType<typeof validateLedger>;
+  due: DueEntry[];
+  plan: CleanupPlan;
+};
+
+type ReviewSummary = {
+  ledgers: number;
+  ok: number;
+  invalid: number;
+  stale: number;
+  affected: number;
+  due: number;
+  manualReview: number;
+  missingPath: number;
+  executable: number;
+  skipped: number;
+  previewPlanIds: string[];
+};
+
+function reviewLedger(ledger: LedgerRegistryEntry, registered = true): ReviewResult {
   const validate = registered ? validateRegisteredLedger(ledger) : validateLedger(ledger.path);
   if (!validate.ok) {
     return {
@@ -825,7 +935,71 @@ function printPlan(plan: CleanupPlan, ledgerPath: string): void {
   process.stdout.write(`plan: ${plan.planPath ?? "not created"}\nledger: ${ledgerPath}\n`);
 }
 
-function printReview(results: Array<{ ledger: LedgerRegistryEntry; validate: ReturnType<typeof validateLedger>; due: DueEntry[]; plan: CleanupPlan }>): void {
+function summarizeReview(results: ReviewResult[]): ReviewSummary {
+  const summary: ReviewSummary = {
+    ledgers: results.length,
+    ok: 0,
+    invalid: 0,
+    stale: 0,
+    affected: 0,
+    due: 0,
+    manualReview: 0,
+    missingPath: 0,
+    executable: 0,
+    skipped: 0,
+    previewPlanIds: []
+  };
+
+  for (const result of results) {
+    if (result.validate.ok) {
+      summary.ok += 1;
+    } else if (existsSync(result.ledger.path)) {
+      summary.invalid += 1;
+    } else {
+      summary.stale += 1;
+    }
+
+    const due = result.due.filter((entry) => entry.dueStatus === "due").length;
+    const manualReview = result.due.filter((entry) => entry.dueStatus === "manual-review").length;
+    const missingPath = result.due.filter((entry) => entry.dueStatus === "missing-path").length;
+    summary.due += due;
+    summary.manualReview += manualReview;
+    summary.missingPath += missingPath;
+    summary.executable += result.plan.entries.length;
+    summary.skipped += result.plan.skipped.length;
+    if (result.plan.planId !== "not-created") summary.previewPlanIds.push(result.plan.planId);
+    if (!result.validate.ok || due + manualReview + missingPath > 0 || result.plan.entries.length > 0) {
+      summary.affected += 1;
+    }
+  }
+
+  return summary;
+}
+
+function reviewNextAction(summary: ReviewSummary): string {
+  const broken = summary.invalid + summary.stale;
+  if (broken > 0) {
+    return `repair ${broken} broken ledger(s) above (re-register or fix the file), then re-run \`shelf review --all\``;
+  }
+  if (summary.executable > 0) {
+    return "run `shelf cleanup --dry-run --all` to generate plans, then `shelf cleanup --execute --plan-id <id> --ledger <path>` for each reviewed plan";
+  }
+  if (summary.missingPath > 0) {
+    return "inspect missing-path entries and `shelf resolve` the ones no longer needed; nothing is auto-executable";
+  }
+  return "nothing to do — no broken ledgers and no due, manual-review, missing-path, or executable cleanup entries";
+}
+
+function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAction: string, registryPath: string): void {
+  const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
+  process.stdout.write(`shelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
+  process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
+  printReview(results);
+  process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
+  process.stdout.write(`next: ${nextAction}\n`);
+}
+
+function printReview(results: ReviewResult[]): void {
   for (const result of results) {
     const visibleDue = result.due.filter((entry) => entry.dueStatus !== "kept");
     process.stdout.write(`[${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
@@ -871,10 +1045,12 @@ Global --all mode is dry-run only.
 
   if (command === "ledgers") {
     process.stdout.write(`Usage:
-  shelf ledgers list [--registry <path>] [--json]
+  shelf ledgers list [--plain] [--registry <path>] [--json]
   shelf ledgers add --ledger <path> [--name <name>] [--scope repo|user|other] [--registry <path>] [--json]
 
 The ledger registry is a global index of known ledgers. It gives Shelf one read-only entry point without moving project records into one global ledger.
+By default \`list\` validates each registered ledger and reports ok/missing/invalid status, entry counts, and warning/error counts so agents can spot stale registry entries without a separate validate pass; it exits non-zero when the registry or any registered ledger is broken.
+Use \`--plain\` for the fast path that lists registered ledgers without reading them.
 `);
     return;
   }
@@ -935,6 +1111,7 @@ Resolved records stay in the audit trail but no longer participate in due or cle
   shelf review --all [--registry <path>] [--json]
 
 Review runs validate, due, and cleanup plan preview without moving files or writing a plan.
+With --all, review adds aggregate triage counts and the next safe action.
 `);
     return;
   }
@@ -979,7 +1156,7 @@ or receipts and never mutates records. A healthy selected ledger exits 0; with
 
 Usage:
   shelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review)
-  shelf ledgers list [--json]
+  shelf ledgers list [--plain] [--json]
   shelf ledgers add --ledger <path> [--name <name>] [--json]
   shelf list [--json]
   shelf list --all [--json]

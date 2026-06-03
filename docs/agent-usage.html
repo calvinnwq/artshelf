@@ -142,6 +142,13 @@ shelf ledgers list --json
 shelf review --all --json
 shelf status --all --json
 shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
+              <p>
+                <code>shelf ledgers list --json</code> validates each registered ledger and reports
+                ok/missing/invalid status with entry and warning/error counts, so agents can detect
+                stale registry entries without a separate validate pass; add <code>--plain</code> for a
+                fast listing that skips validation. <code>shelf review --all --json</code> returns an
+                aggregate triage summary and the next safe action next to the per-ledger detail.
+              </p>
               <p>Use global cleanup dry-run when you want Shelf to write cleanup plans for registered ledgers with cleanup entries, without moving files.</p>
               <pre><code>shelf cleanup --dry-run --all --json</code></pre>
               <div class="note">
@@ -172,7 +179,8 @@ shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
               <pre><code>shelf validate --json
 shelf validate --all --json
 shelf due --json
-shelf due --all --json</code></pre>
+shelf due --all --json
+shelf review --all --json</code></pre>
               <p>Cleanup dry-run is safe to run. It writes plan files for later review only when there are executable cleanup entries; no-op dry-runs report <code>not-created</code> and write no plan file. Matching dry-runs reuse the existing plan id and refresh the plan timestamp.</p>
               <pre><code>shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json</code></pre>
@@ -208,12 +216,14 @@ shelf cleanup --dry-run --all --json</code></pre>
               <pre><code>shelf validate --json
 shelf validate --all --json
 shelf due --json
-shelf due --all --json</code></pre>
+shelf due --all --json
+shelf review --all --json</code></pre>
               <p>
                 Read-only health and dashboard checks are also safe to schedule. Run
-                <code>shelf doctor --json</code> to catch a broken or stale registry before
-                relying on cleanup planning, and <code>shelf status --all --json</code> for a
-                compact cron summary.
+                <code>shelf review --all --json</code> for aggregate triage (<code>summary</code>
+                and <code>nextAction</code>), <code>shelf doctor --json</code> to catch a broken
+                or stale registry before relying on cleanup planning, and
+                <code>shelf status --all --json</code> for a compact cron summary.
               </p>
               <pre><code>shelf doctor --json
 shelf status --all --json</code></pre>

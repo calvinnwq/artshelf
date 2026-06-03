@@ -89,6 +89,11 @@ shelf ledgers list
 shelf ledgers add --ledger /path/to/repo/.shelf/ledger.jsonl --name my-repo
 ```
 
+`shelf ledgers list` validates each registered ledger by default — reporting
+ok/missing/invalid status with entry counts, and exiting non-zero when the
+registry or any ledger is broken — so it doubles as a stale-entry check. Add
+`--plain` for the fast listing that skips validation.
+
 Use `--all` for one read-only discovery entry point across registered ledgers:
 
 ```bash
@@ -97,6 +102,10 @@ shelf status --all --json
 shelf due --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
+
+`shelf review --all` adds an aggregate triage summary (affected ledgers, due,
+manual-review, missing-path, executable, and skipped counts plus preview plan
+ids) and states the next safe action, while staying read-only.
 
 Use global dry-run cleanup when you want Shelf to write cleanup plans for
 registered ledgers with cleanup entries, without moving files:
@@ -141,6 +150,7 @@ keeps the audit trail visible.
 ```bash
 shelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
 shelf ledgers list
+shelf ledgers list --plain
 shelf ledgers add --ledger <path>
 shelf list
 shelf list --all

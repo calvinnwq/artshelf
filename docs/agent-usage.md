@@ -103,6 +103,11 @@ shelf ledgers add --ledger <repo>/.shelf/ledger.jsonl --name <project> --scope r
 shelf ledgers list --json
 ```
 
+`shelf ledgers list --json` validates each registered ledger and reports
+ok/missing/invalid status with entry and warning/error counts, so agents can
+detect stale registry entries without a separate validate pass. Add `--plain`
+for a fast listing that skips validation.
+
 Use the registry for read-only review and discovery:
 
 ```bash
@@ -111,6 +116,11 @@ shelf status --all --json
 shelf due --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
+
+`shelf review --all --json` returns an aggregate triage summary (affected
+ledgers, due, manual-review, missing-path, executable, and skipped counts plus
+preview plan ids) alongside the per-ledger detail, and states the next safe
+action.
 
 Use global cleanup dry-run when you want Shelf to write cleanup plans for
 registered ledgers with cleanup entries, without moving files:
@@ -172,6 +182,7 @@ shelf validate --json
 shelf validate --all --json
 shelf due --json
 shelf due --all --json
+shelf review --all --json
 ```
 
 Cleanup dry-run is safe to run. It writes plan files for later review only when
@@ -223,9 +234,11 @@ job non-destructive:
 ```bash
 shelf validate --json
 shelf due --json
+shelf review --all --json
 ```
 
 Read-only health and dashboard checks are also safe to schedule. Run
+`shelf review --all --json` for aggregate triage (`summary` and `nextAction`),
 `shelf doctor --json` to catch a broken or stale registry before relying on
 cleanup planning, and `shelf status --all --json` for a compact cron summary:
 

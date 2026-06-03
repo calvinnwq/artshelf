@@ -79,12 +79,20 @@ Lists or registers known Shelf ledgers.
 
 ```bash
 shelf ledgers list
+shelf ledgers list --plain
 shelf ledgers add --ledger <path> --name <project> --scope repo
 ```
 
 Rules:
 
-- `list` reads the registry without mutating ledgers.
+- `list` validates each registered ledger by default and reports
+  ok/missing/invalid status, entry counts, and warning/error counts so agents can
+  detect stale registry entries without a separate validate pass. It reads
+  ledgers but never mutates them, and exits non-zero when the registry or any
+  registered ledger is broken.
+- `list --plain` is the fast path that lists registered ledgers without reading
+  them; it does not validate and exits zero whenever the registry itself is
+  readable.
 - `add` requires an existing ledger path.
 - `--name` defaults from the ledger path when omitted.
 - `--scope` is optional; when omitted, Shelf infers `repo`, `user`, or
@@ -207,6 +215,14 @@ shelf review --all --json
 `review` is the compact report surface for scheduled checks. `--all` reads every
 registered ledger from the registry; stale, invalid, and valid no-op ledgers are
 included with a `not-created` plan instead of writing a plan file.
+
+In `--all` mode, review emits an aggregate triage summary on top of the
+per-ledger detail. JSON includes a `summary` block with affected-ledger, due,
+manual-review, missing-path, executable, and skipped counts plus the preview
+plan ids; JSON also includes the next safe action. Human output adds a one-line
+triage count and states the same next safe action (repair broken ledgers, dry-run
+cleanup, inspect missing paths, or nothing to do). Review never writes a plan, so
+the next action always points at an explicit follow-up command.
 
 ### `shelf doctor`
 
@@ -490,11 +506,16 @@ Scheduled jobs may run:
 ```bash
 shelf due --json
 shelf due --all --json
+shelf review --all --json
 shelf doctor --json
 shelf status --all --json
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
+
+`shelf review --all --json` is the read-only all-ledger triage surface;
+scheduled reports should include its aggregate `summary` and `nextAction` when
+whole-machine review is needed.
 
 Scheduled jobs must never run `shelf cleanup --execute`; they may only dry-run
 and report plans for later human review.
@@ -509,8 +530,10 @@ and report plans for later human review.
 ## V1 Acceptance Criteria
 
 - CLI can record entries to JSONL.
-- CLI can register and list known ledgers.
-- CLI can review registered ledgers through `--all` read-only entry points.
+- CLI can register known ledgers and list them with per-ledger validation status
+  by default, or a `--plain` fast path that skips validation.
+- CLI can review registered ledgers through `--all` read-only entry points,
+  emitting an aggregate triage summary and the next safe action.
 - CLI refuses records without a reason.
 - CLI requires TTL, retain-until, or manual-review.
 - CLI can list, filter by status, and show due entries.
