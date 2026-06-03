@@ -142,6 +142,13 @@ shelf ledgers list --json
 shelf review --all --json
 shelf status --all --json
 shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
+              <p>
+                <code>shelf ledgers list --json</code> validates each registered ledger and reports
+                ok/missing/invalid status with entry and warning/error counts, so agents can detect
+                stale registry entries without a separate validate pass; add <code>--plain</code> for a
+                fast listing that skips validation. <code>shelf review --all --json</code> returns an
+                aggregate triage summary and the next safe action next to the per-ledger detail.
+              </p>
               <p>Use global cleanup dry-run when you want Shelf to write cleanup plans for registered ledgers with cleanup entries, without moving files.</p>
               <pre><code>shelf cleanup --dry-run --all --json</code></pre>
               <div class="note">

@@ -25,6 +25,17 @@
   aggregated active, kept, due, manual-review, missing-path, and pending-cleanup
   counts, with `--all --json` suited to cron and human output short enough to
   paste into a chat.
+- Changed `shelf ledgers list` to validate each registered ledger by default,
+  reporting ok/missing/invalid status, entry counts, and warning/error counts in
+  both human and JSON output and exiting non-zero when the registry or any
+  registered ledger is broken, so agents can detect stale registry entries
+  without a separate validate pass. Added `--plain` for the backward-compatible
+  fast path that lists registered ledgers without reading them.
+- Changed `shelf review --all` to emit an aggregate triage summary alongside the
+  existing per-ledger detail: JSON gains a `summary` block (affected ledgers,
+  due, manual-review, missing-path, executable, skipped counts, and plan ids) and
+  human output adds a triage line plus the next safe action. Review stays
+  read-only and never writes cleanup plans.
 
 ## 0.1.0 - 2026-06-01
 

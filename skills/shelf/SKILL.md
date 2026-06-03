@@ -94,6 +94,12 @@ shelf status --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
 
+`shelf ledgers list --json` reports per-ledger validation status
+(ok/missing/invalid) with entry and warning/error counts, so you can detect
+stale registry entries without a separate validate pass; `--plain` skips
+validation. `shelf review --all --json` adds an aggregate triage summary and the
+next safe action.
+
 `put` registers its ledger automatically. For existing project ledgers, register
 them explicitly:
 
