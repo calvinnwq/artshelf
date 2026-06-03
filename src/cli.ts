@@ -1155,7 +1155,7 @@ or receipts and never mutates records. A healthy selected ledger exits 0; with
 
 Usage:
   shelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review)
-  shelf ledgers list [--json]
+  shelf ledgers list [--plain] [--json]
   shelf ledgers add --ledger <path> [--name <name>] [--json]
   shelf list [--json]
   shelf list --all [--json]
