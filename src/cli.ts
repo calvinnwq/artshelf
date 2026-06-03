@@ -455,11 +455,12 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     const results = registeredLedgersOrThrow(registryPath).map((ledger) => reviewLedger(ledger));
     const ok = results.every((entry) => entry.validate.ok);
     const summary = summarizeReview(results);
+    const nextAction = reviewNextAction(summary);
     if (json) {
-      printJson({ ok, registryPath, summary, ledgers: results });
+      printJson({ ok, registryPath, summary, nextAction, ledgers: results });
       return ok ? 0 : 1;
     }
-    printReviewAll(results, summary, registryPath);
+    printReviewAll(results, summary, nextAction, registryPath);
     return ok ? 0 : 1;
   }
   const result = reviewLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
@@ -863,7 +864,7 @@ type ReviewSummary = {
   missingPath: number;
   executable: number;
   skipped: number;
-  planIds: string[];
+  previewPlanIds: string[];
 };
 
 function reviewLedger(ledger: LedgerRegistryEntry, registered = true): ReviewResult {
@@ -946,7 +947,7 @@ function summarizeReview(results: ReviewResult[]): ReviewSummary {
     missingPath: 0,
     executable: 0,
     skipped: 0,
-    planIds: []
+    previewPlanIds: []
   };
 
   for (const result of results) {
@@ -966,7 +967,7 @@ function summarizeReview(results: ReviewResult[]): ReviewSummary {
     summary.missingPath += missingPath;
     summary.executable += result.plan.entries.length;
     summary.skipped += result.plan.skipped.length;
-    if (result.plan.planId !== "not-created") summary.planIds.push(result.plan.planId);
+    if (result.plan.planId !== "not-created") summary.previewPlanIds.push(result.plan.planId);
     if (!result.validate.ok || due + manualReview + missingPath > 0 || result.plan.entries.length > 0) {
       summary.affected += 1;
     }
@@ -989,13 +990,13 @@ function reviewNextAction(summary: ReviewSummary): string {
   return "nothing to do — no broken ledgers and no due, manual-review, missing-path, or executable cleanup entries";
 }
 
-function printReviewAll(results: ReviewResult[], summary: ReviewSummary, registryPath: string): void {
+function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAction: string, registryPath: string): void {
   const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
   process.stdout.write(`shelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
   process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
   printReview(results);
   process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
-  process.stdout.write(`next: ${reviewNextAction(summary)}\n`);
+  process.stdout.write(`next: ${nextAction}\n`);
 }
 
 function printReview(results: ReviewResult[]): void {

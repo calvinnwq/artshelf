@@ -579,8 +579,10 @@ test("review --all --json summarizes triage counts while preserving per-ledger d
   assert.equal(body.summary.executable, 2);
   assert.equal(body.summary.skipped, 1);
   assert.equal(body.summary.affected, 2);
-  assert.equal(body.summary.planIds.length, 2);
-  for (const planId of body.summary.planIds) assert.match(planId, /^plan_/);
+  assert.equal(body.summary.planIds, undefined);
+  assert.equal(body.summary.previewPlanIds.length, 2);
+  for (const planId of body.summary.previewPlanIds) assert.match(planId, /^plan_/);
+  assert.match(body.nextAction, /cleanup --dry-run --all/);
 
   // Existing per-ledger detail must remain for automation.
   assert.equal(body.ledgers.length, 2);
@@ -658,7 +660,9 @@ test("review --all reports all clear and nothing to do when no ledger needs atte
   assert.equal(body.summary.manualReview, 0);
   assert.equal(body.summary.missingPath, 0);
   assert.equal(body.summary.executable, 0);
-  assert.equal(body.summary.planIds.length, 0);
+  assert.equal(body.summary.planIds, undefined);
+  assert.equal(body.summary.previewPlanIds.length, 0);
+  assert.match(body.nextAction, /nothing to do/);
 
   const human = shelf(["review", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
   assert.equal(human.status, 0, human.stderr);

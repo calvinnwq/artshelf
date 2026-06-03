@@ -218,11 +218,11 @@ included with a `not-created` plan instead of writing a plan file.
 
 In `--all` mode, review emits an aggregate triage summary on top of the
 per-ledger detail. JSON includes a `summary` block with affected-ledger, due,
-manual-review, missing-path, executable, and skipped counts plus the candidate
-plan ids; human output adds a one-line triage count and states the next safe
-action (repair broken ledgers, dry-run cleanup, inspect missing paths, or nothing
-to do). Review never writes a plan, so the next action always points at an
-explicit follow-up command.
+manual-review, missing-path, executable, and skipped counts plus the preview
+plan ids; JSON also includes the next safe action. Human output adds a one-line
+triage count and states the same next safe action (repair broken ledgers, dry-run
+cleanup, inspect missing paths, or nothing to do). Review never writes a plan, so
+the next action always points at an explicit follow-up command.
 
 ### `shelf doctor`
 

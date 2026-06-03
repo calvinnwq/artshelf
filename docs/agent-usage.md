@@ -119,7 +119,8 @@ shelf find --all --owner <agent-or-runtime> --json
 
 `shelf review --all --json` returns an aggregate triage summary (affected
 ledgers, due, manual-review, missing-path, executable, and skipped counts plus
-plan ids) alongside the per-ledger detail, and states the next safe action.
+preview plan ids) alongside the per-ledger detail, and states the next safe
+action.
 
 Use global cleanup dry-run when you want Shelf to write cleanup plans for
 registered ledgers with cleanup entries, without moving files:
