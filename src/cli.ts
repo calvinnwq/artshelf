@@ -1111,6 +1111,7 @@ Resolved records stay in the audit trail but no longer participate in due or cle
   shelf review --all [--registry <path>] [--json]
 
 Review runs validate, due, and cleanup plan preview without moving files or writing a plan.
+With --all, review adds aggregate triage counts and the next safe action.
 `);
     return;
   }
