@@ -351,6 +351,118 @@ test("ledgers add falls back from blank names to inferred names", () => {
   assert.deepEqual(list.ledgers.map((entry: any) => entry.name), ["repo"]);
 });
 
+test("ledgers list --json reports validation status so agents detect stale entries without a separate validate pass", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
+  const staleLedger = join(fixture, "stale", ".shelf", "ledger.jsonl");
+  const brokenLedger = join(fixture, "broken", ".shelf", "ledger.jsonl");
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+
+  shelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", goodLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  mkdirSync(join(fixture, "stale", ".shelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  shelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+  mkdirSync(join(fixture, "broken", ".shelf"), { recursive: true });
+  writeFileSync(brokenLedger, "{not json\n");
+  shelf(["ledgers", "add", "--ledger", brokenLedger, "--name", "broken", "--registry", registry]);
+
+  const result = shelf(["ledgers", "list", "--registry", registry, "--json"]);
+  assert.equal(result.status, 1, "a stale or invalid registered ledger should make ledgers list exit non-zero");
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.registryPath, registry);
+
+  // Aggregate registry-health summary for fast scanning.
+  assert.equal(body.summary.ledgers, 3);
+  assert.equal(body.summary.ok, 1);
+  assert.equal(body.summary.stale, 1);
+  assert.equal(body.summary.invalid, 1);
+
+  const good = body.ledgers.find((entry: any) => entry.name === "good");
+  const stale = body.ledgers.find((entry: any) => entry.name === "stale");
+  const broken = body.ledgers.find((entry: any) => entry.name === "broken");
+  assert.ok(good);
+  assert.ok(stale);
+  assert.ok(broken);
+
+  // Backward-compatible registry fields are preserved on every entry.
+  for (const entry of [good, stale, broken]) {
+    assert.equal(typeof entry.path, "string");
+    assert.equal(typeof entry.scope, "string");
+    assert.equal(typeof entry.createdAt, "string");
+  }
+
+  assert.equal(good.status, "ok");
+  assert.equal(good.ok, true);
+  assert.equal(good.entries, 1);
+  assert.equal(good.errors.length, 0);
+  assert.equal(good.warnings.length, 0);
+
+  assert.equal(stale.status, "missing");
+  assert.equal(stale.ok, false);
+  assert.match(stale.errors[0], /registered ledger is missing/);
+
+  assert.equal(broken.status, "invalid");
+  assert.equal(broken.ok, false);
+  assert.match(broken.errors[0], /Invalid JSONL/);
+});
+
+test("ledgers list human output calls out broken ledgers directly", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
+  const staleLedger = join(fixture, "stale", ".shelf", "ledger.jsonl");
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+
+  shelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", goodLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  mkdirSync(join(fixture, "stale", ".shelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  shelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+
+  const result = shelf(["ledgers", "list", "--registry", registry]);
+  assert.equal(result.status, 1);
+  assert.match(result.stdout, /shelf ledgers: needs attention/);
+  assert.match(result.stdout, /1 ledgers? ok|1 ok/);
+  assert.match(result.stdout, /\[stale\] missing/);
+  assert.match(result.stdout, /\[good\] ok/);
+  assert.match(result.stdout, /registry:/);
+});
+
+test("ledgers list --plain preserves the fast plain listing path", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
+  const staleLedger = join(fixture, "stale", ".shelf", "ledger.jsonl");
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+
+  shelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", goodLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  mkdirSync(join(fixture, "stale", ".shelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  shelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+
+  // Plain mode does not read ledger files, so a stale entry never makes it exit non-zero.
+  const json = shelf(["ledgers", "list", "--plain", "--registry", registry, "--json"]);
+  assert.equal(json.status, 0, json.stderr);
+  const body = JSON.parse(json.stdout);
+  assert.equal(body.ok, true);
+  assert.deepEqual(body.ledgers.map((entry: any) => entry.name), ["good", "stale"]);
+  assert.equal("status" in body.ledgers[0], false);
+  assert.equal("summary" in body, false);
+
+  const human = shelf(["ledgers", "list", "--plain", "--registry", registry]);
+  assert.equal(human.status, 0, human.stderr);
+  assert.doesNotMatch(human.stdout, /needs attention/);
+  assert.match(human.stdout, /good repo .*\.shelf/);
+  assert.match(human.stdout, /registry:/);
+});
+
 test("review reports invalid registered ledgers without aborting", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
