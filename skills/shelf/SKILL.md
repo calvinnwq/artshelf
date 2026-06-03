@@ -1,6 +1,6 @@
 ---
 name: shelf
-description: "Use when registering temporary artifacts, backups, run outputs, debug evidence, or cleanup plans with Shelf."
+description: "Use before any final response, status update, handoff, or done report to check whether created/copied/exported/quarantined/backed-up/preserved non-source files or directories outlive the command; and when registering temporary artifacts, backups, run outputs, debug evidence, or cleanup plans with Shelf."
 ---
 
 # Shelf

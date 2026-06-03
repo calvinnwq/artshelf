@@ -39,6 +39,8 @@
 - Reorganized the README and docs quickstart to lead with the three core
   workflows — register a temp artifact, review everything safely, and approve
   cleanup safely — keeping reference material available below the lead.
+- Tightened the portable agent skill description so the completion-gate trigger
+  is visible before final responses, status updates, handoffs, and done reports.
 
 ## 0.1.0 - 2026-06-01
 
