@@ -36,6 +36,9 @@
   due, manual-review, missing-path, executable, skipped counts, and plan ids) and
   human output adds a triage line plus the next safe action. Review stays
   read-only and never writes cleanup plans.
+- Reorganized the README and docs quickstart to lead with the three core
+  workflows — register a temp artifact, review everything safely, and approve
+  cleanup safely — keeping reference material available below the lead.
 
 ## 0.1.0 - 2026-06-01
 

@@ -188,6 +188,58 @@ test("docs and portable skill stay workflow-agnostic", () => {
   assert.match(readme, /not published to npm/);
 });
 
+test("README and quickstart lead with the three core workflows", () => {
+  const readme = read("README.md");
+  const quickstart = read("docs/quickstart.html");
+
+  const workflows = [
+    "Register a temp artifact",
+    "Review everything safely",
+    "Approve cleanup safely"
+  ];
+
+  // README centers a dedicated core-workflows section that names all three.
+  assert.match(readme, /##\s+Core Workflows/);
+  for (const workflow of workflows) {
+    assert.ok(readme.includes(workflow), `README is missing core workflow "${workflow}"`);
+  }
+
+  // The core workflows lead: they precede the reference-heavy sections.
+  const coreIdx = readme.indexOf("## Core Workflows");
+  const ledgersIdx = readme.indexOf("## Explicit Ledgers");
+  const commandsIdx = readme.indexOf("## Commands");
+  assert.ok(coreIdx > -1, "README should have a Core Workflows section");
+  assert.ok(
+    ledgersIdx > coreIdx,
+    "Core Workflows should lead the Explicit Ledgers reference"
+  );
+  assert.ok(
+    commandsIdx > coreIdx,
+    "Core Workflows should lead the Commands reference"
+  );
+
+  // Reference detail stays available, just below the first-run lead.
+  assert.match(readme, /## Explicit Ledgers/);
+  assert.match(readme, /## Commands/);
+
+  // The three workflows appear in README in their canonical order.
+  let readmeCursor = -1;
+  for (const workflow of workflows) {
+    const idx = readme.indexOf(workflow);
+    assert.ok(idx > readmeCursor, `README workflows out of order at "${workflow}"`);
+    readmeCursor = idx;
+  }
+
+  // The docs quickstart leads with the same three workflows in the same order.
+  let quickstartCursor = -1;
+  for (const workflow of workflows) {
+    const idx = quickstart.indexOf(workflow);
+    assert.ok(idx > -1, `quickstart is missing core workflow "${workflow}"`);
+    assert.ok(idx > quickstartCursor, `quickstart workflows out of order at "${workflow}"`);
+    quickstartCursor = idx;
+  }
+});
+
 function read(path: string): string {
   return readFileSync(path, "utf8");
 }

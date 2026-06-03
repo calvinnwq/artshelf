@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Shelf Quickstart</title>
-    <meta name="description" content="Register and review a temporary artifact with Shelf.">
+    <meta name="description" content="The three core Shelf workflows: register a temp artifact, review everything safely, and approve cleanup safely.">
     <link rel="stylesheet" href="site.css">
     <script src="theme.js" defer></script>
   </head>
@@ -39,11 +39,12 @@
             <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Quickstart</span></nav>
             <div class="hero">
               <div>
-                <p class="eyebrow">Five-minute workflow</p>
-                <h1>Register first, clean later.</h1>
+                <p class="eyebrow">Three core workflows</p>
+                <h1>Register, review, approve — safely.</h1>
                 <p class="lede">
-                  Shelf works best when the artifact is registered the moment it is created.
-                  Start with explicit ledger and registry paths when testing.
+                  Shelf centers on three workflows: register a temp artifact when it is created,
+                  review everything safely before anything moves, and approve cleanup safely from a
+                  reviewed plan. Start with explicit ledger and registry paths when testing.
                 </p>
               </div>
               <div class="terminal">
@@ -65,14 +66,12 @@ $ shelf put /tmp/shelf-demo \
         <main class="wrap">
           <article>
             <section>
-              <h2>1. Create Something Worth Tracking</h2>
+              <h2>1. Register a temp artifact</h2>
+              <p>Create something worth tracking, then put it on the shelf the moment it exists:</p>
               <pre><code>mkdir -p /tmp/shelf-demo
-echo "debug output" &gt; /tmp/shelf-demo/output.txt</code></pre>
-            </section>
+echo "debug output" &gt; /tmp/shelf-demo/output.txt
 
-            <section>
-              <h2>2. Put It On The Shelf</h2>
-              <pre><code>shelf put /tmp/shelf-demo \
+shelf put /tmp/shelf-demo \
   --reason "quickstart artifact" \
   --ttl 1d \
   --kind scratch \
@@ -86,16 +85,13 @@ echo "debug output" &gt; /tmp/shelf-demo/output.txt</code></pre>
             </section>
 
             <section>
-              <h2>3. Inspect The Ledger</h2>
+              <h2>2. Review everything safely</h2>
+              <p>Inspect the ledger and preview cleanup. None of these commands move or delete files.</p>
               <pre><code>shelf list --ledger /tmp/shelf-ledger.jsonl
 shelf status --ledger /tmp/shelf-ledger.jsonl
 shelf validate --ledger /tmp/shelf-ledger.jsonl --json
-shelf due --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
-            </section>
-
-            <section>
-              <h2>4. Preview Cleanup</h2>
-              <pre><code>shelf cleanup --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
+shelf due --ledger /tmp/shelf-ledger.jsonl --json
+shelf cleanup --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
               <p>
                 Dry-run writes a plan under the ledger's `.shelf` directory only when
                 cleanup entries exist. If there is nothing to clean up, it reports
@@ -105,7 +101,7 @@ shelf due --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
             </section>
 
             <section>
-              <h2>5. Stop Before Execute</h2>
+              <h2>3. Approve cleanup safely</h2>
               <pre><code>shelf cleanup --execute \
   --plan-id plan_20260601_120000_ab12 \
   --ledger /tmp/shelf-ledger.jsonl</code></pre>
