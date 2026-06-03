@@ -215,12 +215,14 @@ shelf cleanup --dry-run --all --json</code></pre>
               <pre><code>shelf validate --json
 shelf validate --all --json
 shelf due --json
-shelf due --all --json</code></pre>
+shelf due --all --json
+shelf review --all --json</code></pre>
               <p>
                 Read-only health and dashboard checks are also safe to schedule. Run
-                <code>shelf doctor --json</code> to catch a broken or stale registry before
-                relying on cleanup planning, and <code>shelf status --all --json</code> for a
-                compact cron summary.
+                <code>shelf review --all --json</code> for aggregate triage (<code>summary</code>
+                and <code>nextAction</code>), <code>shelf doctor --json</code> to catch a broken
+                or stale registry before relying on cleanup planning, and
+                <code>shelf status --all --json</code> for a compact cron summary.
               </p>
               <pre><code>shelf doctor --json
 shelf status --all --json</code></pre>

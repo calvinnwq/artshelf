@@ -506,11 +506,16 @@ Scheduled jobs may run:
 ```bash
 shelf due --json
 shelf due --all --json
+shelf review --all --json
 shelf doctor --json
 shelf status --all --json
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
+
+`shelf review --all --json` is the read-only all-ledger triage surface;
+scheduled reports should include its aggregate `summary` and `nextAction` when
+whole-machine review is needed.
 
 Scheduled jobs must never run `shelf cleanup --execute`; they may only dry-run
 and report plans for later human review.

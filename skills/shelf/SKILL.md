@@ -220,10 +220,12 @@ Allowed in scheduled jobs:
 ```bash
 shelf validate --json
 shelf due --json
+shelf review --all --json
 shelf cleanup --dry-run --json
 ```
 
 Read-only health and dashboard checks are also safe to schedule. Run
+`shelf review --all --json` for aggregate triage (`summary` and `nextAction`),
 `shelf doctor --json` to catch a broken or stale registry before relying on
 cleanup planning, and `shelf status --all --json` for a compact cron summary:
 
