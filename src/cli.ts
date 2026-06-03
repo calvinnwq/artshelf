@@ -366,12 +366,12 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
     const results = registeredLedgersOrThrow(registryPath).map((ledger) => reviewLedger(ledger));
     const ok = results.every((entry) => entry.validate.ok);
+    const summary = summarizeReview(results);
     if (json) {
-      printJson({ ok, registryPath, ledgers: results });
+      printJson({ ok, registryPath, summary, ledgers: results });
       return ok ? 0 : 1;
     }
-    printReview(results);
-    process.stdout.write(`registry: ${registryPath}\n`);
+    printReviewAll(results, summary, registryPath);
     return ok ? 0 : 1;
   }
   const result = reviewLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
@@ -757,7 +757,28 @@ function validateRegisteredLedger(ledger: LedgerRegistryEntry): ReturnType<typeo
   return validateLedger(ledger.path);
 }
 
-function reviewLedger(ledger: LedgerRegistryEntry, registered = true): { ledger: LedgerRegistryEntry; validate: ReturnType<typeof validateLedger>; due: DueEntry[]; plan: CleanupPlan } {
+type ReviewResult = {
+  ledger: LedgerRegistryEntry;
+  validate: ReturnType<typeof validateLedger>;
+  due: DueEntry[];
+  plan: CleanupPlan;
+};
+
+type ReviewSummary = {
+  ledgers: number;
+  ok: number;
+  invalid: number;
+  stale: number;
+  affected: number;
+  due: number;
+  manualReview: number;
+  missingPath: number;
+  executable: number;
+  skipped: number;
+  planIds: string[];
+};
+
+function reviewLedger(ledger: LedgerRegistryEntry, registered = true): ReviewResult {
   const validate = registered ? validateRegisteredLedger(ledger) : validateLedger(ledger.path);
   if (!validate.ok) {
     return {
@@ -825,7 +846,71 @@ function printPlan(plan: CleanupPlan, ledgerPath: string): void {
   process.stdout.write(`plan: ${plan.planPath ?? "not created"}\nledger: ${ledgerPath}\n`);
 }
 
-function printReview(results: Array<{ ledger: LedgerRegistryEntry; validate: ReturnType<typeof validateLedger>; due: DueEntry[]; plan: CleanupPlan }>): void {
+function summarizeReview(results: ReviewResult[]): ReviewSummary {
+  const summary: ReviewSummary = {
+    ledgers: results.length,
+    ok: 0,
+    invalid: 0,
+    stale: 0,
+    affected: 0,
+    due: 0,
+    manualReview: 0,
+    missingPath: 0,
+    executable: 0,
+    skipped: 0,
+    planIds: []
+  };
+
+  for (const result of results) {
+    if (result.validate.ok) {
+      summary.ok += 1;
+    } else if (existsSync(result.ledger.path)) {
+      summary.invalid += 1;
+    } else {
+      summary.stale += 1;
+    }
+
+    const due = result.due.filter((entry) => entry.dueStatus === "due").length;
+    const manualReview = result.due.filter((entry) => entry.dueStatus === "manual-review").length;
+    const missingPath = result.due.filter((entry) => entry.dueStatus === "missing-path").length;
+    summary.due += due;
+    summary.manualReview += manualReview;
+    summary.missingPath += missingPath;
+    summary.executable += result.plan.entries.length;
+    summary.skipped += result.plan.skipped.length;
+    if (result.plan.planId !== "not-created") summary.planIds.push(result.plan.planId);
+    if (!result.validate.ok || due + manualReview + missingPath > 0 || result.plan.entries.length > 0) {
+      summary.affected += 1;
+    }
+  }
+
+  return summary;
+}
+
+function reviewNextAction(summary: ReviewSummary): string {
+  const broken = summary.invalid + summary.stale;
+  if (broken > 0) {
+    return `repair ${broken} broken ledger(s) above (re-register or fix the file), then re-run \`shelf review --all\``;
+  }
+  if (summary.executable > 0) {
+    return "run `shelf cleanup --dry-run --all` to generate plans, then `shelf cleanup --execute --plan-id <id> --ledger <path>` for each reviewed plan";
+  }
+  if (summary.missingPath > 0) {
+    return "inspect missing-path entries and `shelf resolve` the ones no longer needed; nothing is auto-executable";
+  }
+  return "nothing to do — no broken ledgers and no due, manual-review, missing-path, or executable cleanup entries";
+}
+
+function printReviewAll(results: ReviewResult[], summary: ReviewSummary, registryPath: string): void {
+  const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
+  process.stdout.write(`shelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
+  process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
+  printReview(results);
+  process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
+  process.stdout.write(`next: ${reviewNextAction(summary)}\n`);
+}
+
+function printReview(results: ReviewResult[]): void {
   for (const result of results) {
     const visibleDue = result.due.filter((entry) => entry.dueStatus !== "kept");
     process.stdout.write(`[${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
