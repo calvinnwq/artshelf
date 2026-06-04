@@ -156,13 +156,14 @@ plan id and refresh its timestamp instead of creating duplicate plan files.
 - No global execute; `--all` is dry-run only.
 - No fresh-plan-then-execute shortcut.
 - Trash/review by default, not delete.
-- No silent deletion; v1 refuses physical `delete`.
+- No silent deletion; `cleanup=delete` stays refused, and trash purge needs its own reviewed plan.
 - Agent-friendly JSON output from every command.
 - Small enough to actually use.
 
 V1 only moves `cleanup=trash` entries into Shelf's local trash folder. Entries
-marked `cleanup=review` become `review-required`, and physical `delete` is
-refused as `cleanup-refused`.
+marked `cleanup=review` become `review-required`, and `cleanup=delete` is
+refused as `cleanup-refused`; physical deletion only happens through a separate
+reviewed `shelf trash purge --execute` plan.
 
 Dry-run cleanup writes a plan only when there are executable cleanup entries.
 No-op dry-runs report `not-created` and avoid writing plan files. When Shelf does

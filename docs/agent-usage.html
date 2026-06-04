@@ -215,9 +215,10 @@ shelf cleanup --dry-run --all --json</code></pre>
                 Execution is approval-only: no daemon, no auto-execute, no global execute, and no
                 fresh-plan-then-execute shortcut. Execution needs explicit human approval for the
                 reviewed plan id, writes a receipt, and updates touched ledger records to
-                `trashed`, `review-required`, or `cleanup-refused`. V1 refuses physical
-                <code>delete</code> instead of silently deleting files. Shelf records generated
-                plans and receipts as `owner=shelf` artifacts.
+                `trashed`, `review-required`, or `cleanup-refused`. <code>cleanup=delete</code>
+                stays refused instead of silently deleting files; physical deletion requires
+                a separate reviewed trash purge plan. Shelf records generated plans and
+                receipts as `owner=shelf` artifacts.
               </div>
               <p>
                 Agents may mark a ledger record manually resolved when the user confirms the
@@ -268,8 +269,8 @@ shelf cleanup --dry-run --all --json</code></pre>
               <div class="note">
                 Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
                 locations for ledgers unless the user opted into that discovery scope. Never
-                schedule cleanup execution; scheduled jobs may only dry-run and report plans for
-                later human review.
+                schedule cleanup execution or trash purge execution; scheduled jobs may only
+                dry-run and report plans for later human review.
               </div>
             </section>
 

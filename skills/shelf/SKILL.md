@@ -152,7 +152,7 @@ approve shelf cleanup ledger <ledger-path> plan <plan-id>
 
 Never execute from a read-only preview id. Never generate a fresh plan and
 execute it in the same step. `trash` moves artifacts into Shelf trash; physical
-delete is refused in v1.
+deletion requires a separate reviewed trash purge plan.
 
 ## What To Register
 
@@ -299,11 +299,12 @@ plans.
 Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
 locations for ledgers unless the user opted into that discovery scope.
 
-Never schedule cleanup execution. Scheduled jobs may only dry-run and report
-plans for later human review:
+Never schedule cleanup execution or trash purge execution. Scheduled jobs may
+only dry-run and report plans for later human review:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
+shelf trash purge --execute --plan-id <id>
 ```
 
 ## Review
@@ -332,5 +333,6 @@ only a specific reviewed plan against its specific ledger.
 - Do not register secrets or credential dumps.
 - Do not use Shelf as a replacement for git, workflow ledgers, or backups.
 - Do not silently delete files.
-- Do not treat `cleanup=delete` as permission to delete. V1 refuses physical
-  delete and records `cleanup-refused` with `delete is disabled in v1`.
+- Do not treat `cleanup=delete` as permission to delete. Cleanup execution
+  records `cleanup-refused` with `delete is disabled in v1`; physical deletion
+  requires a separate reviewed trash purge plan.

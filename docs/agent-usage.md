@@ -251,8 +251,9 @@ No-op dry-runs report `not-created` and do not write plan files. When dry-run or
 execute creates plan or receipt artifacts, Shelf records those artifacts in the
 ledger as `owner=shelf`.
 
-V1 refuses physical `delete`; execution records `cleanup-refused` instead of
-silently deleting files.
+`cleanup=delete` stays refused; execution records `cleanup-refused` instead
+of silently deleting files. Physical deletion requires a separate reviewed trash
+purge plan.
 
 Execution writes a receipt and updates touched ledger records to `trashed`,
 `review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
@@ -307,11 +308,12 @@ Use explicit ledger paths when scheduling checks for a known project or user
 ledger. Do not scan arbitrary filesystem locations looking for ledgers unless
 the user has opted into that discovery scope.
 
-Scheduled jobs must not run cleanup execution. They may only dry-run and
-report plans for later human review:
+Scheduled jobs must not run cleanup execution or trash purge execution. They
+may only dry-run and report plans for later human review:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
+shelf trash purge --execute --plan-id <id>
 ```
 
 Any later execution requires a human to review the dry-run output and approve

@@ -53,8 +53,8 @@ Required:
 Optional:
 
 - `--kind scratch|backup|run-artifact|evidence|cache|quarantine|other`
-- `--cleanup trash|review|delete` (`delete` records intent, but v1 refuses
-  physical delete as `cleanup-refused`)
+- `--cleanup trash|review|delete` (`delete` records intent, but cleanup
+  execution refuses it as `cleanup-refused`)
 - `--owner <string>`
 - `--label <label>` repeatable
 - `--ledger <path>`
@@ -244,7 +244,7 @@ Doctor reports:
   (unparseable or malformed) entries.
 - The cleanup safety posture, including that `cleanup --execute` is scoped to
   one selected/default ledger and still requires a reviewed `--plan-id`, that
-  global execute is refused, and that physical delete is refused in v1.
+  global execute is refused, and that `cleanup=delete` is refused in v1.
 
 A healthy machine exits 0. A broken registry file or any stale or invalid
 registered ledger exits non-zero with actionable errors. Humans should run
@@ -335,8 +335,8 @@ Rules:
 - Uses trash/review behavior by default.
 - `delete` is refused in v1: even when a ledger entry says `cleanup=delete`,
   execute records a `cleanup-refused` receipt (`delete is disabled in v1`) and
-  never removes the file. Physical delete stays disabled until we have enough
-  dogfood evidence to enable it.
+  never removes the file. Physical deletion is only available later through a
+  separately reviewed `shelf trash purge --execute` plan for quarantined trash.
 
 ### `shelf trash list`
 
@@ -589,8 +589,9 @@ shelf cleanup --dry-run --all --json
 scheduled reports should include its aggregate `summary` and `nextAction` when
 whole-machine review is needed.
 
-Scheduled jobs must never run `shelf cleanup --execute`; they may only dry-run
-and report plans for later human review.
+Scheduled jobs must never run `shelf cleanup --execute` or
+`shelf trash purge --execute`; they may only dry-run and report plans for later
+human review.
 
 ## Dogfood Scenarios
 

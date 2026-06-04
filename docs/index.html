@@ -150,7 +150,7 @@ $ shelf cleanup --dry-run --json
                 <li>No global execute. <code>--all</code> is dry-run only.</li>
                 <li>No fresh-plan-then-execute shortcut. Execute only a reviewed plan id.</li>
                 <li>Handled records stop appearing in future due and cleanup dry-run output.</li>
-                <li>V1 refuses physical delete. `cleanup=review` becomes `review-required`.</li>
+                <li>Cleanup refuses delete actions; physical trash purge needs its own reviewed plan.</li>
               </ul>
               <div class="note">
                 Shelf is an early v1 MVP. Source install and live dogfooding come before npm publishing.
