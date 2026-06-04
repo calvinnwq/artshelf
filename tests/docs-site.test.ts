@@ -136,6 +136,24 @@ test("agent docs define scheduled review without scheduled execution", () => {
   }
 });
 
+test("agent docs turn daily reviews into decision packets", () => {
+  const markdownGuide = read("docs/agent-usage.md");
+  const portableSkill = read("skills/shelf/SKILL.md");
+  const agentPage = read("docs/agent-usage.html");
+
+  for (const text of [markdownGuide, portableSkill, agentPage]) {
+    assert.match(text, /Daily Review Workflow/);
+    assert.match(text, /decision packet/);
+    assert.match(text, /trash-safe/);
+    assert.match(text, /needs-human-review/);
+    assert.match(text, /resolve-candidate/);
+    assert.match(text, /registry-problem/);
+    assert.match(text, /approve shelf cleanup ledger/);
+    assert.match(text, /read-only preview id/);
+    assert.match(text, /verify quiet|verify with `shelf review --all --json`/);
+  }
+});
+
 test("agent docs define registration triggers and completion checks", () => {
   const markdownGuide = read("docs/agent-usage.md");
   const portableSkill = read("skills/shelf/SKILL.md");

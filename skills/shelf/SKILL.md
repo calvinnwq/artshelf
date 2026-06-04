@@ -1,6 +1,6 @@
 ---
 name: shelf
-description: "Use before any final response, status update, handoff, or done report to check whether created/copied/exported/quarantined/backed-up/preserved non-source files or directories outlive the command; and when registering temporary artifacts, backups, run outputs, debug evidence, or cleanup plans with Shelf."
+description: "Use before any final response, status update, handoff, or done report to check whether created/copied/exported/quarantined/backed-up/preserved non-source files or directories outlive the command; and when registering temporary artifacts, backups, run outputs, debug evidence, daily Shelf reviews, or cleanup plans with Shelf."
 ---
 
 # Shelf
@@ -109,6 +109,41 @@ shelf ledgers add --ledger <repo>/.shelf/ledger.jsonl --name <project> --scope r
 
 `--all` is for discovery and review. Do not use it as permission to mutate
 files.
+
+## Daily Review Workflow
+
+Use this flow when a scheduled review, recurring task, or user request asks for
+Shelf cleanup attention:
+
+1. Register artifacts early during work, or state why an eligible artifact was
+   skipped.
+2. Review state with read-only commands first:
+   `shelf ledgers list --json` and `shelf review --all --json`.
+3. Present a decision packet instead of raw counts. Include registry health,
+   affected ledgers, due/manual-review/missing-path counts, executable entries,
+   skipped entries, refused entries, and the next safe action.
+4. Classify each candidate:
+   - `trash-safe`: disposable after the reviewed plan moves it into Shelf trash.
+   - `needs-human-review`: `cleanup=review`, evidence, backups, reports, or
+     anything that should be inspected before closing.
+   - `resolve-candidate`: already handled, missing, or no longer needed; use
+     `shelf resolve` only after confirmation.
+   - `registry-problem`: stale, missing, or invalid ledger; fix registry health
+     before touching artifacts.
+5. If cleanup execution is appropriate, generate or reuse a dry-run plan, then
+   ask for explicit approval naming the ledger path and reviewed plan id.
+6. After approved execute or resolve, verify quiet with
+   `shelf review --all --json` or explain what remains.
+
+Approval wording should be exact:
+
+```text
+approve shelf cleanup ledger <ledger-path> plan <plan-id>
+```
+
+Never execute from a read-only preview id. Never generate a fresh plan and
+execute it in the same step. `trash` moves artifacts into Shelf trash; physical
+delete is refused in v1.
 
 ## What To Register
 
