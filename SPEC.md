@@ -372,6 +372,8 @@ Rules:
 
 - Scoped to a single ledger. `--all` is refused for purge (it is only supported
   by `trash list`); there is no global blind delete.
+- Requires either `--dry-run` or `--execute`; there is no non-persisted preview
+  that looks like an executable reviewed plan.
 - `--dry-run` builds an age-based purge plan from records whose `cleanedAt` is
   older than `--older-than`, writes it to `<ledger-dir>/purge-plans/<id>.json`,
   and registers a Shelf-owned plan record (`ttl=14d`, `cleanup=review`, labels
@@ -380,7 +382,9 @@ Rules:
 - `--execute` requires a `--plan-id` produced by an earlier reviewed dry-run; it
   refuses to compute a fresh purge set. It physically removes each planned trash
   target, skipping entries whose record is missing, is no longer `trashed`, or
-  whose target is already gone.
+  whose target is already gone. Before removal it also re-checks that the plan
+  entry still matches the live ledger record and that the target remains inside
+  Shelf's ledger-local trash directory for that cleanup plan.
 - Writes a purge receipt to `<ledger-dir>/purge-receipts/<id>.json` and registers
   it (`ttl=30d`, `cleanup=review`, labels including `shelf`, `trash-purge-receipt`,
   and the purge plan id) so the final deletion stays auditable.

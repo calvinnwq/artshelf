@@ -14,7 +14,6 @@ import {
   normalizeLedgerPath,
   prepareRecord,
   previewCleanupPlan,
-  previewTrashPurgePlan,
   readLedger,
   resolveRecord,
   validateLedger
@@ -505,6 +504,7 @@ function handleTrashPurge(parsed: ParsedArgs, ledgerPath: string, json: boolean)
   if (boolFlag(parsed, "all")) {
     throw new Error("trash purge --all is not supported; scope the purge to one --ledger and review the plan id before execute");
   }
+  if (!dryRun && !execute) throw new Error("trash purge requires either --dry-run or --execute");
 
   if (execute) {
     const planId = requiredStringFlag(parsed, "plan-id");
@@ -515,7 +515,7 @@ function handleTrashPurge(parsed: ParsedArgs, ledgerPath: string, json: boolean)
   }
 
   const olderThan = requiredStringFlag(parsed, "older-than");
-  const plan = dryRun ? createTrashPurgePlan(ledgerPath, olderThan) : previewTrashPurgePlan(ledgerPath, olderThan);
+  const plan = createTrashPurgePlan(ledgerPath, olderThan);
   if (json) return printJson({ ok: true, plan });
   if (plan.entries.length === 0) {
     process.stdout.write(`trash purge plan ${plan.purgePlanId}: no matching trashed records\nledger: ${ledgerPath}\n`);
@@ -1138,13 +1138,14 @@ Global --all mode is dry-run only.
   if (command === "trash") {
     process.stdout.write(`Usage:
   shelf trash list [--ledger <path>] [--all] [--json]
-  shelf trash purge --older-than <ttl> [--dry-run] [--ledger <path>] [--json]
+  shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
   shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
 
 Trash is approval-first. Use list to inspect what is currently in Shelf trash and
-dry-run purge to generate a reviewed plan id for age-based deletion.
-Execute requires a reviewed plan id, and trash purge is always scoped to one
---ledger; --all is not supported for purge (only for trash list).
+dry-run purge to generate a reviewed plan id for age-based deletion. Purge
+requires either --dry-run or --execute. Execute requires a reviewed plan id, and
+trash purge is always scoped to one --ledger; --all is not supported for purge
+(only for trash list).
 Trash receipt artifacts are registered when purge executes. Purged records are
 resolved and no longer reappear as trashed.
 `);
@@ -1286,7 +1287,7 @@ Usage:
   shelf cleanup --dry-run --all [--json]
   shelf cleanup --execute --plan-id <id> [--json]
   shelf trash list [--all] [--ledger <path>] [--json]
-  shelf trash purge --older-than <ttl> [--dry-run] [--ledger <path>] [--json]
+  shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
   shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
   shelf resolve <id> --status resolved --reason <text> [--json]
 

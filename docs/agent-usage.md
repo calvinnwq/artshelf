@@ -176,7 +176,7 @@ approve shelf cleanup ledger <ledger-path> plan <plan-id>
 
 Never execute from a read-only preview id. Never generate a fresh plan and
 execute it in the same step. `trash` moves artifacts into Shelf trash; physical
-delete is refused in v1.
+delete requires a separate reviewed trash purge plan.
 
 ## Reasons
 

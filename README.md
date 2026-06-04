@@ -200,7 +200,7 @@ shelf cleanup --dry-run
 shelf cleanup --dry-run --all
 shelf cleanup --execute --plan-id <id>
 shelf trash list [--all] [--ledger <path>] [--json]
-shelf trash purge --older-than <ttl> [--dry-run] [--ledger <path>] [--json]
+shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
 shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
 shelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```

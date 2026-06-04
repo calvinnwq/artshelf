@@ -170,13 +170,17 @@ shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
                 <li>Present a decision packet instead of raw counts. Include registry health, affected ledgers, due/manual-review/missing-path counts, executable entries, skipped entries, refused entries, and the next safe action.</li>
                 <li>Classify each candidate as <code>trash-safe</code>, <code>needs-human-review</code>, <code>resolve-candidate</code>, or <code>registry-problem</code>.</li>
                 <li>If cleanup execution is appropriate, generate or reuse a dry-run plan, then ask for explicit approval naming the ledger path and reviewed plan id.</li>
+                <li>For trashed records, require a separate reviewed purge plan before physical deletion.</li>
                 <li>After approved execute or resolve, verify quiet with <code>shelf review --all --json</code> or explain what remains.</li>
               </ol>
+              <pre><code>shelf trash list --ledger &lt;ledger-path&gt;
+shelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json
+shelf trash purge --execute --plan-id &lt;purge-plan-id&gt; --ledger &lt;ledger-path&gt; --json</code></pre>
               <pre><code>approve shelf cleanup ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;</code></pre>
               <div class="note">
                 Never execute from a read-only preview id. Never generate a fresh plan and execute
                 it in the same step. <code>trash</code> moves artifacts into Shelf trash; physical
-                delete is refused in v1.
+                delete requires a separate reviewed trash purge plan.
               </div>
             </section>
 

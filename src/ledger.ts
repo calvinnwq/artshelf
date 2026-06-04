@@ -1,15 +1,17 @@
 import { randomBytes } from "node:crypto";
 import {
   existsSync,
+  lstatSync,
   mkdirSync,
   readdirSync,
   readFileSync,
+  realpathSync,
   rmSync,
   renameSync,
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
-import { basename, dirname, isAbsolute, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { addTtl, assertIsoDate, ageOf, now, ttlToMs, toIso } from "./time.js";
 import type {
   CleanupAction,
@@ -71,8 +73,6 @@ export type TrashedRecord = {
   cleanupPlanId: string;
   age: string;
 };
-
-type TrashedRecordSource = ShelfRecord & Pick<TrashedRecord, "id" | "targetPath" | "cleanedAt" | "receiptPath" | "cleanupPlanId">;
 
 export function defaultLedgerPath(cwd = process.cwd()): string {
   const repoRoot = findGitRoot(cwd);
@@ -147,18 +147,19 @@ export function readLedger(ledgerPath: string): ShelfRecord[] {
 export function listTrashedRecords(ledgerPath: string): TrashedRecord[] {
   const records = readLedger(ledgerPath).filter((record) => record.status === "trashed");
   const current = now();
-  return records
-    .filter((record): record is TrashedRecordSource => (
-      Boolean(record.id && record.targetPath && record.cleanedAt && record.receiptPath && record.cleanupPlanId)
-    ))
-    .map((record) => ({
+  return records.map((record) => {
+    if (!record.id || !record.targetPath || !record.cleanedAt || !record.receiptPath || !record.cleanupPlanId) {
+      throw new Error(`trashed record ${record.id ?? "<missing id>"} missing cleanup metadata`);
+    }
+    return {
       id: record.id,
       targetPath: record.targetPath,
       cleanedAt: record.cleanedAt,
       receiptPath: record.receiptPath,
       cleanupPlanId: record.cleanupPlanId,
       age: ageOf(current, record.cleanedAt)
-    }));
+    };
+  });
 }
 
 export function filterRecordsByStatus(records: ShelfRecord[], status?: string): ShelfRecord[] {
@@ -360,12 +361,21 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
 
   const planPath = trashPurgePlanPath(ledgerPath, purgePlanId);
   if (!existsSync(planPath)) throw new Error(`Trash purge plan not found: ${purgePlanId}`);
+  const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
+  const existingReceipt = existsSync(receiptPath) ? readTrashPurgeReceipt(receiptPath) : null;
+  if (existingReceipt?.completedAt) throw new Error(`Trash purge receipt already exists: ${purgePlanId}`);
   const plan = JSON.parse(readFileSync(planPath, "utf8")) as TrashPurgePlan;
   const records = readLedger(ledgerPath);
   const recordsById = new Map(records.map((record) => [record.id, record]));
-  const results = [];
+  const trashRoot = resolve(dirname(ledgerPath), "trash");
+  const executedAt = existingReceipt?.executedAt ?? toIso(now());
+  let results: Array<{ id: string; status: string; targetPath: string; reason?: string }> = existingReceipt?.results ?? [];
+  const candidates: Array<{ id: string; targetPath: string }> = [];
 
   for (const entry of plan.entries) {
+    const existingResult = results.find((result) => result.id === entry.id);
+    if (existingResult && ["failed", "purged", "skipped"].includes(existingResult.status)) continue;
+
     const record = recordsById.get(entry.id);
     if (!record) {
       results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "record is missing from ledger" });
@@ -377,19 +387,91 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
       continue;
     }
 
-    if (!existsSync(entry.targetPath)) {
-      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is missing" });
+    if (
+      record.targetPath !== entry.targetPath ||
+      record.cleanedAt !== entry.cleanedAt ||
+      record.receiptPath !== entry.receiptPath ||
+      record.cleanupPlanId !== entry.cleanupPlanId
+    ) {
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "plan entry no longer matches ledger record" });
       continue;
     }
 
-    rmSync(entry.targetPath, { recursive: true, force: true });
-    results.push({ id: entry.id, status: "purged", targetPath: entry.targetPath });
+    const targetPath = resolve(entry.targetPath);
+    const expectedPlanTrashRoot = resolve(trashRoot, record.cleanupPlanId);
+    if (!isPathWithin(trashRoot, targetPath)) {
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is outside Shelf trash" });
+      continue;
+    }
+    if (!isStrictPathWithin(expectedPlanTrashRoot, targetPath)) {
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is not a trashed artifact path" });
+      continue;
+    }
+
+    if (!pathExistsForPurge(entry.targetPath)) {
+      if (existingResult?.status === "deleting") {
+        results = upsertTrashPurgeResult(results, { id: entry.id, status: "purged", targetPath });
+        continue;
+      }
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is missing" });
+      continue;
+    }
+    try {
+      if (resolvesOutsideLedgerTrash(dirname(ledgerPath), trashRoot, expectedPlanTrashRoot, targetPath)) {
+        results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target resolves outside Shelf trash" });
+        continue;
+      }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: `target cannot be validated: ${reason}` });
+      continue;
+    }
+
+    candidates.push({ id: entry.id, targetPath });
   }
 
-  const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
-  const executedAt = toIso(now());
-  writeJson(receiptPath, { purgePlanId, executedAt, results });
+  writeTrashPurgeReceipt(receiptPath, {
+    purgePlanId,
+    executedAt,
+    status: "started",
+    results: [
+      ...results,
+      ...candidates.map((candidate) => ({ id: candidate.id, status: "pending", targetPath: candidate.targetPath }))
+    ]
+  });
+
+  for (const candidate of candidates) {
+    results = upsertTrashPurgeResult(results, { id: candidate.id, status: "deleting", targetPath: candidate.targetPath });
+    writeTrashPurgeReceipt(receiptPath, {
+      purgePlanId,
+      executedAt,
+      status: "started",
+      results: [
+        ...results,
+        ...pendingTrashPurgeResults(candidates, results)
+      ]
+    });
+
+    try {
+      rmSync(candidate.targetPath, { recursive: true, force: true });
+      results = upsertTrashPurgeResult(results, { id: candidate.id, status: "purged", targetPath: candidate.targetPath });
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : String(error);
+      results = upsertTrashPurgeResult(results, { id: candidate.id, status: "failed", targetPath: candidate.targetPath, reason });
+    }
+    writeTrashPurgeReceipt(receiptPath, {
+      purgePlanId,
+      executedAt,
+      status: "started",
+      results: [
+        ...results,
+        ...pendingTrashPurgeResults(candidates, results)
+      ]
+    });
+  }
+
   updateLedgerAfterTrashPurge(ledgerPath, records, { purgePlanId, receiptPath, executedAt, results });
+  writeTrashPurgeReceipt(receiptPath, { purgePlanId, executedAt, completedAt: toIso(now()), results });
   registerShelfArtifact(ledgerPath, receiptPath, {
     reason: `Shelf trash purge receipt for plan ${purgePlanId}`,
     ttl: "30d",
@@ -398,6 +480,55 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
     labels: ["shelf", "trash-purge-receipt", purgePlanId]
   });
   return { purgePlanId, receiptPath, results };
+}
+
+function readTrashPurgeReceipt(receiptPath: string): {
+  purgePlanId?: string;
+  executedAt?: string;
+  completedAt?: string;
+  results?: Array<{ id: string; status: string; targetPath: string; reason?: string }>;
+} {
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as {
+    purgePlanId?: string;
+    executedAt?: string;
+    completedAt?: string;
+    results?: Array<{ id: string; status: string; targetPath: string; reason?: string }>;
+  };
+  return {
+    ...(typeof receipt.purgePlanId === "string" ? { purgePlanId: receipt.purgePlanId } : {}),
+    ...(typeof receipt.executedAt === "string" ? { executedAt: receipt.executedAt } : {}),
+    ...(typeof receipt.completedAt === "string" ? { completedAt: receipt.completedAt } : {}),
+    results: Array.isArray(receipt.results) ? receipt.results : []
+  };
+}
+
+function writeTrashPurgeReceipt(
+  receiptPath: string,
+  receipt: {
+    purgePlanId: string;
+    executedAt: string;
+    completedAt?: string;
+    status?: string;
+    results: Array<{ id: string; status: string; targetPath: string; reason?: string }>;
+  }
+): void {
+  writeJson(receiptPath, receipt);
+}
+
+function pendingTrashPurgeResults(
+  candidates: Array<{ id: string; targetPath: string }>,
+  results: Array<{ id: string; status: string; targetPath: string; reason?: string }>
+): Array<{ id: string; status: string; targetPath: string }> {
+  return candidates
+    .filter((pending) => !results.some((result) => result.id === pending.id))
+    .map((pending) => ({ id: pending.id, status: "pending", targetPath: pending.targetPath }));
+}
+
+function upsertTrashPurgeResult(
+  results: Array<{ id: string; status: string; targetPath: string; reason?: string }>,
+  next: { id: string; status: string; targetPath: string; reason?: string }
+): Array<{ id: string; status: string; targetPath: string; reason?: string }> {
+  return [...results.filter((result) => result.id !== next.id), next];
 }
 
 function noCreatedPlan(plan: CleanupPlan): CleanupPlan {
@@ -813,6 +944,7 @@ function cleanupPlanPath(ledgerPath: string, planId: string): string {
 }
 
 function trashPurgePlanPath(ledgerPath: string, purgePlanId: string): string {
+  assertSafeGeneratedId(purgePlanId, "trash purge plan id");
   return join(dirname(ledgerPath), "purge-plans", `${purgePlanId}.json`);
 }
 
@@ -821,7 +953,49 @@ function receiptPathFor(ledgerPath: string, planId: string): string {
 }
 
 function trashPurgeReceiptPath(ledgerPath: string, purgePlanId: string): string {
+  assertSafeGeneratedId(purgePlanId, "trash purge plan id");
   return join(dirname(ledgerPath), "purge-receipts", `${purgePlanId}.json`);
+}
+
+function isPathWithin(parentPath: string, childPath: string): boolean {
+  const fromParent = relative(resolve(parentPath), resolve(childPath));
+  return fromParent === "" || (!fromParent.startsWith("..") && !isAbsolute(fromParent));
+}
+
+function isStrictPathWithin(parentPath: string, childPath: string): boolean {
+  const fromParent = relative(resolve(parentPath), resolve(childPath));
+  return fromParent !== "" && !fromParent.startsWith("..") && !isAbsolute(fromParent);
+}
+
+function resolvesOutsideLedgerTrash(ledgerDir: string, trashRoot: string, expectedPlanTrashRoot: string, targetPath: string): boolean {
+  const realLedgerDir = realpathSync(ledgerDir);
+  const realTrashRoot = realpathSync(trashRoot);
+  const realExpectedPlanTrashRoot = realpathSync(expectedPlanTrashRoot);
+  const targetStats = lstatSync(targetPath);
+  const realTargetPath = targetStats.isSymbolicLink() ? realpathSync(dirname(targetPath)) : realpathSync(targetPath);
+  const targetWithinExpectedRoot = targetStats.isSymbolicLink()
+    ? isPathWithin(realExpectedPlanTrashRoot, realTargetPath)
+    : isStrictPathWithin(realExpectedPlanTrashRoot, realTargetPath);
+  return (
+    !isStrictPathWithin(realLedgerDir, realTrashRoot) ||
+    !isStrictPathWithin(realTrashRoot, realExpectedPlanTrashRoot) ||
+    !targetWithinExpectedRoot
+  );
+}
+
+function pathExistsForPurge(path: string): boolean {
+  try {
+    lstatSync(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function assertSafeGeneratedId(value: string, label: string): void {
+  if (!/^[A-Za-z0-9_-]+$/.test(value)) {
+    throw new Error(`Invalid ${label}: ${value}`);
+  }
 }
 
 function writeJson(path: string, value: unknown): void {
