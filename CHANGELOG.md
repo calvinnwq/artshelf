@@ -41,9 +41,36 @@
   cleanup safely — keeping reference material available below the lead.
 - Tightened the portable agent skill description so the completion-gate trigger
   is visible before final responses, status updates, handoffs, and done reports.
-- Added daily review workflow guidance so agents turn Shelf review alerts into
-  decision packets with candidate classifications, exact plan approval, and
-  quiet verification instead of dumping raw counts.
+
+## [0.2.0](https://github.com/calvinnwq/shelf/compare/shelf-v0.1.0...shelf-v0.2.0) (2026-06-04)
+
+
+### Features
+
+* **cli:** add ledger registry review ([0cbdcc6](https://github.com/calvinnwq/shelf/commit/0cbdcc6c1c1706b78e84a738fd8dfef900459045))
+* **cli:** add ledger registry review ([d070131](https://github.com/calvinnwq/shelf/commit/d0701317514f36ee266ca06c30b4ee67a6e45e42))
+* **cli:** add read-only `shelf doctor` health command ([0ce18ea](https://github.com/calvinnwq/shelf/commit/0ce18ea560ae7f870ea68b7248d097f4c7033b91))
+* **cli:** add read-only `shelf status` dashboard command ([699035c](https://github.com/calvinnwq/shelf/commit/699035c97009cb29caa0c995025a2d74533e21f1))
+* **cli:** add shelf doctor and status commands ([c0f9a10](https://github.com/calvinnwq/shelf/commit/c0f9a109cee58de7d7e8cf27e3860fee62941686))
+* **cli:** add shelf lookup commands ([9092ea7](https://github.com/calvinnwq/shelf/commit/9092ea72695b6b383a8ff3b74ccaabc2974e67fb))
+* **cli:** improve shelf review triage and ledger listing ([6dc3c65](https://github.com/calvinnwq/shelf/commit/6dc3c65e6837e542510d53890f1f49d3a28e0878))
+* **cli:** optimize cleanup plan lifecycle ([f78773c](https://github.com/calvinnwq/shelf/commit/f78773ca737b9d7a8318725d63590c9ed8184ba5))
+* **cli:** resolve shelf records ([f21318d](https://github.com/calvinnwq/shelf/commit/f21318d6edd16a170fcb6539c40899ec8b83c1ba))
+* **cli:** summarize all-ledger review triage ([3284bd8](https://github.com/calvinnwq/shelf/commit/3284bd886998777bd06a681ab3bfe0b819938c84))
+* **cli:** validate registered ledgers in ledgers list ([327e4f8](https://github.com/calvinnwq/shelf/commit/327e4f815c814c6b540fcbae8b42dbd8873fb4ab))
+* optimize cleanup plan lifecycle ([4d77b2b](https://github.com/calvinnwq/shelf/commit/4d77b2bed4a7bc963d2e9900a4dbbf3fed672514))
+* resolve shelf records ([dcd5109](https://github.com/calvinnwq/shelf/commit/dcd5109c5a73f5080d89db51f375b9a5e307c65b))
+* update ledger state after cleanup ([#7](https://github.com/calvinnwq/shelf/issues/7)) ([31add84](https://github.com/calvinnwq/shelf/commit/31add8466f0e37e397cfaf3dc146bd8060f57717))
+
+
+### Bug Fixes
+
+* clarify approval-only cleanup safety model ([20b8258](https://github.com/calvinnwq/shelf/commit/20b82584e86a0a8f9b4067d2fbdc94d2c8064253))
+* **cli:** align cleanup preview reuse ([b918a5d](https://github.com/calvinnwq/shelf/commit/b918a5dc09536a9b87964fbf552b66ea16c0c62a))
+* **cli:** harden registry diagnostics ([098f88e](https://github.com/calvinnwq/shelf/commit/098f88e9ec8167333cb4d8f67876054b1076f922))
+* **cli:** keep shelf review read-only ([8c417c2](https://github.com/calvinnwq/shelf/commit/8c417c2e5737ee778c6f7a86b0c7e559d3cae7dc))
+* **cli:** normalize review no-plan output ([57a6275](https://github.com/calvinnwq/shelf/commit/57a6275b5960385102e8e4c54cfa498404df562d))
+* **cli:** report stale ledgers in all-mode reads ([bc035ef](https://github.com/calvinnwq/shelf/commit/bc035efbc15ba7877634cb7ec6c0702416d8510b))
 
 ## 0.1.0 - 2026-06-01
 
