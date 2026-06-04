@@ -134,6 +134,41 @@ ledger-specific and requires a reviewed plan id for that ledger.
 If the executable cleanup entries have not changed, dry-run reuses the existing
 plan id and refreshes the same plan file instead of creating duplicate plans.
 
+## Daily Review Workflow
+
+Use this flow when a scheduled review, recurring task, or user request reports
+Shelf cleanup attention:
+
+1. Register artifacts early during work, or state why an eligible artifact was
+   skipped.
+2. Review state with read-only commands first:
+   `shelf ledgers list --json` and `shelf review --all --json`.
+3. Present a decision packet instead of raw counts. Include registry health,
+   affected ledgers, due/manual-review/missing-path counts, executable entries,
+   skipped entries, refused entries, and the next safe action.
+4. Classify each candidate:
+   - `trash-safe`: disposable after the reviewed plan moves it into Shelf trash.
+   - `needs-human-review`: `cleanup=review`, evidence, backups, reports, or
+     anything that should be inspected before closing.
+   - `resolve-candidate`: already handled, missing, or no longer needed; use
+     `shelf resolve` only after confirmation.
+   - `registry-problem`: stale, missing, or invalid ledger; fix registry health
+     before touching artifacts.
+5. If cleanup execution is appropriate, generate or reuse a dry-run plan, then
+   ask for explicit approval naming the ledger path and reviewed plan id.
+6. After approved execute or resolve, verify quiet with
+   `shelf review --all --json` or explain what remains.
+
+Approval wording should be exact:
+
+```text
+approve shelf cleanup ledger <ledger-path> plan <plan-id>
+```
+
+Never execute from a read-only preview id. Never generate a fresh plan and
+execute it in the same step. `trash` moves artifacts into Shelf trash; physical
+delete is refused in v1.
+
 ## Reasons
 
 Write reasons as small audit notes. A good reason lets a future agent decide

@@ -41,6 +41,9 @@
   cleanup safely — keeping reference material available below the lead.
 - Tightened the portable agent skill description so the completion-gate trigger
   is visible before final responses, status updates, handoffs, and done reports.
+- Added daily review workflow guidance so agents turn Shelf review alerts into
+  decision packets with candidate classifications, exact plan approval, and
+  quiet verification instead of dumping raw counts.
 
 ## 0.1.0 - 2026-06-01
 

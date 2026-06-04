@@ -159,6 +159,28 @@ shelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
             </section>
 
             <section>
+              <h2>Daily Review Workflow</h2>
+              <p>
+                Use this flow when a scheduled review, recurring task, or user request reports
+                Shelf cleanup attention.
+              </p>
+              <ol>
+                <li>Register artifacts early during work, or state why an eligible artifact was skipped.</li>
+                <li>Review state with read-only commands first: <code>shelf ledgers list --json</code> and <code>shelf review --all --json</code>.</li>
+                <li>Present a decision packet instead of raw counts. Include registry health, affected ledgers, due/manual-review/missing-path counts, executable entries, skipped entries, refused entries, and the next safe action.</li>
+                <li>Classify each candidate as <code>trash-safe</code>, <code>needs-human-review</code>, <code>resolve-candidate</code>, or <code>registry-problem</code>.</li>
+                <li>If cleanup execution is appropriate, generate or reuse a dry-run plan, then ask for explicit approval naming the ledger path and reviewed plan id.</li>
+                <li>After approved execute or resolve, verify quiet with <code>shelf review --all --json</code> or explain what remains.</li>
+              </ol>
+              <pre><code>approve shelf cleanup ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;</code></pre>
+              <div class="note">
+                Never execute from a read-only preview id. Never generate a fresh plan and execute
+                it in the same step. <code>trash</code> moves artifacts into Shelf trash; physical
+                delete is refused in v1.
+              </div>
+            </section>
+
+            <section>
               <h2>Report The ID</h2>
               <pre><code>Shelf artifacts:
 - shf_20260601_182800_ab12: /tmp/parser-output, debug evidence for issue-123,
