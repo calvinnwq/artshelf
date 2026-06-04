@@ -140,14 +140,27 @@ test("agent docs define registration triggers and completion checks", () => {
   const markdownGuide = read("docs/agent-usage.md");
   const portableSkill = read("skills/shelf/SKILL.md");
   const agentPage = read("docs/agent-usage.html");
+  const finalizationTrigger = /before .*(final|finaliz|handoff|done|status)/i;
 
   for (const text of [markdownGuide, portableSkill, agentPage]) {
+    assert.match(text, finalizationTrigger);
     assert.match(text, /created,\s+copied,\s+exported,\s+quarantined,\s+backed up,\s+or preserved/);
     assert.match(text, /may outlive/);
     assert.match(text, /eligible artifact/);
     assert.match(text, /skip reason|state why|record a clear skip reason/);
     assert.match(text, /Do not call work done|Before finalizing|Completion Checklist/);
   }
+});
+
+test("portable skill description exposes the completion gate", () => {
+  const portableSkill = read("skills/shelf/SKILL.md");
+  const description = portableSkill.split("\n").slice(0, 4).join("\n");
+
+  assert.match(description, /before any final response/i);
+  assert.match(description, /status update/i);
+  assert.match(description, /handoff/i);
+  assert.match(description, /done report/i);
+  assert.match(description, /outlive the command/i);
 });
 
 test("agent install guidance prompts for paths and avoids unsupported install methods", () => {
