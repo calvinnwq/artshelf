@@ -31,6 +31,9 @@ export type ShelfRecord = {
   cleanedAt?: string;
   targetPath?: string;
   cleanupReason?: string;
+  purgedAt?: string;
+  purgePlanId?: string;
+  purgeReceiptPath?: string;
   resolvedAt?: string;
   resolutionReason?: string;
 };
@@ -59,5 +62,16 @@ export type CleanupPlan = {
   ledgerPath: string;
   entries: CleanupPlanEntry[];
   skipped: Array<{ id: string; path: string; reason: string; dueStatus: DueStatus }>;
+  planPath: string | null;
+};
+
+export type TrashPurgePlan = {
+  purgePlanId: string;
+  generatedAt: string;
+  ledgerPath: string;
+  olderThan: string;
+  cutoff: string;
+  entries: Array<{ id: string; targetPath: string; cleanedAt: string; receiptPath: string; cleanupPlanId: string }>;
+  skipped: Array<{ id: string; targetPath: string; reason: string }>;
   planPath: string | null;
 };

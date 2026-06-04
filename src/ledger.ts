@@ -4,18 +4,20 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   renameSync,
   writeFileSync
 } from "node:fs";
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, resolve } from "node:path";
-import { addTtl, assertIsoDate, now, toIso } from "./time.js";
+import { addTtl, assertIsoDate, ageOf, now, ttlToMs, toIso } from "./time.js";
 import type {
   CleanupAction,
   CleanupPlan,
   CleanupPlanEntry,
   DueEntry,
   DueStatus,
+  TrashPurgePlan,
   Retention,
   ShelfKind,
   ShelfRecord,
@@ -60,6 +62,17 @@ export type FindInput = {
   labels: string[];
   status?: string | undefined;
 };
+
+export type TrashedRecord = {
+  id: string;
+  targetPath: string;
+  cleanedAt: string;
+  receiptPath: string;
+  cleanupPlanId: string;
+  age: string;
+};
+
+type TrashedRecordSource = ShelfRecord & Pick<TrashedRecord, "id" | "targetPath" | "cleanedAt" | "receiptPath" | "cleanupPlanId">;
 
 export function defaultLedgerPath(cwd = process.cwd()): string {
   const repoRoot = findGitRoot(cwd);
@@ -129,6 +142,23 @@ export function readLedger(ledgerPath: string): ShelfRecord[] {
       throw new Error(`Invalid JSONL at line ${index + 1}: ${(error as Error).message}`);
     }
   });
+}
+
+export function listTrashedRecords(ledgerPath: string): TrashedRecord[] {
+  const records = readLedger(ledgerPath).filter((record) => record.status === "trashed");
+  const current = now();
+  return records
+    .filter((record): record is TrashedRecordSource => (
+      Boolean(record.id && record.targetPath && record.cleanedAt && record.receiptPath && record.cleanupPlanId)
+    ))
+    .map((record) => ({
+      id: record.id,
+      targetPath: record.targetPath,
+      cleanedAt: record.cleanedAt,
+      receiptPath: record.receiptPath,
+      cleanupPlanId: record.cleanupPlanId,
+      age: ageOf(current, record.cleanedAt)
+    }));
 }
 
 export function filterRecordsByStatus(records: ShelfRecord[], status?: string): ShelfRecord[] {
@@ -301,10 +331,87 @@ export function previewCleanupPlan(ledgerPath: string): CleanupPlan {
   return plan.entries.length === 0 ? noCreatedPlan(plan) : plan;
 }
 
+export function createTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgePlan {
+  const plan = buildTrashPurgePlan(ledgerPath, olderThan);
+  if (plan.entries.length === 0) return noCreatedTrashPurgePlan(plan);
+  if (!plan.planPath) throw new Error("trash purge plan path was not created");
+  writeJson(plan.planPath, plan);
+  registerShelfArtifact(ledgerPath, plan.planPath, {
+    reason: `Shelf trash purge dry-run plan ${plan.purgePlanId}`,
+    ttl: "14d",
+    kind: "run-artifact",
+    cleanup: "review",
+    labels: ["shelf", "trash-purge-plan", plan.purgePlanId]
+  });
+  return plan;
+}
+
+export function previewTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgePlan {
+  const plan = buildTrashPurgePlan(ledgerPath, olderThan);
+  return plan.entries.length === 0 ? noCreatedTrashPurgePlan(plan) : plan;
+}
+
+export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): {
+  purgePlanId: string;
+  receiptPath: string;
+  results: Array<{ id: string; status: string; targetPath: string; reason?: string }>;
+} {
+  if (!purgePlanId) throw new Error("trash purge --execute requires --plan-id");
+
+  const planPath = trashPurgePlanPath(ledgerPath, purgePlanId);
+  if (!existsSync(planPath)) throw new Error(`Trash purge plan not found: ${purgePlanId}`);
+  const plan = JSON.parse(readFileSync(planPath, "utf8")) as TrashPurgePlan;
+  const records = readLedger(ledgerPath);
+  const recordsById = new Map(records.map((record) => [record.id, record]));
+  const results = [];
+
+  for (const entry of plan.entries) {
+    const record = recordsById.get(entry.id);
+    if (!record) {
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "record is missing from ledger" });
+      continue;
+    }
+
+    if (record.status !== "trashed") {
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: `record is ${record.status}` });
+      continue;
+    }
+
+    if (!existsSync(entry.targetPath)) {
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is missing" });
+      continue;
+    }
+
+    rmSync(entry.targetPath, { recursive: true, force: true });
+    results.push({ id: entry.id, status: "purged", targetPath: entry.targetPath });
+  }
+
+  const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
+  const executedAt = toIso(now());
+  writeJson(receiptPath, { purgePlanId, executedAt, results });
+  updateLedgerAfterTrashPurge(ledgerPath, records, { purgePlanId, receiptPath, executedAt, results });
+  registerShelfArtifact(ledgerPath, receiptPath, {
+    reason: `Shelf trash purge receipt for plan ${purgePlanId}`,
+    ttl: "30d",
+    kind: "run-artifact",
+    cleanup: "review",
+    labels: ["shelf", "trash-purge-receipt", purgePlanId]
+  });
+  return { purgePlanId, receiptPath, results };
+}
+
 function noCreatedPlan(plan: CleanupPlan): CleanupPlan {
   return {
     ...plan,
     planId: "not-created",
+    planPath: null
+  };
+}
+
+function noCreatedTrashPurgePlan(plan: TrashPurgePlan): TrashPurgePlan {
+  return {
+    ...plan,
+    purgePlanId: "not-created",
     planPath: null
   };
 }
@@ -339,6 +446,63 @@ function buildCleanupPlan(ledgerPath: string): CleanupPlan {
     planPath
   };
   return plan;
+}
+
+function buildTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgePlan {
+  const generatedAt = now();
+  const olderThanMs = ttlToMs(olderThan);
+  const cutoff = toIso(new Date(generatedAt.getTime() - olderThanMs));
+  const records = readLedger(ledgerPath);
+  const entries: TrashPurgePlan["entries"] = [];
+  const skipped: TrashPurgePlan["skipped"] = [];
+
+  for (const record of records) {
+    if (record.status !== "trashed") continue;
+    if (!record.id || !record.targetPath || !record.cleanedAt || !record.receiptPath || !record.cleanupPlanId) {
+      skipped.push({
+        id: record.id ?? "",
+        targetPath: record.targetPath ?? "",
+        reason: "trashed record missing cleanup metadata"
+      });
+      continue;
+    }
+
+    const cleanedAt = new Date(record.cleanedAt);
+    if (Number.isNaN(cleanedAt.getTime())) {
+      skipped.push({
+        id: record.id,
+        targetPath: record.targetPath,
+        reason: "invalid cleanedAt value"
+      });
+      continue;
+    }
+
+    if (cleanedAt.getTime() > generatedAt.getTime() - olderThanMs) {
+      skipped.push({ id: record.id, targetPath: record.targetPath, reason: `cleanedAt is newer than ${olderThan}` });
+      continue;
+    }
+
+    entries.push({
+      id: record.id,
+      targetPath: record.targetPath,
+      cleanedAt: record.cleanedAt,
+      receiptPath: record.receiptPath,
+      cleanupPlanId: record.cleanupPlanId
+    });
+  }
+
+  const purgePlanId = makePurgePlanId(generatedAt);
+  const planPath = trashPurgePlanPath(ledgerPath, purgePlanId);
+  return {
+    purgePlanId,
+    generatedAt: toIso(generatedAt),
+    ledgerPath,
+    olderThan,
+    cutoff,
+    entries,
+    skipped,
+    planPath
+  };
 }
 
 export function executeCleanupPlan(ledgerPath: string, planId: string): {
@@ -544,6 +708,34 @@ function updateLedgerAfterCleanup(
   writeLedger(ledgerPath, updated);
 }
 
+function updateLedgerAfterTrashPurge(
+  ledgerPath: string,
+  records: ShelfRecord[],
+  receipt: {
+    purgePlanId: string;
+    receiptPath: string;
+    executedAt: string;
+    results: Array<{ id: string; status: string; targetPath: string; reason?: string }>;
+  }
+): void {
+  const resultById = new Map(receipt.results.map((result) => [result.id, result]));
+  const updated = records.map((record) => {
+    const result = resultById.get(record.id);
+    if (!result || result.status !== "purged") return record;
+
+    return {
+      ...record,
+      status: "resolved" as const,
+      resolvedAt: receipt.executedAt,
+      resolutionReason: "trash purge completed",
+      purgedAt: receipt.executedAt,
+      purgePlanId: receipt.purgePlanId,
+      purgeReceiptPath: receipt.receiptPath
+    };
+  });
+  writeLedger(ledgerPath, updated);
+}
+
 function buildRetention(input: PutInput, createdAt: Date): { retention: Retention; retainUntil?: string } {
   if (input.manualReview) return { retention: { mode: "manual-review" } };
   if (input.ttl) {
@@ -612,12 +804,24 @@ function makePlanId(date: Date): string {
   return `plan_${toIso(date).replace(/[-:]/g, "").replace("T", "_").replace("Z", "")}_${randomBytes(2).toString("hex")}`;
 }
 
+function makePurgePlanId(date: Date): string {
+  return `purge_${toIso(date).replace(/[-:]/g, "").replace("T", "_").replace("Z", "")}_${randomBytes(2).toString("hex")}`;
+}
+
 function cleanupPlanPath(ledgerPath: string, planId: string): string {
   return join(dirname(ledgerPath), "plans", `${planId}.json`);
 }
 
+function trashPurgePlanPath(ledgerPath: string, purgePlanId: string): string {
+  return join(dirname(ledgerPath), "purge-plans", `${purgePlanId}.json`);
+}
+
 function receiptPathFor(ledgerPath: string, planId: string): string {
   return join(dirname(ledgerPath), "receipts", `${planId}.json`);
+}
+
+function trashPurgeReceiptPath(ledgerPath: string, purgePlanId: string): string {
+  return join(dirname(ledgerPath), "purge-receipts", `${purgePlanId}.json`);
 }
 
 function writeJson(path: string, value: unknown): void {
