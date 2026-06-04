@@ -82,6 +82,20 @@ shelf cleanup --execute --plan-id plan_20260601_120000_ab12
 There is no auto-execute, no global execute, and no fresh-plan-then-execute
 shortcut. Execution writes a receipt and updates the touched ledger records.
 
+### 4. Purge old trash explicitly
+
+Cleanup execution with `cleanup=trash` moves artifacts into Shelf's local trash
+folder. Those trashed records remain discoverable (`shelf trash list`) for review
+and should only be physically removed through a separately reviewed trash purge
+plan:
+
+```bash
+shelf trash purge --older-than 30d --dry-run --ledger /tmp/shelf-ledger.jsonl --json
+shelf trash purge --execute --plan-id purge_20260601_120000_ab12 --ledger /tmp/shelf-ledger.jsonl
+```
+
+This adds a separate approval boundary between quarantine and destructive deletion.
+
 ## Explicit Ledgers
 
 By default, Shelf writes repo-local `.shelf/ledger.jsonl` inside a git repo and
@@ -185,6 +199,9 @@ shelf status --all
 shelf cleanup --dry-run
 shelf cleanup --dry-run --all
 shelf cleanup --execute --plan-id <id>
+shelf trash list [--all] [--ledger <path>] [--json]
+shelf trash purge --older-than <ttl> [--dry-run] [--ledger <path>] [--json]
+shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
 shelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```
 

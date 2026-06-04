@@ -338,6 +338,55 @@ Rules:
   never removes the file. Physical delete stays disabled until we have enough
   dogfood evidence to enable it.
 
+### `shelf trash list`
+
+Read-only listing of records that cleanup execution moved into Shelf trash
+(`status=trashed`).
+
+```bash
+shelf trash list
+shelf trash list --ledger <path> --json
+shelf trash list --all --json
+```
+
+Rules:
+
+- Reports `id`, `targetPath`, `cleanedAt`, `receiptPath`, `cleanupPlanId`, and a
+  human-readable `age` for each trashed record.
+- Never moves, deletes, or resolves records.
+- `--all` reads every registered ledger through the registry and validates those
+  ledgers first, the same way `list --all` and `review --all` do.
+
+### `shelf trash purge`
+
+Approval-first physical deletion of quarantined trash. Trashed artifacts stay in
+Shelf trash until a separately reviewed purge plan removes them, mirroring the
+cleanup dry-run/execute boundary.
+
+```bash
+shelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
+shelf trash purge --execute --plan-id <id> --ledger <path> --json
+```
+
+Rules:
+
+- Scoped to a single ledger. `--all` is refused for purge (it is only supported
+  by `trash list`); there is no global blind delete.
+- `--dry-run` builds an age-based purge plan from records whose `cleanedAt` is
+  older than `--older-than`, writes it to `<ledger-dir>/purge-plans/<id>.json`,
+  and registers a Shelf-owned plan record (`ttl=14d`, `cleanup=review`, labels
+  including `shelf`, `trash-purge-plan`, and the purge plan id). No-op dry-runs
+  report `not-created` and write no plan file.
+- `--execute` requires a `--plan-id` produced by an earlier reviewed dry-run; it
+  refuses to compute a fresh purge set. It physically removes each planned trash
+  target, skipping entries whose record is missing, is no longer `trashed`, or
+  whose target is already gone.
+- Writes a purge receipt to `<ledger-dir>/purge-receipts/<id>.json` and registers
+  it (`ttl=30d`, `cleanup=review`, labels including `shelf`, `trash-purge-receipt`,
+  and the purge plan id) so the final deletion stays auditable.
+- Marks purged records `resolved` with `purgedAt`, `purgePlanId`, and
+  `purgeReceiptPath`, so they no longer reappear as trashed.
+
 ### `shelf resolve`
 
 Marks a handled, missing, or no-longer-needed record as manually resolved while
@@ -447,6 +496,19 @@ Manually resolved records include:
 }
 ```
 
+Records removed by `shelf trash purge --execute` become `resolved` and also carry
+the purge provenance:
+
+```json
+{
+  "resolvedAt": "2026-06-01T06:10:00Z",
+  "resolutionReason": "trash purge completed",
+  "purgedAt": "2026-06-01T06:10:00Z",
+  "purgePlanId": "purge_20260601_061000_ef56",
+  "purgeReceiptPath": "/absolute/path/.shelf/purge-receipts/purge_20260601_061000_ef56.json"
+}
+```
+
 ## Cleanup Safety Model
 
 Cleanup execution is intentionally boring and approval-only. Five boundaries
@@ -455,16 +517,20 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
 
 - **No daemon.** Shelf never runs in the background or watches the clock. It
   only does work while you are running a `shelf` command.
-- **No auto-execute.** No command cleans up as a side effect. The only thing
-  that moves or trashes a file is `shelf cleanup --execute`, run by a human.
+- **No auto-execute.** No command cleans up as a side effect. The only commands
+  that move, trash, or delete files are `shelf cleanup --execute` and
+  `shelf trash purge --execute`, each run by a human against a separately
+  reviewed plan id.
 - **No global execute.** `cleanup --execute --all` is refused; `--all` is
   dry-run only. Execution is always scoped to a single reviewed plan id.
 - **No fresh-plan-then-execute.** `cleanup --execute` refuses to compute a new
   live set. It acts only on a plan id that an earlier `cleanup --dry-run`
   produced and a human reviewed; it will not plan and execute in one step.
 - **No silent deletion.** Cleanup trashes or flags for review and writes a
-  receipt to the ledger. v1 refuses physical `delete`, so nothing leaves the
-  filesystem without an auditable trail.
+  receipt to the ledger. The `cleanup=delete` action stays refused in v1; the
+  one sanctioned physical deletion is `shelf trash purge --execute`, which only
+  removes already-quarantined trash through its own reviewed purge plan and
+  receipt. Nothing leaves the filesystem without an auditable trail.
 
 Operational rules that back those boundaries:
 
@@ -478,6 +544,8 @@ Operational rules that back those boundaries:
   unless the user explicitly repairs the ledger later.
 - Cleanup never scans arbitrary filesystem paths for deletion in v1.
 - Cleanup only acts on ledger entries.
+- Trash purge is scoped to one ledger, requires a reviewed purge plan id, and
+  writes a purge receipt before removing quarantined files.
 
 ## Agent Usage Contract
 
@@ -551,10 +619,13 @@ and report plans for later human review.
   creates.
 - Cleanup execute refuses to run without a plan id.
 - Cleanup execute writes a receipt.
+- CLI can list trashed records (single ledger or `--all`) and purge them through
+  an approval-first, ledger-scoped dry-run/execute boundary that writes a purge
+  receipt; purge refuses `--all` and never deletes without a reviewed plan id.
 - All core commands support `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `shelf doctor`, the `shelf status` dashboard, `--all` review, stale-registry,
-  dry-run, global-dry-run, and execute-plan behavior.
+  dry-run, global-dry-run, execute-plan, and trash list/purge behavior.
 
 ## Deferred
 

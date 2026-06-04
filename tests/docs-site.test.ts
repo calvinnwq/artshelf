@@ -106,6 +106,8 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /reuse the existing plan id|reuses the existing plan id/);
   assert.match(pages, /shelf get <id>|shelf get &lt;id&gt;/);
   assert.match(pages, /shelf resolve <id> --status resolved|shelf resolve &lt;id&gt; --status resolved/);
+  assert.match(pages, /shelf trash purge --older-than &lt;ttl&gt; \[--dry-run\] \[--ledger/);
+  assert.match(pages, /shelf trash purge --execute --plan-id &lt;id&gt; \[--ledger/);
 });
 
 test("docs menu keeps the reference section focused on user-facing pages", () => {

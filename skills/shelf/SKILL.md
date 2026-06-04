@@ -132,7 +132,16 @@ Shelf cleanup attention:
      before touching artifacts.
 5. If cleanup execution is appropriate, generate or reuse a dry-run plan, then
    ask for explicit approval naming the ledger path and reviewed plan id.
-6. After approved execute or resolve, verify quiet with
+6. For any `trash-safe` candidates moved by `cleanup=trash`, run `shelf trash list`
+   and then require a separate reviewed purge plan before physical deletion:
+
+```bash
+shelf trash list --ledger <ledger-path>
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
+shelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
+```
+
+7. After approved execute or resolve, verify quiet with
    `shelf review --all --json` or explain what remains.
 
 Approval wording should be exact:
@@ -225,6 +234,14 @@ Requires explicit approval that names the reviewed plan id:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
+```
+
+After cleanup execution, review and execute trash purges separately:
+
+```bash
+shelf trash list --ledger <ledger-path>
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
+shelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
 ```
 
 No-op dry-runs report `not-created` and do not write plan files.

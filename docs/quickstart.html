@@ -113,6 +113,24 @@ shelf cleanup --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
                 artifacts.
               </div>
             </section>
+
+            <section>
+              <h2>4. Purge old trashed records explicitly</h2>
+              <p>
+                After cleanup execution, trashed files are quarantined under the ledger's
+                <code>.shelf/trash</code> folder. Before physical deletion, run an explicit
+                reviewed trash purge plan:
+              </p>
+              <pre><code>shelf trash list --ledger /tmp/shelf-ledger.jsonl
+shelf trash purge --older-than 7d --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
+              <p>
+                If that dry-run output and reviewed evidence are sufficient, execute only with
+                the plan id that was explicitly reviewed:
+              </p>
+              <pre><code>shelf trash purge --execute \
+  --plan-id purge_20260601_120000_ab12 \
+  --ledger /tmp/shelf-ledger.jsonl</code></pre>
+            </section>
           </article>
         </main>
         <footer class="site-footer"><div class="wrap">Shelf docs · <a href="agent-usage.html">Next: agent usage</a></div></footer>
