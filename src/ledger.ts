@@ -21,12 +21,12 @@ import type {
   DueStatus,
   TrashPurgePlan,
   Retention,
-  ShelfKind,
-  ShelfRecord,
-  ShelfStatus
+  ArtshelfKind,
+  ArtshelfRecord,
+  ArtshelfStatus
 } from "./types.js";
 
-const KINDS = new Set<ShelfKind>([
+const KINDS = new Set<ArtshelfKind>([
   "scratch",
   "backup",
   "run-artifact",
@@ -37,8 +37,8 @@ const KINDS = new Set<ShelfKind>([
 ]);
 
 const CLEANUP_ACTIONS = new Set<CleanupAction>(["trash", "review", "delete"]);
-const STATUSES = new Set<ShelfStatus>(["active", "review-required", "trashed", "cleanup-refused", "resolved"]);
-const RESOLVE_STATUSES = new Set<ShelfStatus>(["resolved"]);
+const STATUSES = new Set<ArtshelfStatus>(["active", "review-required", "trashed", "cleanup-refused", "resolved"]);
+const RESOLVE_STATUSES = new Set<ArtshelfStatus>(["resolved"]);
 
 export type PutInput = {
   path: string;
@@ -84,13 +84,13 @@ export function normalizeLedgerPath(path?: string): string {
   return resolve(path ?? defaultLedgerPath());
 }
 
-export function putRecord(ledgerPath: string, input: PutInput): ShelfRecord {
+export function putRecord(ledgerPath: string, input: PutInput): ArtshelfRecord {
   const record = prepareRecord(input);
   appendPreparedRecord(ledgerPath, record);
   return record;
 }
 
-export function prepareRecord(input: PutInput): ShelfRecord {
+export function prepareRecord(input: PutInput): ArtshelfRecord {
   const artifactPath = resolve(input.path);
   if (!existsSync(artifactPath)) {
     throw new Error(`Path does not exist: ${input.path}`);
@@ -109,7 +109,7 @@ export function prepareRecord(input: PutInput): ShelfRecord {
   const createdAt = now();
   const retentionPlan = buildRetention(input, createdAt);
 
-  const record: ShelfRecord = {
+  const record: ArtshelfRecord = {
     id: makeId(createdAt),
     path: artifactPath,
     kind,
@@ -126,18 +126,18 @@ export function prepareRecord(input: PutInput): ShelfRecord {
   return record;
 }
 
-export function appendPreparedRecord(ledgerPath: string, record: ShelfRecord): void {
+export function appendPreparedRecord(ledgerPath: string, record: ArtshelfRecord): void {
   appendRecord(ledgerPath, record);
 }
 
-export function readLedger(ledgerPath: string): ShelfRecord[] {
+export function readLedger(ledgerPath: string): ArtshelfRecord[] {
   if (!existsSync(ledgerPath)) return [];
   const content = readFileSync(ledgerPath, "utf8").trim();
   if (!content) return [];
 
   return content.split(/\n+/).map((line, index) => {
     try {
-      return JSON.parse(line) as ShelfRecord;
+      return JSON.parse(line) as ArtshelfRecord;
     } catch (error) {
       throw new Error(`Invalid JSONL at line ${index + 1}: ${(error as Error).message}`);
     }
@@ -162,20 +162,20 @@ export function listTrashedRecords(ledgerPath: string): TrashedRecord[] {
   });
 }
 
-export function filterRecordsByStatus(records: ShelfRecord[], status?: string): ShelfRecord[] {
+export function filterRecordsByStatus(records: ArtshelfRecord[], status?: string): ArtshelfRecord[] {
   if (!status) return records;
   const normalized = assertStatus(status);
   return records.filter((record) => record.status === normalized);
 }
 
-export function getRecord(records: ShelfRecord[], id: string): ShelfRecord {
+export function getRecord(records: ArtshelfRecord[], id: string): ArtshelfRecord {
   if (!id || id.trim().length === 0) throw new Error("get requires <id>");
   const record = records.find((entry) => entry.id === id);
-  if (!record) throw new Error(`Shelf record not found: ${id}`);
+  if (!record) throw new Error(`Artshelf record not found: ${id}`);
   return record;
 }
 
-export function findRecords(records: ShelfRecord[], input: FindInput): ShelfRecord[] {
+export function findRecords(records: ArtshelfRecord[], input: FindInput): ArtshelfRecord[] {
   const hasQuery = Boolean(input.path || input.owner || input.labels.length > 0 || input.status);
   if (!hasQuery) {
     throw new Error("find requires at least one of --path, --owner, --label, or --status");
@@ -194,20 +194,20 @@ export function findRecords(records: ShelfRecord[], input: FindInput): ShelfReco
   });
 }
 
-export function resolveRecord(ledgerPath: string, input: ResolveInput): ShelfRecord {
+export function resolveRecord(ledgerPath: string, input: ResolveInput): ArtshelfRecord {
   if (!input.id || input.id.trim().length === 0) throw new Error("resolve requires <id>");
   if (!input.reason || input.reason.trim().length === 0) throw new Error("Missing required --reason");
   const status = assertResolveStatus(input.status);
   const records = readLedger(ledgerPath);
   const index = records.findIndex((record) => record.id === input.id);
-  if (index === -1) throw new Error(`Shelf record not found: ${input.id}`);
+  if (index === -1) throw new Error(`Artshelf record not found: ${input.id}`);
 
   const current = records[index];
-  if (!current) throw new Error(`Shelf record not found: ${input.id}`);
+  if (!current) throw new Error(`Artshelf record not found: ${input.id}`);
   if (current.status === "resolved") {
-    throw new Error(`Shelf record is already resolved: ${input.id}`);
+    throw new Error(`Artshelf record is already resolved: ${input.id}`);
   }
-  const updated: ShelfRecord = {
+  const updated: ArtshelfRecord = {
     ...current,
     status,
     resolvedAt: toIso(now()),
@@ -218,7 +218,7 @@ export function resolveRecord(ledgerPath: string, input: ResolveInput): ShelfRec
   return updated;
 }
 
-export function dueEntries(records: ShelfRecord[], at = now()): DueEntry[] {
+export function dueEntries(records: ArtshelfRecord[], at = now()): DueEntry[] {
   return records.filter((record) => record.status === "active").map((record) => {
     const dueStatus = classifyDue(record, at);
     return {
@@ -240,7 +240,7 @@ export function validateLedger(ledgerPath: string): {
 } {
   const errors: string[] = [];
   const warnings: string[] = [];
-  let records: ShelfRecord[] = [];
+  let records: ArtshelfRecord[] = [];
 
   try {
     records = readLedger(ledgerPath);
@@ -306,23 +306,23 @@ export function createCleanupPlan(ledgerPath: string): CleanupPlan {
     };
     if (!refreshedPlan.planPath) throw new Error("cleanup plan path was not created");
     writeJson(refreshedPlan.planPath, refreshedPlan);
-    registerShelfArtifact(ledgerPath, refreshedPlan.planPath, {
-      reason: `Shelf cleanup dry-run plan ${refreshedPlan.planId}`,
+    registerArtshelfArtifact(ledgerPath, refreshedPlan.planPath, {
+      reason: `Artshelf cleanup dry-run plan ${refreshedPlan.planId}`,
       ttl: "14d",
       kind: "run-artifact",
       cleanup: "trash",
-      labels: ["shelf", "cleanup-plan", refreshedPlan.planId]
+      labels: ["artshelf", "cleanup-plan", refreshedPlan.planId]
     });
     return refreshedPlan;
   }
   if (!plan.planPath) throw new Error("cleanup plan path was not created");
   writeJson(plan.planPath, plan);
-  registerShelfArtifact(ledgerPath, plan.planPath, {
-    reason: `Shelf cleanup dry-run plan ${plan.planId}`,
+  registerArtshelfArtifact(ledgerPath, plan.planPath, {
+    reason: `Artshelf cleanup dry-run plan ${plan.planId}`,
     ttl: "14d",
     kind: "run-artifact",
     cleanup: "trash",
-    labels: ["shelf", "cleanup-plan", plan.planId]
+    labels: ["artshelf", "cleanup-plan", plan.planId]
   });
   return plan;
 }
@@ -337,12 +337,12 @@ export function createTrashPurgePlan(ledgerPath: string, olderThan: string): Tra
   if (plan.entries.length === 0) return noCreatedTrashPurgePlan(plan);
   if (!plan.planPath) throw new Error("trash purge plan path was not created");
   writeJson(plan.planPath, plan);
-  registerShelfArtifact(ledgerPath, plan.planPath, {
-    reason: `Shelf trash purge dry-run plan ${plan.purgePlanId}`,
+  registerArtshelfArtifact(ledgerPath, plan.planPath, {
+    reason: `Artshelf trash purge dry-run plan ${plan.purgePlanId}`,
     ttl: "14d",
     kind: "run-artifact",
     cleanup: "review",
-    labels: ["shelf", "trash-purge-plan", plan.purgePlanId]
+    labels: ["artshelf", "trash-purge-plan", plan.purgePlanId]
   });
   return plan;
 }
@@ -400,7 +400,7 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
     const targetPath = resolve(entry.targetPath);
     const expectedPlanTrashRoot = resolve(trashRoot, record.cleanupPlanId);
     if (!isPathWithin(trashRoot, targetPath)) {
-      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is outside Shelf trash" });
+      results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is outside Artshelf trash" });
       continue;
     }
     if (!isStrictPathWithin(expectedPlanTrashRoot, targetPath)) {
@@ -418,7 +418,7 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
     }
     try {
       if (resolvesOutsideLedgerTrash(dirname(ledgerPath), trashRoot, expectedPlanTrashRoot, targetPath)) {
-        results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target resolves outside Shelf trash" });
+        results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target resolves outside Artshelf trash" });
         continue;
       }
     } catch (error) {
@@ -472,12 +472,12 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
 
   updateLedgerAfterTrashPurge(ledgerPath, records, { purgePlanId, receiptPath, executedAt, results });
   writeTrashPurgeReceipt(receiptPath, { purgePlanId, executedAt, completedAt: toIso(now()), results });
-  registerShelfArtifact(ledgerPath, receiptPath, {
-    reason: `Shelf trash purge receipt for plan ${purgePlanId}`,
+  registerArtshelfArtifact(ledgerPath, receiptPath, {
+    reason: `Artshelf trash purge receipt for plan ${purgePlanId}`,
     ttl: "30d",
     kind: "run-artifact",
     cleanup: "review",
-    labels: ["shelf", "trash-purge-receipt", purgePlanId]
+    labels: ["artshelf", "trash-purge-receipt", purgePlanId]
   });
   return { purgePlanId, receiptPath, results };
 }
@@ -688,17 +688,17 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   const executedAt = toIso(now());
   writeJson(receiptPath, { planId, executedAt, results });
   updateLedgerAfterCleanup(ledgerPath, records, { planId, receiptPath, executedAt, results });
-  registerShelfArtifact(ledgerPath, receiptPath, {
-    reason: `Shelf cleanup receipt for plan ${planId}`,
+  registerArtshelfArtifact(ledgerPath, receiptPath, {
+    reason: `Artshelf cleanup receipt for plan ${planId}`,
     ttl: "30d",
     kind: "run-artifact",
     cleanup: "review",
-    labels: ["shelf", "cleanup-receipt", planId]
+    labels: ["artshelf", "cleanup-receipt", planId]
   });
   return { planId, receiptPath, results };
 }
 
-function registerShelfArtifact(
+function registerArtshelfArtifact(
   ledgerPath: string,
   path: string,
   input: Pick<PutInput, "reason" | "ttl" | "kind" | "cleanup" | "labels">
@@ -709,12 +709,12 @@ function registerShelfArtifact(
     ttl: input.ttl,
     kind: input.kind,
     cleanup: input.cleanup,
-    owner: "shelf",
+    owner: "artshelf",
     labels: input.labels
   });
   const records = readLedger(ledgerPath);
   const index = records.findIndex((record) => (
-    record.owner === "shelf" &&
+    record.owner === "artshelf" &&
     record.status === "active" &&
     record.path === path &&
     sameLabels(record.labels, input.labels)
@@ -774,13 +774,13 @@ function cleanupPlanEntriesFingerprint(plan: CleanupPlan): string {
   })));
 }
 
-function appendRecord(ledgerPath: string, record: ShelfRecord): void {
+function appendRecord(ledgerPath: string, record: ArtshelfRecord): void {
   mkdirSync(dirname(ledgerPath), { recursive: true });
   const previous = existsSync(ledgerPath) ? readFileSync(ledgerPath, "utf8") : "";
   writeFileSync(ledgerPath, `${previous}${previous && !previous.endsWith("\n") ? "\n" : ""}${JSON.stringify(record)}\n`);
 }
 
-function writeLedger(ledgerPath: string, records: ShelfRecord[]): void {
+function writeLedger(ledgerPath: string, records: ArtshelfRecord[]): void {
   mkdirSync(dirname(ledgerPath), { recursive: true });
   const tmpPath = `${ledgerPath}.tmp`;
   writeFileSync(tmpPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : ""));
@@ -789,7 +789,7 @@ function writeLedger(ledgerPath: string, records: ShelfRecord[]): void {
 
 function updateLedgerAfterCleanup(
   ledgerPath: string,
-  records: ShelfRecord[],
+  records: ArtshelfRecord[],
   receipt: {
     planId: string;
     receiptPath: string;
@@ -841,7 +841,7 @@ function updateLedgerAfterCleanup(
 
 function updateLedgerAfterTrashPurge(
   ledgerPath: string,
-  records: ShelfRecord[],
+  records: ArtshelfRecord[],
   receipt: {
     purgePlanId: string;
     receiptPath: string;
@@ -879,14 +879,14 @@ function buildRetention(input: PutInput, createdAt: Date): { retention: Retentio
   throw new Error("Choose exactly one of --ttl, --retain-until, or --manual-review");
 }
 
-function classifyDue(record: ShelfRecord, at: Date): DueStatus {
+function classifyDue(record: ArtshelfRecord, at: Date): DueStatus {
   if (!existsSync(record.path)) return "missing-path";
   if (record.retention.mode === "manual-review") return "manual-review";
   if (!record.retainUntil) return "due";
   return new Date(record.retainUntil).getTime() <= at.getTime() ? "due" : "kept";
 }
 
-function validRetention(record: ShelfRecord): boolean {
+function validRetention(record: ArtshelfRecord): boolean {
   if (!record.retention || !("mode" in record.retention)) return false;
   if (record.retention.mode === "manual-review") return !record.retainUntil;
   if (record.retention.mode === "ttl") return Boolean(record.retention.ttl && record.retainUntil);
@@ -904,9 +904,9 @@ function findGitRoot(cwd: string): string | null {
   }
 }
 
-function assertKind(kind: string): ShelfKind {
-  if (!KINDS.has(kind as ShelfKind)) throw new Error(`Unknown kind: ${kind}`);
-  return kind as ShelfKind;
+function assertKind(kind: string): ArtshelfKind {
+  if (!KINDS.has(kind as ArtshelfKind)) throw new Error(`Unknown kind: ${kind}`);
+  return kind as ArtshelfKind;
 }
 
 function assertCleanup(cleanup: string): CleanupAction {
@@ -914,12 +914,12 @@ function assertCleanup(cleanup: string): CleanupAction {
   return cleanup as CleanupAction;
 }
 
-function assertStatus(status: string): ShelfStatus {
-  if (!STATUSES.has(status as ShelfStatus)) throw new Error(`Unknown status: ${status}`);
-  return status as ShelfStatus;
+function assertStatus(status: string): ArtshelfStatus {
+  if (!STATUSES.has(status as ArtshelfStatus)) throw new Error(`Unknown status: ${status}`);
+  return status as ArtshelfStatus;
 }
 
-function assertResolveStatus(status: string): ShelfStatus {
+function assertResolveStatus(status: string): ArtshelfStatus {
   const normalized = assertStatus(status);
   if (!RESOLVE_STATUSES.has(normalized)) {
     throw new Error(`resolve currently supports --status resolved`);

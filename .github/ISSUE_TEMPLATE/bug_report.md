@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a Shelf behavior that looks wrong
+about: Report a Artshelf behavior that looks wrong
 labels: bug
 ---
 
@@ -18,5 +18,5 @@ labels: bug
 
 - OS:
 - Node:
-- Shelf commit or version:
+- Artshelf commit or version:
 - Ledger scope: repo-local / user-global / explicit `--ledger`

@@ -1,6 +1,6 @@
 # Contributing
 
-Shelf is intentionally small. Contributions should keep it boring, predictable,
+Artshelf is intentionally small. Contributions should keep it boring, predictable,
 and safe around file cleanup.
 
 ## Local Setup

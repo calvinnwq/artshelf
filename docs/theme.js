@@ -1,5 +1,5 @@
 (function () {
-  const storageKey = "shelf-docs-theme";
+  const storageKey = "artshelf-docs-theme";
   const root = document.documentElement;
   const systemDark = window.matchMedia("(prefers-color-scheme: dark)");
   const toggleIcon = `

@@ -3,7 +3,7 @@
   "packages": {
     ".": {
       "release-type": "node",
-      "package-name": "shelf",
+      "package-name": "artshelf",
       "changelog-path": "CHANGELOG.md"
     }
   }

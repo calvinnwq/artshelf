@@ -6,11 +6,11 @@ const TTL_MULTIPLIERS: Record<string, number> = {
 };
 
 export function now(): Date {
-  const forced = process.env.SHELF_NOW;
+  const forced = process.env.ARTSHELF_NOW ?? process.env.SHELF_NOW;
   if (!forced) return new Date();
   const parsed = new Date(forced);
   if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid SHELF_NOW value: ${forced}`);
+    throw new Error(`Invalid ARTSHELF_NOW value: ${forced}`);
   }
   return parsed;
 }

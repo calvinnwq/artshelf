@@ -11,12 +11,12 @@ import { test } from "node:test";
 // or silent deletion path.
 
 const CLI = new URL("../src/cli.js", import.meta.url);
-const TEST_REGISTRY = join(mkdtempSync(join(tmpdir(), "shelf-safety-registry-")), "ledgers.json");
+const TEST_REGISTRY = join(mkdtempSync(join(tmpdir(), "artshelf-safety-registry-")), "ledgers.json");
 
 test("cleanup help states the approval-only execution boundary in plain language", () => {
-  const help = shelf(["help", "cleanup"]);
+  const help = artshelf(["help", "cleanup"]);
   assert.equal(help.status, 0, help.stderr);
-  assert.match(help.stdout, /shelf cleanup --execute --plan-id <id>/);
+  assert.match(help.stdout, /artshelf cleanup --execute --plan-id <id>/);
   assert.match(help.stdout, /approval-only/i);
   assert.match(help.stdout, /no daemon/i);
   assert.match(help.stdout, /auto-execute/i);
@@ -29,7 +29,7 @@ test("cleanup --execute --all is refused so there is no global execute path", ()
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
 
-  const refused = shelf(["cleanup", "--execute", "--all", "--plan-id", "plan_nope", "--registry", registry]);
+  const refused = artshelf(["cleanup", "--execute", "--all", "--plan-id", "plan_nope", "--registry", registry]);
   assert.equal(refused.status, 1);
   assert.match(refused.stderr, /cleanup --all is dry-run only/);
   assert.match(refused.stderr, /reviewed --plan-id/);
@@ -40,14 +40,14 @@ test("cleanup --execute requires a reviewed plan id and never computes a fresh l
   const artifact = join(fixture, "artifact.txt");
   writeFileSync(artifact, "hello");
   const ledger = ledgerPath(fixture);
-  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
 
-  const missing = shelf(["cleanup", "--execute", "--ledger", ledger], "2026-06-03T00:00:00Z");
+  const missing = artshelf(["cleanup", "--execute", "--ledger", ledger], "2026-06-03T00:00:00Z");
   assert.equal(missing.status, 1);
   assert.match(missing.stderr, /Missing required --plan-id/);
 
   // An id that was never reviewed into a plan file is refused, not freshly computed.
-  const unreviewed = shelf(["cleanup", "--execute", "--plan-id", "plan_never_reviewed", "--ledger", ledger], "2026-06-03T00:00:00Z");
+  const unreviewed = artshelf(["cleanup", "--execute", "--plan-id", "plan_never_reviewed", "--ledger", ledger], "2026-06-03T00:00:00Z");
   assert.equal(unreviewed.status, 1);
   assert.match(unreviewed.stderr, /Cleanup plan not found/);
 
@@ -61,10 +61,10 @@ test("cleanup --execute refuses physical delete so there is no silent deletion p
   const target = join(fixture, "delete-me.txt");
   writeFileSync(target, "keep me safe");
   const ledger = ledgerPath(fixture);
-  shelf(["put", target, "--reason", "delete later", "--ttl", "1d", "--cleanup", "delete", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  artshelf(["put", target, "--reason", "delete later", "--ttl", "1d", "--cleanup", "delete", "--ledger", ledger], "2026-06-01T00:00:00Z");
 
-  const plan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
-  const receipt = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const receipt = JSON.parse(artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
 
   const deleteResult = receipt.results.find((result: any) => result.id === plan.entries[0].id);
   assert.ok(deleteResult);
@@ -79,11 +79,11 @@ test("read-only status, review, and doctor never execute cleanup", () => {
   writeFileSync(artifact, "hello");
   const ledger = ledgerPath(fixture);
   const registry = join(fixture, "registry.json");
-  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger, "--registry", registry], "2026-06-01T00:00:00Z");
 
   // Even when handed --execute, these read-only commands must not move files.
   for (const command of ["status", "review", "doctor"]) {
-    shelf([command, "--execute", "--ledger", ledger, "--registry", registry], "2026-06-03T00:00:00Z");
+    artshelf([command, "--execute", "--ledger", ledger, "--registry", registry], "2026-06-03T00:00:00Z");
   }
 
   const shelfDir = join(fixture, ".shelf");
@@ -112,16 +112,16 @@ function specSection(title: string): string {
   return end === -1 ? rest : rest.slice(0, end);
 }
 
-function shelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
+function artshelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
     encoding: "utf8",
-    env: { ...process.env, SHELF_REGISTRY: TEST_REGISTRY, ...(now ? { SHELF_NOW: now } : {}) }
+    env: { ...process.env, ARTSHELF_REGISTRY: TEST_REGISTRY, ...(now ? { ARTSHELF_NOW: now } : {}) }
   });
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
 
 function fixtureDir(): string {
-  return mkdtempSync(join(tmpdir(), "shelf-safety-"));
+  return mkdtempSync(join(tmpdir(), "artshelf-safety-"));
 }
 
 function ledgerPath(fixture: string): string {

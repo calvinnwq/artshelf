@@ -24,9 +24,9 @@ import {
   registerLedger
 } from "./registry.js";
 import type { LedgerRegistryEntry } from "./registry.js";
-import type { CleanupPlan, DueEntry, ShelfRecord } from "./types.js";
+import type { CleanupPlan, DueEntry, ArtshelfRecord } from "./types.js";
 
-const VERSION = "0.1.0";
+const VERSION = "0.3.0";
 const BOOLEAN_FLAGS = new Set(["all", "json", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
   "cleanup",
@@ -57,7 +57,7 @@ function main(argv: string[]): number {
     const parsed = parseArgs(argv);
 
     if (parsed.command === "--version" || parsed.command === "-v" || boolFlag(parsed, "version")) {
-      process.stdout.write(`shelf ${VERSION}\n`);
+      process.stdout.write(`artshelf ${VERSION}\n`);
       return 0;
     }
 
@@ -100,7 +100,7 @@ function main(argv: string[]): number {
         throw new Error(`Unknown command: ${parsed.command}`);
     }
   } catch (error) {
-    process.stderr.write(`shelf: ${(error as Error).message}\nRun \`shelf help\` for usage.\n`);
+    process.stderr.write(`artshelf: ${(error as Error).message}\nRun \`artshelf help\` for usage.\n`);
     return 1;
   }
 }
@@ -157,7 +157,7 @@ function handleLedgers(parsed: ParsedArgs, json: boolean): number {
       const ledgers = listRegisteredLedgers(registryPath);
       if (json) return printJson({ ok: true, registryPath, ledgers });
       if (ledgers.length === 0) {
-        process.stdout.write(`no registered Shelf ledgers\nregistry: ${registryPath}\n`);
+        process.stdout.write(`no registered Artshelf ledgers\nregistry: ${registryPath}\n`);
         return 0;
       }
       for (const ledger of ledgers) process.stdout.write(`${ledger.name} ${ledger.scope} ${ledger.path}\n`);
@@ -238,11 +238,11 @@ function buildLedgersReport(registryPath: string): LedgersReport {
 }
 
 function printLedgersList(report: LedgersReport): void {
-  process.stdout.write(`shelf ledgers: ${report.ok ? "ok" : "needs attention"}\n`);
+  process.stdout.write(`artshelf ledgers: ${report.ok ? "ok" : "needs attention"}\n`);
   process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"} — ${report.summary.ledgers} ledgers (${report.summary.ok} ok, ${report.summary.stale} stale, ${report.summary.invalid} invalid)\n`);
   if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
   if (report.ledgers.length === 0) {
-    process.stdout.write("no registered Shelf ledgers\n");
+    process.stdout.write("no registered Artshelf ledgers\n");
     return;
   }
   for (const ledger of report.ledgers) {
@@ -274,7 +274,7 @@ function handleList(parsed: ParsedArgs, ledgerPath: string, json: boolean): numb
   const records = filterRecordsByStatus(readLedger(ledgerPath), status);
   if (json) return printJson({ ok: true, ledgerPath, ...(status ? { status } : {}), entries: records });
   if (records.length === 0) {
-    process.stdout.write(`no shelf entries${status ? ` with status ${status}` : ""}\nledger: ${ledgerPath}\n`);
+    process.stdout.write(`no artshelf entries${status ? ` with status ${status}` : ""}\nledger: ${ledgerPath}\n`);
     return 0;
   }
   for (const record of records) {
@@ -312,7 +312,7 @@ function handleFind(parsed: ParsedArgs, ledgerPath: string, json: boolean): numb
   });
   if (json) return printJson({ ok: true, ledgerPath, entries: records });
   if (records.length === 0) {
-    process.stdout.write(`no matching shelf entries\nledger: ${ledgerPath}\n`);
+    process.stdout.write(`no matching artshelf entries\nledger: ${ledgerPath}\n`);
     return 0;
   }
   for (const record of records) {
@@ -337,7 +337,7 @@ function handleGet(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
         return 0;
       }
     }
-    throw new Error(`Shelf record not found: ${id}`);
+    throw new Error(`Artshelf record not found: ${id}`);
   }
   const record = getRecord(readLedger(ledgerPath), id);
   if (json) return printJson({ ok: true, ledgerPath, record });
@@ -653,7 +653,7 @@ function buildDoctorReport(ledgerPath: string, registryPath: string): DoctorRepo
 }
 
 function printDoctor(report: DoctorReport): void {
-  process.stdout.write(`shelf ${report.version} (node ${report.node})\n`);
+  process.stdout.write(`artshelf ${report.version} (node ${report.node})\n`);
   process.stdout.write(`health: ${report.ok ? "ok" : "needs attention"}\n`);
   process.stdout.write(`ledger: ${report.ledgerPath}${report.ledgerExists ? "" : " (absent)"}\n`);
   process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"}\n`);
@@ -802,7 +802,7 @@ function formatStatusCounts(counts: StatusCounts): string {
 }
 
 function printStatusAll(report: StatusReport): void {
-  process.stdout.write(`shelf status: ${report.ok ? "ok" : "needs attention"}\n`);
+  process.stdout.write(`artshelf status: ${report.ok ? "ok" : "needs attention"}\n`);
   process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"} — ${report.totals.ledgers} ledgers (${report.totals.ok} ok, ${report.totals.stale} stale, ${report.totals.invalid} invalid)\n`);
   if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
   for (const ledger of report.ledgers) {
@@ -816,7 +816,7 @@ function printStatusAll(report: StatusReport): void {
 }
 
 function printStatusSingle(ledger: StatusLedger): void {
-  process.stdout.write(`shelf status: ${ledger.ok ? "ok" : ledger.status}\n`);
+  process.stdout.write(`artshelf status: ${ledger.ok ? "ok" : ledger.status}\n`);
   process.stdout.write(`ledger: ${ledger.path}\n`);
   if (ledger.ok) {
     process.stdout.write(`${formatStatusCounts(ledger.counts)}\n`);
@@ -888,7 +888,7 @@ function printJson(value: unknown): number {
 
 function registeredLedgersOrThrow(registryPath: string): LedgerRegistryEntry[] {
   const ledgers = listRegisteredLedgers(registryPath);
-  if (ledgers.length === 0) throw new Error("No registered Shelf ledgers. Run `shelf ledgers add --ledger <path>` first.");
+  if (ledgers.length === 0) throw new Error("No registered Artshelf ledgers. Run `artshelf ledgers add --ledger <path>` first.");
   return ledgers;
 }
 
@@ -974,10 +974,10 @@ function emptyReviewPlan(ledgerPath: string): CleanupPlan {
   };
 }
 
-function printLedgerEntries(results: Array<{ ledger: LedgerRegistryEntry; entries: ShelfRecord[] }>, status?: string): void {
+function printLedgerEntries(results: Array<{ ledger: LedgerRegistryEntry; entries: ArtshelfRecord[] }>, status?: string): void {
   const total = results.reduce((count, result) => count + result.entries.length, 0);
   if (total === 0) {
-    process.stdout.write(`no shelf entries${status ? ` with status ${status}` : ""}\n`);
+    process.stdout.write(`no artshelf entries${status ? ` with status ${status}` : ""}\n`);
     return;
   }
   for (const result of results) {
@@ -1071,20 +1071,20 @@ function summarizeReview(results: ReviewResult[]): ReviewSummary {
 function reviewNextAction(summary: ReviewSummary): string {
   const broken = summary.invalid + summary.stale;
   if (broken > 0) {
-    return `repair ${broken} broken ledger(s) above (re-register or fix the file), then re-run \`shelf review --all\``;
+    return `repair ${broken} broken ledger(s) above (re-register or fix the file), then re-run \`artshelf review --all\``;
   }
   if (summary.executable > 0) {
-    return "run `shelf cleanup --dry-run --all` to generate plans, then `shelf cleanup --execute --plan-id <id> --ledger <path>` for each reviewed plan";
+    return "run `artshelf cleanup --dry-run --all` to generate plans, then `artshelf cleanup --execute --plan-id <id> --ledger <path>` for each reviewed plan";
   }
   if (summary.missingPath > 0) {
-    return "inspect missing-path entries and `shelf resolve` the ones no longer needed; nothing is auto-executable";
+    return "inspect missing-path entries and `artshelf resolve` the ones no longer needed; nothing is auto-executable";
   }
   return "nothing to do — no broken ledgers and no due, manual-review, missing-path, or executable cleanup entries";
 }
 
 function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAction: string, registryPath: string): void {
   const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
-  process.stdout.write(`shelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
+  process.stdout.write(`artshelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
   process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
   printReview(results);
   process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
@@ -1103,7 +1103,7 @@ function printReview(results: ReviewResult[]): void {
 function printHelp(command?: string): void {
   if (command === "put") {
     process.stdout.write(`Usage:
-  shelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review) [options]
+  artshelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review) [options]
 
 Options:
   --kind scratch|backup|run-artifact|evidence|cache|quarantine|other
@@ -1119,17 +1119,17 @@ Options:
 
   if (command === "cleanup") {
     process.stdout.write(`Usage:
-  shelf cleanup --dry-run [--ledger <path>] [--json]
-  shelf cleanup --dry-run --all [--registry <path>] [--json]
-  shelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
+  artshelf cleanup --dry-run [--ledger <path>] [--json]
+  artshelf cleanup --dry-run --all [--registry <path>] [--json]
+  artshelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
 
 Cleanup execution is approval-only. There is no daemon, no auto-execute, and no
 global execute path: review a dry-run plan, then execute that one reviewed plan id.
 Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a reviewed plan id.
 cleanup=delete records cleanup-refused instead of deleting files; physical trash purge needs a separate reviewed plan.
 Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
-Matching dry-runs reuse the existing plan id and refresh its Shelf-owned plan artifact.
-Execute writes and registers a Shelf-owned receipt artifact.
+Matching dry-runs reuse the existing plan id and refresh its Artshelf-owned plan artifact.
+Execute writes and registers an Artshelf-owned receipt artifact.
 Global --all mode is dry-run only.
 `);
     return;
@@ -1137,11 +1137,11 @@ Global --all mode is dry-run only.
 
   if (command === "trash") {
     process.stdout.write(`Usage:
-  shelf trash list [--ledger <path>] [--all] [--json]
-  shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
-  shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
+  artshelf trash list [--ledger <path>] [--all] [--json]
+  artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
+  artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
 
-Trash is approval-first. Use list to inspect what is currently in Shelf trash and
+Trash is approval-first. Use list to inspect what is currently in Artshelf trash and
 dry-run purge to generate a reviewed plan id for age-based deletion. Purge
 requires either --dry-run or --execute. Execute requires a reviewed plan id, and
 trash purge is always scoped to one --ledger; --all is not supported for purge
@@ -1155,10 +1155,10 @@ and reconciled. Purged records are resolved and no longer reappear as trashed.
 
   if (command === "ledgers") {
     process.stdout.write(`Usage:
-  shelf ledgers list [--plain] [--registry <path>] [--json]
-  shelf ledgers add --ledger <path> [--name <name>] [--scope repo|user|other] [--registry <path>] [--json]
+  artshelf ledgers list [--plain] [--registry <path>] [--json]
+  artshelf ledgers add --ledger <path> [--name <name>] [--scope repo|user|other] [--registry <path>] [--json]
 
-The ledger registry is a global index of known ledgers. It gives Shelf one read-only entry point without moving project records into one global ledger.
+The ledger registry is a global index of known ledgers. It gives Artshelf one read-only entry point without moving project records into one global ledger.
 By default \`list\` validates each registered ledger and reports ok/missing/invalid status, entry counts, and warning/error counts so agents can spot stale registry entries without a separate validate pass; it exits non-zero when the registry or any registered ledger is broken.
 Use \`--plain\` for the fast path that lists registered ledgers without reading them.
 `);
@@ -1167,8 +1167,8 @@ Use \`--plain\` for the fast path that lists registered ledgers without reading 
 
   if (command === "list") {
     process.stdout.write(`Usage:
-  shelf list [--status <status>] [--ledger <path>] [--json]
-  shelf list --all [--status <status>] [--registry <path>] [--json]
+  artshelf list [--status <status>] [--ledger <path>] [--json]
+  artshelf list --all [--status <status>] [--registry <path>] [--json]
 
 Statuses:
   active, review-required, trashed, cleanup-refused, resolved
@@ -1178,8 +1178,8 @@ Statuses:
 
   if (command === "find") {
     process.stdout.write(`Usage:
-  shelf find (--path <path>|--owner <name>|--label <label>|--status <status>) [options]
-  shelf find --all (--path <path>|--owner <name>|--label <label>|--status <status>) [options]
+  artshelf find (--path <path>|--owner <name>|--label <label>|--status <status>) [options]
+  artshelf find --all (--path <path>|--owner <name>|--label <label>|--status <status>) [options]
 
 Options:
   --path <path>          Match an exact artifact path after path normalization
@@ -1197,17 +1197,17 @@ Find is read-only. Use it before put when an integration needs idempotent artifa
 
   if (command === "get") {
     process.stdout.write(`Usage:
-  shelf get <id> [--ledger <path>] [--json]
-  shelf get <id> --all [--registry <path>] [--json]
+  artshelf get <id> [--ledger <path>] [--json]
+  artshelf get <id> --all [--registry <path>] [--json]
 
-Get is read-only and returns one ledger record by Shelf id.
+Get is read-only and returns one ledger record by Artshelf id.
 `);
     return;
   }
 
   if (command === "resolve") {
     process.stdout.write(`Usage:
-  shelf resolve <id> --status resolved --reason <text> [--ledger <path>] [--json]
+  artshelf resolve <id> --status resolved --reason <text> [--ledger <path>] [--json]
 
 Resolve marks a handled, missing, or no-longer-needed record as manually resolved.
 Resolved records stay in the audit trail but no longer participate in due or cleanup planning.
@@ -1217,8 +1217,8 @@ Resolved records stay in the audit trail but no longer participate in due or cle
 
   if (command === "review") {
     process.stdout.write(`Usage:
-  shelf review [--ledger <path>] [--json]
-  shelf review --all [--registry <path>] [--json]
+  artshelf review [--ledger <path>] [--json]
+  artshelf review --all [--registry <path>] [--json]
 
 Review runs validate, due, and cleanup plan preview without moving files or writing a plan.
 With --all, review adds aggregate triage counts and the next safe action.
@@ -1228,9 +1228,9 @@ With --all, review adds aggregate triage counts and the next safe action.
 
   if (command === "doctor") {
     process.stdout.write(`Usage:
-  shelf doctor [--registry <path>] [--ledger <path>] [--json]
+  artshelf doctor [--registry <path>] [--ledger <path>] [--json]
 
-Doctor reports whether Shelf is healthy on this machine: CLI version, selected
+Doctor reports whether Artshelf is healthy on this machine: CLI version, selected
 or default ledger path, selected or global registry path, registered ledger health
 (stale/missing/invalid), and the cleanup safety posture. Execute is scoped to one
 selected or default ledger and still requires a reviewed plan id; --all execute
@@ -1246,8 +1246,8 @@ broken registry or registered ledger exits non-zero with actionable errors.
 
   if (command === "status") {
     process.stdout.write(`Usage:
-  shelf status [--ledger <path>] [--json]
-  shelf status --all [--registry <path>] [--json]
+  artshelf status [--ledger <path>] [--json]
+  artshelf status --all [--registry <path>] [--json]
 
 Status is the lightweight daily "what is going on?" view. Without --all, it
 reports counts for the selected or default ledger only. With --all, it adds
@@ -1255,7 +1255,7 @@ registry health, total ledgers, and aggregated counts across registered ledgers.
 Counts include active artifacts, kept, due, manual-review, missing-path, and
 pending cleanup entries.
 
-Human output is short enough to paste into a chat; \`shelf status --all --json\`
+Human output is short enough to paste into a chat; \`artshelf status --all --json\`
 is suitable for cron and reporting. Status is read-only: it never creates plans
 or receipts and never mutates records. A healthy selected ledger exits 0; with
 --all, a broken registry or any stale or invalid registered ledger exits non-zero.
@@ -1263,35 +1263,35 @@ or receipts and never mutates records. A healthy selected ledger exits 0; with
     return;
   }
 
-  process.stdout.write(`Shelf ${VERSION}
+  process.stdout.write(`Artshelf ${VERSION}
 
 Usage:
-  shelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review)
-  shelf ledgers list [--plain] [--json]
-  shelf ledgers add --ledger <path> [--name <name>] [--json]
-  shelf list [--json]
-  shelf list --all [--json]
-  shelf list --status active [--json]
-  shelf find --path <path> [--json]
-  shelf find --all --owner <name> [--json]
-  shelf get <id> [--json]
-  shelf get <id> --all [--json]
-  shelf due [--json]
-  shelf due --all [--json]
-  shelf validate [--json]
-  shelf validate --all [--json]
-  shelf review [--json]
-  shelf review --all [--json]
-  shelf doctor [--json]
-  shelf status [--json]
-  shelf status --all [--json]
-  shelf cleanup --dry-run [--json]
-  shelf cleanup --dry-run --all [--json]
-  shelf cleanup --execute --plan-id <id> [--json]
-  shelf trash list [--all] [--ledger <path>] [--json]
-  shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
-  shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
-  shelf resolve <id> --status resolved --reason <text> [--json]
+  artshelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review)
+  artshelf ledgers list [--plain] [--json]
+  artshelf ledgers add --ledger <path> [--name <name>] [--json]
+  artshelf list [--json]
+  artshelf list --all [--json]
+  artshelf list --status active [--json]
+  artshelf find --path <path> [--json]
+  artshelf find --all --owner <name> [--json]
+  artshelf get <id> [--json]
+  artshelf get <id> --all [--json]
+  artshelf due [--json]
+  artshelf due --all [--json]
+  artshelf validate [--json]
+  artshelf validate --all [--json]
+  artshelf review [--json]
+  artshelf review --all [--json]
+  artshelf doctor [--json]
+  artshelf status [--json]
+  artshelf status --all [--json]
+  artshelf cleanup --dry-run [--json]
+  artshelf cleanup --dry-run --all [--json]
+  artshelf cleanup --execute --plan-id <id> [--json]
+  artshelf trash list [--all] [--ledger <path>] [--json]
+  artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
+  artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
+  artshelf resolve <id> --status resolved --reason <text> [--json]
 
 Global options:
   --ledger <path>        Use an explicit JSONL ledger
@@ -1302,9 +1302,9 @@ Global options:
   --version              Show version
 
 Examples:
-  shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
-  shelf cleanup --dry-run --json
-  shelf cleanup --execute --plan-id plan_20260601_120000_ab12
+  artshelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
+  artshelf cleanup --dry-run --json
+  artshelf cleanup --execute --plan-id plan_20260601_120000_ab12
 `);
 }
 

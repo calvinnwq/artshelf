@@ -1,4 +1,4 @@
-# Shelf V1 Spec
+# Artshelf V1 Spec
 
 ## Problem
 
@@ -7,11 +7,11 @@ outputs, and quarantine folders during work. Those artifacts often have a clear
 reason when created, but that reason is lost later. Cleanup then becomes risky:
 we either keep everything forever or delete based on weak filesystem age.
 
-Shelf makes artifact creation accountable at the moment it happens.
+Artshelf makes artifact creation accountable at the moment it happens.
 
 ## One-Line Product Definition
 
-Shelf is a tiny CLI for putting temporary artifacts, backups, and run outputs
+Artshelf is a tiny CLI for putting temporary artifacts, backups, and run outputs
 somewhere accountable, with an expiry tag and a cleanup plan.
 
 ## Goals
@@ -36,12 +36,12 @@ somewhere accountable, with an expiry tag and a cleanup plan.
 
 ## V1 CLI
 
-### `shelf put`
+### `artshelf put`
 
 Records an existing file or directory in the ledger.
 
 ```bash
-shelf put <path> --reason "why this exists" --ttl 7d --kind scratch
+artshelf put <path> --reason "why this exists" --ttl 7d --kind scratch
 ```
 
 Required:
@@ -73,14 +73,14 @@ registers the ledger in the ledger registry. Registry registration is
 best-effort: if it fails, the record remains appended and output includes a
 registry warning or `registryError`.
 
-### `shelf ledgers`
+### `artshelf ledgers`
 
-Lists or registers known Shelf ledgers.
+Lists or registers known Artshelf ledgers.
 
 ```bash
-shelf ledgers list
-shelf ledgers list --plain
-shelf ledgers add --ledger <path> --name <project> --scope repo
+artshelf ledgers list
+artshelf ledgers list --plain
+artshelf ledgers add --ledger <path> --name <project> --scope repo
 ```
 
 Rules:
@@ -95,19 +95,19 @@ Rules:
   readable.
 - `add` requires an existing ledger path.
 - `--name` defaults from the ledger path when omitted.
-- `--scope` is optional; when omitted, Shelf infers `repo`, `user`, or
+- `--scope` is optional; when omitted, Artshelf infers `repo`, `user`, or
   `other` from the ledger path.
 
-### `shelf list`
+### `artshelf list`
 
 Shows ledger entries in a human-readable format.
 
 ```bash
-shelf list
-shelf list --json
-shelf list --status active
-shelf list --status resolved --json
-shelf list --all --status active --json
+artshelf list
+artshelf list --json
+artshelf list --status active
+artshelf list --status resolved --json
+artshelf list --all --status active --json
 ```
 
 `--status` filters the audit trail to one record status:
@@ -122,15 +122,15 @@ shelf list --all --status active --json
 validate registered ledgers first and report stale or invalid entries before
 returning records.
 
-### `shelf find`
+### `artshelf find`
 
 Read-only ledger query for integrations that need idempotent artifact
 registration without parsing `list` output.
 
 ```bash
-shelf find --path <path> --json
-shelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id> --status active --json
-shelf find --all --owner <agent-or-runtime> --json
+artshelf find --path <path> --json
+artshelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id> --status active --json
+artshelf find --all --owner <agent-or-runtime> --json
 ```
 
 Accepted selectors:
@@ -144,29 +144,29 @@ Accepted selectors:
 deletes records. `--all` applies the same selector set to every registered
 ledger.
 
-### `shelf get`
+### `artshelf get`
 
-Read-only lookup of a single ledger record by Shelf id.
+Read-only lookup of a single ledger record by Artshelf id.
 
 ```bash
-shelf get <id>
-shelf get <id> --json
-shelf get <id> --all --json
+artshelf get <id>
+artshelf get <id> --json
+artshelf get <id> --all --json
 ```
 
 `get` is for audit and handoff follow-up. Missing ids are an error. `--all`
 searches registered ledgers until the id is found.
 
-### `shelf due`
+### `artshelf due`
 
 Shows entries whose retention has expired or that need manual review.
 Only `active` records participate in due classification; records already handled
 by cleanup execution remain visible through `list` and validation.
 
 ```bash
-shelf due
-shelf due --json
-shelf due --all --json
+artshelf due
+artshelf due --json
+artshelf due --all --json
 ```
 
 V1 due statuses:
@@ -178,14 +178,14 @@ V1 due statuses:
 
 `--all` classifies active entries across registered ledgers.
 
-### `shelf validate`
+### `artshelf validate`
 
 Checks ledger health without mutating files.
 
 ```bash
-shelf validate
-shelf validate --json
-shelf validate --all --json
+artshelf validate
+artshelf validate --json
+artshelf validate --all --json
 ```
 
 V1 validation checks:
@@ -205,14 +205,14 @@ V1 validation checks:
 `--all` validates registered ledgers and reports stale registry entries when a
 registered ledger is missing from disk.
 
-### `shelf review`
+### `artshelf review`
 
 Runs validation, due classification, and cleanup plan preview without mutating
 files or writing a plan.
 
 ```bash
-shelf review --json
-shelf review --all --json
+artshelf review --json
+artshelf review --all --json
 ```
 
 `review` is the compact report surface for scheduled checks. `--all` reads every
@@ -227,16 +227,16 @@ triage count and states the same next safe action (repair broken ledgers, dry-ru
 cleanup, inspect missing paths, or nothing to do). Review never writes a plan, so
 the next action always points at an explicit follow-up command.
 
-### `shelf doctor`
+### `artshelf doctor`
 
-Reports whether Shelf is healthy on the current machine without mutating
+Reports whether Artshelf is healthy on the current machine without mutating
 anything.
 
 ```bash
-shelf doctor
-shelf doctor --json
-shelf doctor --ledger <path>
-shelf doctor --registry <path>
+artshelf doctor
+artshelf doctor --json
+artshelf doctor --ledger <path>
+artshelf doctor --registry <path>
 ```
 
 Doctor reports:
@@ -252,19 +252,19 @@ Doctor reports:
 
 A healthy machine exits 0. A broken registry file or any stale or invalid
 registered ledger exits non-zero with actionable errors. Humans should run
-`shelf doctor` after install or when `--all` commands behave unexpectedly; agents
+`artshelf doctor` after install or when `--all` commands behave unexpectedly; agents
 may run it on a schedule to catch stale registry entries before relying on
 cleanup planning. Doctor never creates plans, receipts, or records.
 
-### `shelf status`
+### `artshelf status`
 
 The lightweight daily "what is going on?" view across ledgers.
 
 ```bash
-shelf status
-shelf status --json
-shelf status --all --json
-shelf status --all --registry <path> --json
+artshelf status
+artshelf status --json
+artshelf status --all --json
+artshelf status --all --registry <path> --json
 ```
 
 Status reports:
@@ -276,7 +276,7 @@ Status reports:
 - The pending cleanup count: how many entries a cleanup plan would currently
   contain, computed read-only without writing a plan.
 
-`shelf status --all --json` is suitable for cron and reporting, and the human
+`artshelf status --all --json` is suitable for cron and reporting, and the human
 output is short enough to paste into a chat. Status is strictly read-only: it
 never creates plans or receipts and never mutates records. A healthy machine
 exits 0. In `--all` mode, a broken registry or any stale or invalid registered
@@ -284,19 +284,19 @@ ledger exits non-zero. Due entries are normal operational state and do not chang
 the exit code. With single `--ledger`, a not-yet-created ledger reports empty
 counts.
 
-### `shelf cleanup --dry-run`
+### `artshelf cleanup --dry-run`
 
 Creates a cleanup plan when there are executable cleanup entries, but does not
 mutate artifacts. If there are no executable cleanup entries, dry-run reports
 `planId=not-created`, `planPath=null`, and does not write a plan file.
-If an existing plan has the same executable cleanup entries, Shelf reuses that
+If an existing plan has the same executable cleanup entries, Artshelf reuses that
 plan id, refreshes `generatedAt`, rewrites the same plan file, and refreshes the
-Shelf-owned plan artifact record instead of creating a duplicate plan.
+Artshelf-owned plan artifact record instead of creating a duplicate plan.
 
 ```bash
-shelf cleanup --dry-run
-shelf cleanup --dry-run --json
-shelf cleanup --dry-run --all --json
+artshelf cleanup --dry-run
+artshelf cleanup --dry-run --json
+artshelf cleanup --dry-run --all --json
 ```
 
 Written plans must include:
@@ -312,27 +312,27 @@ Written plans must include:
 cleanup entries, and only after every registered ledger validates. Global
 cleanup execution is refused.
 
-When a dry-run writes a cleanup plan, Shelf appends or refreshes a Shelf-owned
-ledger record for the plan file with `owner=shelf`, `kind=run-artifact`,
-`ttl=14d`, `cleanup=trash`, and labels including `shelf`, `cleanup-plan`, and the
+When a dry-run writes a cleanup plan, Artshelf appends or refreshes an Artshelf-owned
+ledger record for the plan file with `owner=artshelf`, `kind=run-artifact`,
+`ttl=14d`, `cleanup=trash`, and labels including `artshelf`, `cleanup-plan`, and the
 plan id.
 
-### `shelf cleanup --execute`
+### `artshelf cleanup --execute`
 
 Executes a previously generated cleanup plan.
 
 ```bash
-shelf cleanup --execute --plan-id <id>
-shelf cleanup --execute --plan-id <id> --json
+artshelf cleanup --execute --plan-id <id>
+artshelf cleanup --execute --plan-id <id> --json
 ```
 
 Rules:
 
 - Requires `--plan-id`.
 - Refuses to generate a fresh live cleanup set during execute.
-- Writes a cleanup receipt and appends or refreshes a Shelf-owned ledger record
-  for that receipt with `owner=shelf`, `kind=run-artifact`, `ttl=30d`,
-  `cleanup=review`, and labels including `shelf`, `cleanup-receipt`, and the
+- Writes a cleanup receipt and appends or refreshes an Artshelf-owned ledger record
+  for that receipt with `owner=artshelf`, `kind=run-artifact`, `ttl=30d`,
+  `cleanup=review`, and labels including `artshelf`, `cleanup-receipt`, and the
   plan id.
 - Updates touched ledger records so handled artifacts stop appearing as active
   cleanup candidates.
@@ -340,17 +340,17 @@ Rules:
 - `delete` is refused in v1: even when a ledger entry says `cleanup=delete`,
   execute records a `cleanup-refused` receipt (`delete is disabled in v1`) and
   never removes the file. Physical deletion is only available later through a
-  separately reviewed `shelf trash purge --execute` plan for quarantined trash.
+  separately reviewed `artshelf trash purge --execute` plan for quarantined trash.
 
-### `shelf trash list`
+### `artshelf trash list`
 
-Read-only listing of records that cleanup execution moved into Shelf trash
+Read-only listing of records that cleanup execution moved into Artshelf trash
 (`status=trashed`).
 
 ```bash
-shelf trash list
-shelf trash list --ledger <path> --json
-shelf trash list --all --json
+artshelf trash list
+artshelf trash list --ledger <path> --json
+artshelf trash list --all --json
 ```
 
 Rules:
@@ -361,15 +361,15 @@ Rules:
 - `--all` reads every registered ledger through the registry and validates those
   ledgers first, the same way `list --all` and `review --all` do.
 
-### `shelf trash purge`
+### `artshelf trash purge`
 
 Approval-first physical deletion of quarantined trash. Trashed artifacts stay in
-Shelf trash until a separately reviewed purge plan removes them, mirroring the
+Artshelf trash until a separately reviewed purge plan removes them, mirroring the
 cleanup dry-run/execute boundary.
 
 ```bash
-shelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
-shelf trash purge --execute --plan-id <id> --ledger <path> --json
+artshelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
+artshelf trash purge --execute --plan-id <id> --ledger <path> --json
 ```
 
 Rules:
@@ -380,8 +380,8 @@ Rules:
   that looks like an executable reviewed plan.
 - `--dry-run` builds an age-based purge plan from records whose `cleanedAt` is
   older than `--older-than`, writes it to `<ledger-dir>/purge-plans/<id>.json`,
-  and registers a Shelf-owned plan record (`ttl=14d`, `cleanup=review`, labels
-  including `shelf`, `trash-purge-plan`, and the purge plan id). No-op dry-runs
+  and registers an Artshelf-owned plan record (`ttl=14d`, `cleanup=review`, labels
+  including `artshelf`, `trash-purge-plan`, and the purge plan id). No-op dry-runs
   report `not-created` and write no plan file.
 - The purge plan records `purgePlanId`, `generatedAt`, `ledgerPath`,
   `olderThan`, and the computed `cutoff`. Each executable entry includes
@@ -392,7 +392,7 @@ Rules:
   already completed receipt. It physically removes each planned trash target,
   skipping entries whose record is missing, is no longer `trashed`, or whose
   target is already gone. Before removal it also re-checks that the plan entry
-  still matches the live ledger record and that the target remains inside Shelf's
+  still matches the live ledger record and that the target remains inside Artshelf's
   ledger-local trash directory for that cleanup plan.
 - Writes a `started` purge receipt to `<ledger-dir>/purge-receipts/<id>.json`
   before deletion, records `pending` and `deleting` result states during the run,
@@ -401,19 +401,19 @@ Rules:
   results and reconciles a `deleting` entry whose target is already gone as
   `purged`.
 - Registers the completed receipt (`ttl=30d`, `cleanup=review`, labels including
-  `shelf`, `trash-purge-receipt`, and the purge plan id) so the final deletion
+  `artshelf`, `trash-purge-receipt`, and the purge plan id) so the final deletion
   stays auditable.
 - Marks purged records `resolved` with `purgedAt`, `purgePlanId`, and
   `purgeReceiptPath`, so they no longer reappear as trashed.
 
-### `shelf resolve`
+### `artshelf resolve`
 
 Marks a handled, missing, or no-longer-needed record as manually resolved while
 keeping it in the ledger audit trail.
 
 ```bash
-shelf resolve <id> --status resolved --reason <text>
-shelf resolve <id> --status resolved --reason <text> --json
+artshelf resolve <id> --status resolved --reason <text>
+artshelf resolve <id> --status resolved --reason <text> --json
 ```
 
 Rules:
@@ -440,7 +440,7 @@ Default behavior:
 V1 also supports a user-level registry of known ledgers:
 
 - registry: `~/.shelf/ledgers.json`
-- `SHELF_REGISTRY` or `--registry <path>` can override the registry path.
+- `ARTSHELF_REGISTRY` or `--registry <path>` can override the registry path.
 - `put` registers the ledger it writes to.
 - `ledgers add` registers an existing ledger explicitly.
 - `--all` reads registered ledgers as one review surface.
@@ -491,7 +491,7 @@ V1 record statuses:
 
 - `active`: eligible for `due` classification and cleanup dry-run planning.
 - `review-required`: execution surfaced the artifact for manual review.
-- `trashed`: execution moved a `cleanup=trash` artifact into Shelf trash.
+- `trashed`: execution moved a `cleanup=trash` artifact into Artshelf trash.
 - `cleanup-refused`: execution refused the requested action, such as physical
   delete in v1.
 - `resolved`: a human or agent marked the record as manually handled.
@@ -517,7 +517,7 @@ Manually resolved records include:
 }
 ```
 
-Records removed by `shelf trash purge --execute` become `resolved` and also carry
+Records removed by `artshelf trash purge --execute` become `resolved` and also carry
 the purge provenance:
 
 ```json
@@ -536,11 +536,11 @@ Cleanup execution is intentionally boring and approval-only. Five boundaries
 hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
 ...) must preserve them rather than add a shortcut around them:
 
-- **No daemon.** Shelf never runs in the background or watches the clock. It
-  only does work while you are running a `shelf` command.
+- **No daemon.** Artshelf never runs in the background or watches the clock. It
+  only does work while you are running a `artshelf` command.
 - **No auto-execute.** No command cleans up as a side effect. The only commands
-  that move, trash, or delete files are `shelf cleanup --execute` and
-  `shelf trash purge --execute`, each run by a human against a separately
+  that move, trash, or delete files are `artshelf cleanup --execute` and
+  `artshelf trash purge --execute`, each run by a human against a separately
   reviewed plan id.
 - **No global execute.** `cleanup --execute --all` and `trash purge --all`
   are refused; `--all` is read-only or dry-run reporting only. Execution is
@@ -550,7 +550,7 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
   produced and a human reviewed; it will not plan and execute in one step.
 - **No silent deletion.** Cleanup trashes or flags for review and writes a
   receipt to the ledger. The `cleanup=delete` action stays refused in v1; the
-  one sanctioned physical deletion is `shelf trash purge --execute`, which only
+  one sanctioned physical deletion is `artshelf trash purge --execute`, which only
   removes already-quarantined trash through its own reviewed purge plan and
   receipt. Nothing leaves the filesystem without an auditable trail.
 
@@ -571,7 +571,7 @@ Operational rules that back those boundaries:
 
 ## Agent Usage Contract
 
-Agents should call `shelf put` immediately after creating:
+Agents should call `artshelf put` immediately after creating:
 
 - config backups
 - quarantine folders
@@ -580,15 +580,15 @@ Agents should call `shelf put` immediately after creating:
 - one-off generated reports
 - copied files kept for rollback
 
-Agents should not run `shelf cleanup --execute` or
-`shelf trash purge --execute` without explicit approval naming the ledger path
+Agents should not run `artshelf cleanup --execute` or
+`artshelf trash purge --execute` without explicit approval naming the ledger path
 and reviewed plan id.
 
-Agents may run `shelf find` and `shelf get` before `put` to avoid duplicate
+Agents may run `artshelf find` and `artshelf get` before `put` to avoid duplicate
 registrations. `find`/`get` are read-only ledger queries; they must not be used
 as permission to clean up or resolve a record.
 
-Agents may run `shelf resolve <id> --status resolved --reason <text>` only
+Agents may run `artshelf resolve <id> --status resolved --reason <text>` only
 after explicit confirmation that the record has been handled, is missing, or is
 no longer needed. The reason must be specific; resolve does not move or delete
 files.
@@ -596,29 +596,29 @@ files.
 Scheduled jobs may run:
 
 ```bash
-shelf due --json
-shelf due --all --json
-shelf review --all --json
-shelf doctor --json
-shelf status --all --json
-shelf cleanup --dry-run --json
-shelf cleanup --dry-run --all --json
-shelf trash list --ledger <path> --json
-shelf trash list --all --json
-shelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
+artshelf due --json
+artshelf due --all --json
+artshelf review --all --json
+artshelf doctor --json
+artshelf status --all --json
+artshelf cleanup --dry-run --json
+artshelf cleanup --dry-run --all --json
+artshelf trash list --ledger <path> --json
+artshelf trash list --all --json
+artshelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
 ```
 
-`shelf review --all --json` is the read-only all-ledger triage surface;
+`artshelf review --all --json` is the read-only all-ledger triage surface;
 scheduled reports should include its aggregate `summary` and `nextAction` when
 whole-machine review is needed.
 
-Scheduled trash reports may use `shelf trash list --all --json` for
+Scheduled trash reports may use `artshelf trash list --all --json` for
 registered-ledger discovery and should include trashed record counts and target
 ages. Purge dry-runs stay scoped to one explicit ledger and should report any
 plan id, matching entries, and skipped entries.
 
-Scheduled jobs must never run `shelf cleanup --execute` or
-`shelf trash purge --execute`; they may only dry-run and report plans for later
+Scheduled jobs must never run `artshelf cleanup --execute` or
+`artshelf trash purge --execute`; they may only dry-run and report plans for later
 human review.
 
 ## Dogfood Scenarios
@@ -643,14 +643,14 @@ human review.
 - CLI can find existing records by path/owner/label/status and get records by id.
 - CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
-- CLI reports machine and registry health through `shelf doctor`, exiting
+- CLI reports machine and registry health through `artshelf doctor`, exiting
   non-zero when the registry or a registered ledger is broken.
-- CLI reports a read-only daily dashboard through `shelf status`, with
+- CLI reports a read-only daily dashboard through `artshelf status`, with
   `--all --json` suitable for cron and human output short enough to paste into
   a chat; status never creates plans, receipts, or records.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
-- Cleanup dry-run and execute register the plan/receipt artifacts that Shelf
+- Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf
   creates.
 - Cleanup execute refuses to run without a plan id.
 - Cleanup execute writes a receipt.
@@ -659,7 +659,7 @@ human review.
   receipt; purge refuses `--all` and never deletes without a reviewed plan id.
 - All core commands support `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
-  `shelf doctor`, the `shelf status` dashboard, `--all` review, stale-registry,
+  `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, and trash list/purge behavior.
 
 ## Deferred

@@ -1,4 +1,4 @@
-export type ShelfKind =
+export type ArtshelfKind =
   | "scratch"
   | "backup"
   | "run-artifact"
@@ -8,16 +8,16 @@ export type ShelfKind =
   | "other";
 
 export type CleanupAction = "trash" | "review" | "delete";
-export type ShelfStatus = "active" | "review-required" | "trashed" | "cleanup-refused" | "resolved";
+export type ArtshelfStatus = "active" | "review-required" | "trashed" | "cleanup-refused" | "resolved";
 export type Retention =
   | { mode: "ttl"; ttl: string }
   | { mode: "retain-until"; retainUntil: string }
   | { mode: "manual-review" };
 
-export type ShelfRecord = {
+export type ArtshelfRecord = {
   id: string;
   path: string;
-  kind: ShelfKind;
+  kind: ArtshelfKind;
   reason: string;
   createdAt: string;
   retainUntil?: string;
@@ -25,7 +25,7 @@ export type ShelfRecord = {
   cleanup: CleanupAction;
   owner: string;
   labels: string[];
-  status: ShelfStatus;
+  status: ArtshelfStatus;
   cleanupPlanId?: string;
   receiptPath?: string;
   cleanedAt?: string;

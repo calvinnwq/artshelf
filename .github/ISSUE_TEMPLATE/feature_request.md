@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Suggest a small Shelf improvement
+about: Suggest a small Artshelf improvement
 labels: enhancement
 ---
 
