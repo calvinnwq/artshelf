@@ -197,7 +197,10 @@ V1 validation checks:
 - TTL/retain-until/manual-review is valid
 - cleanup action is known
 - resolved records include `resolvedAt` and `resolutionReason`
+- handled cleanup records include required cleanup metadata (`cleanupPlanId`,
+  `receiptPath`, and `cleanedAt`; trashed records also require `targetPath`)
 - active and review-required recorded paths still exist, reported as warnings not hard failures
+- trashed `targetPath` values still exist, reported as warnings not hard failures
 
 `--all` validates registered ledgers and reports stale registry entries when a
 registered ledger is missing from disk.
