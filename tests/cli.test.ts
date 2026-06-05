@@ -116,6 +116,40 @@ test("put appends JSONL and list emits human and JSON output", () => {
   assert.equal(JSON.parse(artshelf(["list", "--status", "resolved", "--ledger", ledgerPath(fixture), "--json"]).stdout).entries.length, 0);
 });
 
+test("default storage paths use Artshelf names", () => {
+  const fixture = fixtureDir();
+  const home = join(fixture, "home");
+  const repo = join(fixture, "repo");
+  const artifact = join(repo, "artifact.txt");
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  mkdirSync(home, { recursive: true });
+  writeFileSync(artifact, "hello");
+  const env: Record<string, string | undefined> = { ...process.env, HOME: home, ARTSHELF_NOW: "2026-06-01T00:00:00Z" };
+  delete env.ARTSHELF_REGISTRY;
+  delete env.SHELF_REGISTRY;
+
+  const result = spawnSync(process.execPath, [
+    CLI.pathname,
+    "put",
+    artifact,
+    "--reason",
+    "default path smoke",
+    "--ttl",
+    "1d",
+    "--json"
+  ], {
+    cwd: repo,
+    encoding: "utf8",
+    env
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ledger.path, join(repo, ".artshelf", "ledger.jsonl"));
+  const registryPath = join(home, ".artshelf", "ledgers.json");
+  const registry = JSON.parse(readFileSync(registryPath, "utf8"));
+  assert.equal(registry.ledgers[0].path, join(repo, ".artshelf", "ledger.jsonl"));
+});
+
 test("find and get provide read-only idempotency queries", () => {
   const fixture = fixtureDir();
   const artifact = join(fixture, "artifact.txt");
@@ -196,8 +230,8 @@ test("find and get provide read-only idempotency queries", () => {
 test("ledger registry gives one read-only entry point across ledgers", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const firstLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
-  const secondLedger = join(fixture, "two", ".shelf", "ledger.jsonl");
+  const firstLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+  const secondLedger = join(fixture, "two", ".artshelf", "ledger.jsonl");
   const firstArtifact = join(fixture, "first.txt");
   const secondArtifact = join(fixture, "second.txt");
   writeFileSync(firstArtifact, "first");
@@ -222,7 +256,7 @@ test("ledger registry gives one read-only entry point across ledgers", () => {
   ], "2026-06-01T00:00:00Z").stdout);
   assert.equal(put.ledger.path, firstLedger);
 
-  mkdirSync(join(fixture, "two", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "two", ".artshelf"), { recursive: true });
   writeFileSync(secondLedger, "");
   const add = JSON.parse(artshelf([
     "ledgers",
@@ -337,7 +371,7 @@ test("put records the artifact when registry update fails", () => {
 test("ledgers add requires an existing ledger path", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const missing = join(fixture, "missing", ".shelf", "ledger.jsonl");
+  const missing = join(fixture, "missing", ".artshelf", "ledger.jsonl");
 
   const result = artshelf(["ledgers", "add", "--ledger", missing, "--registry", registry]);
   assert.equal(result.status, 1);
@@ -348,8 +382,8 @@ test("ledgers add requires an existing ledger path", () => {
 test("ledgers add falls back from blank names to inferred names", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
-  mkdirSync(join(fixture, "repo", ".shelf"), { recursive: true });
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "repo", ".artshelf"), { recursive: true });
   writeFileSync(ledger, "");
 
   const result = artshelf(["ledgers", "add", "--ledger", ledger, "--name", "   ", "--registry", registry, "--json"]);
@@ -363,18 +397,18 @@ test("ledgers add falls back from blank names to inferred names", () => {
 test("ledgers list --json reports validation status so agents detect stale entries without a separate validate pass", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
-  const staleLedger = join(fixture, "stale", ".shelf", "ledger.jsonl");
-  const brokenLedger = join(fixture, "broken", ".shelf", "ledger.jsonl");
+  const goodLedger = join(fixture, "good", ".artshelf", "ledger.jsonl");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  const brokenLedger = join(fixture, "broken", ".artshelf", "ledger.jsonl");
   const artifact = join(fixture, "artifact.txt");
   writeFileSync(artifact, "hello");
 
   artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", goodLedger, "--registry", registry], "2026-06-01T00:00:00Z");
-  mkdirSync(join(fixture, "stale", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
   writeFileSync(staleLedger, "");
   artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
   rmSync(staleLedger);
-  mkdirSync(join(fixture, "broken", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "broken", ".artshelf"), { recursive: true });
   writeFileSync(brokenLedger, "{not json\n");
   artshelf(["ledgers", "add", "--ledger", brokenLedger, "--name", "broken", "--registry", registry]);
 
@@ -422,13 +456,13 @@ test("ledgers list --json reports validation status so agents detect stale entri
 test("ledgers list human output calls out broken ledgers directly", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
-  const staleLedger = join(fixture, "stale", ".shelf", "ledger.jsonl");
+  const goodLedger = join(fixture, "good", ".artshelf", "ledger.jsonl");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
   const artifact = join(fixture, "artifact.txt");
   writeFileSync(artifact, "hello");
 
   artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", goodLedger, "--registry", registry], "2026-06-01T00:00:00Z");
-  mkdirSync(join(fixture, "stale", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
   writeFileSync(staleLedger, "");
   artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
   rmSync(staleLedger);
@@ -445,13 +479,13 @@ test("ledgers list human output calls out broken ledgers directly", () => {
 test("ledgers list --plain preserves the fast plain listing path", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
-  const staleLedger = join(fixture, "stale", ".shelf", "ledger.jsonl");
+  const goodLedger = join(fixture, "good", ".artshelf", "ledger.jsonl");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
   const artifact = join(fixture, "artifact.txt");
   writeFileSync(artifact, "hello");
 
   artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", goodLedger, "--registry", registry], "2026-06-01T00:00:00Z");
-  mkdirSync(join(fixture, "stale", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
   writeFileSync(staleLedger, "");
   artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
   rmSync(staleLedger);
@@ -468,15 +502,15 @@ test("ledgers list --plain preserves the fast plain listing path", () => {
   const human = artshelf(["ledgers", "list", "--plain", "--registry", registry]);
   assert.equal(human.status, 0, human.stderr);
   assert.doesNotMatch(human.stdout, /needs attention/);
-  assert.match(human.stdout, /good repo .*\.shelf/);
+  assert.match(human.stdout, /good repo .*\.artshelf/);
   assert.match(human.stdout, /registry:/);
 });
 
 test("review reports invalid registered ledgers without aborting", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
-  const badLedger = join(fixture, "bad", ".shelf", "ledger.jsonl");
+  const goodLedger = join(fixture, "good", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
   const artifact = join(fixture, "artifact.txt");
   writeFileSync(artifact, "hello");
 
@@ -492,7 +526,7 @@ test("review reports invalid registered ledgers without aborting", () => {
     "--registry",
     registry
   ]);
-  mkdirSync(join(fixture, "bad", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
   writeFileSync(badLedger, "{not json\n");
   artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
 
@@ -512,8 +546,8 @@ test("review reports invalid registered ledgers without aborting", () => {
 test("registered ledgers missing from disk are reported as stale registry entries", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
-  mkdirSync(join(fixture, "repo", ".shelf"), { recursive: true });
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "repo", ".artshelf"), { recursive: true });
   writeFileSync(ledger, "");
   artshelf(["ledgers", "add", "--ledger", ledger, "--registry", registry]);
   rmSync(ledger);
@@ -559,8 +593,8 @@ test("single ledger review treats a missing ledger as empty", () => {
 test("review --all --json summarizes triage counts while preserving per-ledger detail", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const oneLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
-  const twoLedger = join(fixture, "two", ".shelf", "ledger.jsonl");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+  const twoLedger = join(fixture, "two", ".artshelf", "ledger.jsonl");
   const dueArtifact = join(fixture, "due.txt");
   const reviewArtifact = join(fixture, "review.txt");
   const keptArtifact = join(fixture, "kept.txt");
@@ -609,8 +643,8 @@ test("review --all --json summarizes triage counts while preserving per-ledger d
 test("review --all human output states the next safe action", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const oneLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
-  const twoLedger = join(fixture, "two", ".shelf", "ledger.jsonl");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+  const twoLedger = join(fixture, "two", ".artshelf", "ledger.jsonl");
   const dueArtifact = join(fixture, "due.txt");
   const reviewArtifact = join(fixture, "review.txt");
   writeFileSync(dueArtifact, "due");
@@ -632,7 +666,7 @@ test("review --all human output states the next safe action", () => {
 test("review --all is read-only and never writes cleanup plans", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const oneLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
   const dueArtifact = join(fixture, "due.txt");
   writeFileSync(dueArtifact, "due");
 
@@ -646,7 +680,7 @@ test("review --all is read-only and never writes cleanup plans", () => {
   assert.equal(body.ledgers[0].plan.entries.length, 1);
 
   // Read-only proof: the computed plan path is never written, and the ledger is untouched.
-  assert.equal(existsSync(join(fixture, "one", ".shelf", "plans")), false);
+  assert.equal(existsSync(join(fixture, "one", ".artshelf", "plans")), false);
   assert.equal(existsSync(body.ledgers[0].plan.planPath), false);
   assert.equal(readFileSync(oneLedger, "utf8"), before);
 });
@@ -654,7 +688,7 @@ test("review --all is read-only and never writes cleanup plans", () => {
 test("review --all reports all clear and nothing to do when no ledger needs attention", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const oneLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
   const keptArtifact = join(fixture, "kept.txt");
   writeFileSync(keptArtifact, "kept");
 
@@ -682,8 +716,8 @@ test("review --all reports all clear and nothing to do when no ledger needs atte
 test("cleanup all refuses invalid ledgers before writing any plans", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const goodLedger = join(fixture, "good", ".shelf", "ledger.jsonl");
-  const badLedger = join(fixture, "bad", ".shelf", "ledger.jsonl");
+  const goodLedger = join(fixture, "good", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
   const artifact = join(fixture, "artifact.txt");
   writeFileSync(artifact, "hello");
   artshelf([
@@ -698,7 +732,7 @@ test("cleanup all refuses invalid ledgers before writing any plans", () => {
     "--registry",
     registry
   ], "2026-06-01T00:00:00Z");
-  mkdirSync(join(fixture, "bad", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
   writeFileSync(badLedger, "{not json\n");
   artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
 
@@ -706,7 +740,7 @@ test("cleanup all refuses invalid ledgers before writing any plans", () => {
   assert.equal(result.status, 1);
   const body = JSON.parse(result.stdout);
   assert.equal(body.ok, false);
-  assert.equal(existsSync(join(fixture, "good", ".shelf", "plans")), false);
+  assert.equal(existsSync(join(fixture, "good", ".artshelf", "plans")), false);
 });
 
 test("registry preserves concurrent ledger registrations", async () => {
@@ -723,7 +757,7 @@ test("registry preserves concurrent ledger registrations", async () => {
       "--ttl",
       "1d",
       "--ledger",
-      join(fixture, `repo-${index}`, ".shelf", "ledger.jsonl"),
+      join(fixture, `repo-${index}`, ".artshelf", "ledger.jsonl"),
       "--registry",
       registry,
       "--json"
@@ -766,7 +800,7 @@ test("due classifies kept, due, manual review, and missing paths", () => {
 test("validate reports shape errors and missing paths as warnings", () => {
   const fixture = fixtureDir();
   const ledger = ledgerPath(fixture);
-  mkdirSync(join(fixture, ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, ".artshelf"), { recursive: true });
   writeFileSync(ledger, JSON.stringify({
     id: "shf_test",
     path: join(fixture, "missing.txt"),
@@ -857,7 +891,7 @@ test("cleanup dry-run creates a plan and execute requires a plan id", () => {
   assert.equal(followupPlan.planPath, null);
   assert.equal(followupPlan.entries.length, 0);
   assert.equal(followupPlan.skipped.length, 2);
-  assert.equal(existsSync(join(fixture, ".shelf", "plans", "not-created.json")), false);
+  assert.equal(existsSync(join(fixture, ".artshelf", "plans", "not-created.json")), false);
   assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
 });
 
@@ -1370,7 +1404,7 @@ test("trash purge dry-run reports not-created when no trashed entries match", ()
   const human = artshelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger], "2026-06-01T00:05:00Z");
   assert.equal(human.status, 0);
   assert.match(human.stdout, /no matching trashed records/);
-  assert.equal(existsSync(join(fixture, ".shelf", "purge-plans")), false);
+  assert.equal(existsSync(join(fixture, ".artshelf", "purge-plans")), false);
 });
 
 test("list filters by status after cleanup state changes", () => {
@@ -1406,7 +1440,7 @@ test("cleanup dry-run does not write a plan when there are no cleanup entries", 
   assert.equal(plan.planPath, null);
   assert.equal(plan.entries.length, 0);
   assert.equal(plan.skipped.length, 1);
-  assert.equal(existsSync(join(fixture, ".shelf", "plans")), false);
+  assert.equal(existsSync(join(fixture, ".artshelf", "plans")), false);
   assert.equal(readLedger(ledger).length, 1);
 
   const human = artshelf(["cleanup", "--dry-run", "--ledger", ledger], "2026-06-02T00:00:00Z");
@@ -1466,7 +1500,7 @@ test("doctor reports a healthy machine and exits zero", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
   const artifact = join(fixture, "artifact.txt");
-  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
   writeFileSync(artifact, "hello");
   artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
 
@@ -1494,8 +1528,8 @@ test("doctor reports a healthy machine and exits zero", () => {
 test("doctor reports stale registered ledgers and exits non-zero", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
-  mkdirSync(join(fixture, "repo", ".shelf"), { recursive: true });
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "repo", ".artshelf"), { recursive: true });
   writeFileSync(ledger, "");
   artshelf(["ledgers", "add", "--ledger", ledger, "--registry", registry]);
   rmSync(ledger);
@@ -1516,8 +1550,8 @@ test("doctor reports stale registered ledgers and exits non-zero", () => {
 test("doctor reports invalid registered ledgers and exits non-zero", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const ledger = join(fixture, "bad", ".shelf", "ledger.jsonl");
-  mkdirSync(join(fixture, "bad", ".shelf"), { recursive: true });
+  const ledger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
   writeFileSync(ledger, "{not json\n");
   artshelf(["ledgers", "add", "--ledger", ledger, "--name", "bad", "--registry", registry]);
 
@@ -1562,7 +1596,7 @@ test("doctor human output summarizes health and cleanup safety", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
   const artifact = join(fixture, "artifact.txt");
-  const ledger = join(fixture, "repo", ".shelf", "ledger.jsonl");
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
   writeFileSync(artifact, "hello");
   artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
 
@@ -1588,8 +1622,8 @@ test("doctor help explains the command", () => {
 test("status --all --json aggregates registry health and ledger counts for cron", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const oneLedger = join(fixture, "one", ".shelf", "ledger.jsonl");
-  const twoLedger = join(fixture, "two", ".shelf", "ledger.jsonl");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+  const twoLedger = join(fixture, "two", ".artshelf", "ledger.jsonl");
   const dueArtifact = join(fixture, "due.txt");
   const reviewArtifact = join(fixture, "review.txt");
   const keptArtifact = join(fixture, "kept.txt");
@@ -1667,8 +1701,8 @@ test("status reports a single ledger's counts and never mutates state", () => {
   assert.equal(body.ledger.counts.pendingCleanup, 2);
 
   assert.equal(readFileSync(ledger, "utf8"), before);
-  assert.equal(existsSync(join(fixture, ".shelf", "plans")), false);
-  assert.equal(existsSync(join(fixture, ".shelf", "receipts")), false);
+  assert.equal(existsSync(join(fixture, ".artshelf", "plans")), false);
+  assert.equal(existsSync(join(fixture, ".artshelf", "receipts")), false);
 });
 
 test("status --all reports a corrupt registry as non-zero without crashing", () => {
@@ -1687,13 +1721,13 @@ test("status --all reports a corrupt registry as non-zero without crashing", () 
 test("status --all flags stale and invalid registered ledgers as non-zero", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
-  const staleLedger = join(fixture, "stale", ".shelf", "ledger.jsonl");
-  const badLedger = join(fixture, "bad", ".shelf", "ledger.jsonl");
-  mkdirSync(join(fixture, "stale", ".shelf"), { recursive: true });
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
   writeFileSync(staleLedger, "");
   artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
   rmSync(staleLedger);
-  mkdirSync(join(fixture, "bad", ".shelf"), { recursive: true });
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
   writeFileSync(badLedger, "{not json\n");
   artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
 
@@ -1801,7 +1835,7 @@ function fixtureDir(): string {
 }
 
 function ledgerPath(fixture: string): string {
-  return join(fixture, ".shelf", "ledger.jsonl");
+  return join(fixture, ".artshelf", "ledger.jsonl");
 }
 
 function escapeRegExp(value: string): string {

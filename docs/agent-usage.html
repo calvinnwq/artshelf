@@ -143,16 +143,22 @@ artshelf get &lt;id&gt; --json</code></pre>
             <section>
               <h2>Ledger Registry</h2>
               <p>
-                Artshelf keeps a user-level registry at `~/.shelf/ledgers.json` so one CLI can
+                Artshelf keeps a user-level registry at `~/.artshelf/ledgers.json` so one CLI can
                 review all known ledgers without moving project records into one global file.
                 <code>put</code> registers the ledger it writes to.
               </p>
-              <pre><code>artshelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
+              <pre><code>artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;project&gt; --scope repo
 artshelf ledgers list --json
 artshelf review --all --json
 artshelf status --all --json
 artshelf find --all --owner &lt;agent-or-runtime&gt; --json
 artshelf trash list --all --json</code></pre>
+              <p>
+                Renamed installs before <code>0.5.0</code> used <code>.shelf</code> paths. For migration,
+                copy the old ledger directories into <code>.artshelf</code>, rewrite registry entries,
+                validate the new registry, and keep the <code>.shelf</code> copies until rollback is no
+                longer needed.
+              </p>
               <p>
                 <code>artshelf ledgers list --json</code> validates each registered ledger and reports
                 ok/missing/invalid status with entry and warning/error counts, so agents can detect

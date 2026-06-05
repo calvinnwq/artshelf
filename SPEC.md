@@ -428,8 +428,8 @@ Rules:
 
 V1 supports two scopes:
 
-- repo-local: `.shelf/ledger.jsonl`
-- user-global: `~/.shelf/ledger.jsonl`
+- repo-local: `.artshelf/ledger.jsonl`
+- user-global: `~/.artshelf/ledger.jsonl`
 
 Default behavior:
 
@@ -439,10 +439,14 @@ Default behavior:
 
 V1 also supports a user-level registry of known ledgers:
 
-- registry: `~/.shelf/ledgers.json`
+- registry: `~/.artshelf/ledgers.json`
 - `--registry <path>` overrides the registry path. Without it,
   `ARTSHELF_REGISTRY` is read first, then legacy `SHELF_REGISTRY`, then the
   default registry path.
+- Legacy `.shelf` ledgers are not deleted or moved automatically. Migration is
+  copy-first: copy ledger directories to `.artshelf`, rewrite registry entries,
+  validate the new registry, and retain the old `.shelf` directories for
+  rollback until the new paths are proven quiet.
 - Retention and due calculations use wall-clock time by default. `ARTSHELF_NOW`
   overrides it for tests and controlled runs; legacy `SHELF_NOW` is read only
   when `ARTSHELF_NOW` is unset.
@@ -462,7 +466,7 @@ V1 also supports a user-level registry of known ledgers:
   "ledgers": [
     {
       "name": "my-repo",
-      "path": "/absolute/path/to/repo/.shelf/ledger.jsonl",
+      "path": "/absolute/path/to/repo/.artshelf/ledger.jsonl",
       "scope": "repo",
       "createdAt": "2026-06-01T05:42:00Z",
       "updatedAt": "2026-06-01T05:42:00Z"
@@ -506,9 +510,9 @@ Handled records may include cleanup outcome fields:
 ```json
 {
   "cleanupPlanId": "plan_20260601_154200_cd34",
-  "receiptPath": "/absolute/path/.shelf/receipts/plan_20260601_154200_cd34.json",
+  "receiptPath": "/absolute/path/.artshelf/receipts/plan_20260601_154200_cd34.json",
   "cleanedAt": "2026-06-01T05:45:00Z",
-  "targetPath": "/absolute/path/.shelf/trash/plan_20260601_154200_cd34/shf_20260601_154200_ab12-artifact",
+  "targetPath": "/absolute/path/.artshelf/trash/plan_20260601_154200_cd34/shf_20260601_154200_ab12-artifact",
   "cleanupReason": "delete is disabled in v1"
 }
 ```
@@ -531,7 +535,7 @@ the purge provenance:
   "resolutionReason": "trash purge completed",
   "purgedAt": "2026-06-01T06:10:00Z",
   "purgePlanId": "purge_20260601_061000_ef56",
-  "purgeReceiptPath": "/absolute/path/.shelf/purge-receipts/purge_20260601_061000_ef56.json"
+  "purgeReceiptPath": "/absolute/path/.artshelf/purge-receipts/purge_20260601_061000_ef56.json"
 }
 ```
 
