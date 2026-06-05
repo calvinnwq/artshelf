@@ -256,15 +256,19 @@ shelf review --all --json</code></pre>
               <pre><code>shelf doctor --json
 shelf status --all --json</code></pre>
               <p>
-                Scheduled cleanup dry-run may write plan files for later review when cleanup entries
-                exist, but must not move or delete files. Matching dry-runs reuse the existing plan
-                id and refresh the plan timestamp.
+                Scheduled cleanup and trash purge dry-runs may write plan files for later review
+                when entries exist, but must not move or delete files. Matching cleanup dry-runs
+                reuse the existing plan id and refresh the plan timestamp.
               </p>
               <pre><code>shelf cleanup --dry-run --json
-shelf cleanup --dry-run --all --json</code></pre>
+shelf cleanup --dry-run --all --json
+shelf trash list --ledger &lt;ledger-path&gt; --json
+shelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json</code></pre>
               <p>
                 Reports should include the ledger path, due/manual-review/missing-path counts,
                 cleanup dry-run plan id, executable entries, skipped entries, and refused entries.
+                Trash reports should include the trashed record count, target ages, and any purge
+                dry-run plan id, matching entries, and skipped entries.
                 Stay quiet when nothing needs attention unless a regular summary was requested.
               </p>
               <div class="note">

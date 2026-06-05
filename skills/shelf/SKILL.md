@@ -277,6 +277,8 @@ shelf validate --json
 shelf due --json
 shelf review --all --json
 shelf cleanup --dry-run --json
+shelf trash list --ledger <ledger-path> --json
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
 
 Read-only health and dashboard checks are also safe to schedule. Run
@@ -291,8 +293,9 @@ shelf status --all --json
 
 The report should include the ledger path, due/manual-review/missing-path counts,
 cleanup dry-run plan id, executable entries, skipped entries, and refused
-entries. Stay quiet when nothing needs attention unless a regular summary was
-requested.
+entries. When reporting trash, include the trashed record count, target ages, and
+any purge dry-run plan id, matching entries, and skipped entries. Stay quiet when
+nothing needs attention unless a regular summary was requested.
 
 Repeated dry-runs with the same executable cleanup entries reuse the existing
 plan id and refresh that plan file's timestamp instead of creating duplicate

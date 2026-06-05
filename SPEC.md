@@ -383,14 +383,21 @@ Rules:
   including `shelf`, `trash-purge-plan`, and the purge plan id). No-op dry-runs
   report `not-created` and write no plan file.
 - `--execute` requires a `--plan-id` produced by an earlier reviewed dry-run; it
-  refuses to compute a fresh purge set. It physically removes each planned trash
-  target, skipping entries whose record is missing, is no longer `trashed`, or
-  whose target is already gone. Before removal it also re-checks that the plan
-  entry still matches the live ledger record and that the target remains inside
-  Shelf's ledger-local trash directory for that cleanup plan.
-- Writes a purge receipt to `<ledger-dir>/purge-receipts/<id>.json` and registers
-  it (`ttl=30d`, `cleanup=review`, labels including `shelf`, `trash-purge-receipt`,
-  and the purge plan id) so the final deletion stays auditable.
+  refuses to compute a fresh purge set and refuses to rerun a purge plan with an
+  already completed receipt. It physically removes each planned trash target,
+  skipping entries whose record is missing, is no longer `trashed`, or whose
+  target is already gone. Before removal it also re-checks that the plan entry
+  still matches the live ledger record and that the target remains inside Shelf's
+  ledger-local trash directory for that cleanup plan.
+- Writes a `started` purge receipt to `<ledger-dir>/purge-receipts/<id>.json`
+  before deletion, records `pending` and `deleting` result states during the run,
+  then completes the receipt with `purged`, `skipped`, or `failed` results. If an
+  interrupted purge left a started receipt, a later execute resumes from those
+  results and reconciles a `deleting` entry whose target is already gone as
+  `purged`.
+- Registers the completed receipt (`ttl=30d`, `cleanup=review`, labels including
+  `shelf`, `trash-purge-receipt`, and the purge plan id) so the final deletion
+  stays auditable.
 - Marks purged records `resolved` with `purgedAt`, `purgePlanId`, and
   `purgeReceiptPath`, so they no longer reappear as trashed.
 
@@ -588,11 +595,16 @@ shelf doctor --json
 shelf status --all --json
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
+shelf trash list --ledger <path> --json
+shelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
 ```
 
 `shelf review --all --json` is the read-only all-ledger triage surface;
 scheduled reports should include its aggregate `summary` and `nextAction` when
 whole-machine review is needed.
+
+Scheduled trash reports should include the trashed record count, target ages,
+and any purge dry-run plan id, matching entries, and skipped entries.
 
 Scheduled jobs must never run `shelf cleanup --execute` or
 `shelf trash purge --execute`; they may only dry-run and report plans for later

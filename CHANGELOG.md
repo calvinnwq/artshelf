@@ -39,6 +39,10 @@
 - Added approval-first `shelf trash list` and `shelf trash purge` commands for
   reviewing quarantined trash and physically deleting it only from a reviewed,
   ledger-scoped purge plan.
+- Changed ledger validation to require cleanup metadata on trashed records and
+  warn when a trashed target path is missing.
+- Hardened trash purge execution with ledger-local path checks, durable failure
+  receipts, interrupted-run resume, and refusal of completed purge receipts.
 - Reorganized the README and docs quickstart to lead with the approval-first
   workflows — register a temp artifact, review everything safely, approve
   cleanup safely, and purge old trash explicitly — keeping reference material

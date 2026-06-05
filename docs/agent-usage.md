@@ -294,17 +294,20 @@ shelf doctor --json
 shelf status --all --json
 ```
 
-Scheduled cleanup dry-run may write plan files for later review when cleanup
-entries exist, but must not move or delete files:
+Scheduled cleanup and trash purge dry-runs may write plan files for later review
+when entries exist, but must not move or delete files:
 
 ```bash
 shelf cleanup --dry-run --json
+shelf trash list --ledger <ledger-path> --json
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
 
 The scheduled job should report the ledger path, due/manual-review/missing-path
 counts, cleanup dry-run plan id, executable entries, skipped entries, and refused
-entries. It should be quiet when nothing needs attention unless the user asked
-for a regular summary.
+entries. When reporting trash, include the trashed record count, target ages, and
+any purge dry-run plan id, matching entries, and skipped entries. It should be
+quiet when nothing needs attention unless the user asked for a regular summary.
 
 Use explicit ledger paths when scheduling checks for a known project or user
 ledger. Do not scan arbitrary filesystem locations looking for ledgers unless
