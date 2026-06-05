@@ -51,7 +51,7 @@
                   then gives humans and agents a reviewable cleanup plan before anything moves.
                 </p>
                 <div class="actions">
-                  <a class="button primary" href="install.html">Install from source</a>
+                  <a class="button primary" href="install.html">Install from npm</a>
                   <a class="button" href="quickstart.html">Quickstart</a>
                   <a class="button" href="agent-usage.html">Agent usage</a>
                   <a class="button" href="https://github.com/calvinnwq/artshelf">GitHub</a>
@@ -119,8 +119,8 @@ $ artshelf cleanup --dry-run --json
               <h2>Pick Your Path</h2>
               <div class="grid">
                 <a class="doc-card" href="install.html">
-                  <strong>Install from source</strong>
-                  <span>Clone locally, build, link with npm, and smoke-test the CLI.</span>
+                  <strong>Install from npm</strong>
+                  <span>Install the package globally, or use source install as the fallback path.</span>
                 </a>
                 <a class="doc-card" href="quickstart.html">
                   <strong>Try the workflow</strong>
@@ -157,7 +157,7 @@ $ artshelf cleanup --dry-run --json
                 <li>Cleanup refuses delete actions; physical trash purge needs its own reviewed plan.</li>
               </ul>
               <div class="note">
-                Artshelf is an early v1 MVP. Source install and live dogfooding come before npm publishing.
+                Artshelf is an early v1 MVP. The npm package is the primary install path; source install remains available as a fallback.
               </div>
             </section>
           </article>

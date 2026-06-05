@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Renamed the published package and CLI binary from `shelf` to `artshelf`,
+  moved project URLs to `calvinnwq/artshelf`, and prepared public npm publishing.
 - Added a user-level ledger registry plus `--all` review commands so Artshelf can
   discover known project/user ledgers from one CLI entry point.
 - Added read-only `find` and `get` commands for ledger lookup and idempotent
