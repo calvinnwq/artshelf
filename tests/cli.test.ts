@@ -6,12 +6,14 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 const CLI = new URL("../src/cli.js", import.meta.url);
+const PACKAGE_JSON = decodeURIComponent(new URL("../../package.json", import.meta.url).pathname);
+const PACKAGE_VERSION = JSON.parse(readFileSync(PACKAGE_JSON, "utf8")).version;
 const TEST_REGISTRY = join(mkdtempSync(join(tmpdir(), "artshelf-test-registry-")), "ledgers.json");
 
 test("help and version are useful", () => {
   const help = artshelf(["help"]);
   assert.equal(help.status, 0);
-  assert.match(help.stdout, /Artshelf 0\.3\.0/);
+  assert.match(help.stdout, new RegExp(`Artshelf ${escapeRegExp(PACKAGE_VERSION)}`));
   assert.match(help.stdout, /artshelf cleanup --dry-run/);
   assert.match(help.stdout, /artshelf trash list \[--all\] \[--ledger <path>\] \[--json\]/);
   assert.match(help.stdout, /artshelf trash purge --older-than <ttl> --dry-run \[--ledger <path>\] \[--json\]/);
@@ -46,7 +48,7 @@ test("help and version are useful", () => {
 
   const version = artshelf(["--version"]);
   assert.equal(version.status, 0);
-  assert.equal(version.stdout, "artshelf 0.3.0\n");
+  assert.equal(version.stdout, `artshelf ${PACKAGE_VERSION}\n`);
 });
 
 test("unknown flags fail with a usage hint", () => {
@@ -1472,7 +1474,7 @@ test("doctor reports a healthy machine and exits zero", () => {
   assert.equal(result.status, 0, result.stderr);
   const body = JSON.parse(result.stdout);
   assert.equal(body.ok, true);
-  assert.equal(body.version, "0.3.0");
+  assert.equal(body.version, PACKAGE_VERSION);
   assert.equal(body.registryPath, registry);
   assert.equal(body.registryExists, true);
   assert.equal(body.registryOk, true);
@@ -1566,7 +1568,7 @@ test("doctor human output summarizes health and cleanup safety", () => {
 
   const result = artshelf(["doctor", "--registry", registry]);
   assert.equal(result.status, 0, result.stderr);
-  assert.match(result.stdout, /artshelf 0\.3\.0/);
+  assert.match(result.stdout, new RegExp(`artshelf ${escapeRegExp(PACKAGE_VERSION)}`));
   assert.match(result.stdout, /health: ok/);
   assert.match(result.stdout, /registry:/);
   assert.match(result.stdout, /plan id/i);
@@ -1800,6 +1802,10 @@ function fixtureDir(): string {
 
 function ledgerPath(fixture: string): string {
   return join(fixture, ".shelf", "ledger.jsonl");
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function readLedger(ledger: string): any[] {

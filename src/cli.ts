@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   appendPreparedRecord,
   createCleanupPlan,
@@ -26,7 +26,7 @@ import {
 import type { LedgerRegistryEntry } from "./registry.js";
 import type { CleanupPlan, DueEntry, ArtshelfRecord } from "./types.js";
 
-const VERSION = "0.3.0";
+const VERSION = readPackageVersion();
 const BOOLEAN_FLAGS = new Set(["all", "json", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
   "cleanup",
@@ -45,6 +45,15 @@ const VALUE_FLAGS = new Set([
   "status",
   "ttl"
 ]);
+
+function readPackageVersion(): string {
+  const packageJsonPath = decodeURIComponent(new URL("../../package.json", import.meta.url).pathname);
+  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+  if (typeof packageJson.version !== "string") {
+    throw new Error("package.json version must be a string");
+  }
+  return packageJson.version;
+}
 
 type ParsedArgs = {
   command: string | undefined;
