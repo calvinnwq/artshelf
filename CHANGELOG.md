@@ -52,6 +52,14 @@
 - Tightened the portable agent skill description so the completion-gate trigger
   is visible before final responses, status updates, handoffs, and done reports.
 
+## [0.5.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.4.1...artshelf-v0.5.0) (2026-06-05)
+
+
+### Features
+
+* default storage to .artshelf paths ([95ef94e](https://github.com/calvinnwq/artshelf/commit/95ef94edef5862c45e5526a27c4adf0bf40306ca))
+* default storage to .artshelf paths ([0da2cda](https://github.com/calvinnwq/artshelf/commit/0da2cda19ff56f78f203840ed71c2379f533750b))
+
 ## [0.4.1](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.4.0...artshelf-v0.4.1) (2026-06-05)
 
 
