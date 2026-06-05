@@ -50,6 +50,19 @@
 - Tightened the portable agent skill description so the completion-gate trigger
   is visible before final responses, status updates, handoffs, and done reports.
 
+## [0.3.0](https://github.com/calvinnwq/shelf/compare/shelf-v0.2.0...shelf-v0.3.0) (2026-06-05)
+
+
+### Features
+
+* **cli:** add approval-first trash list and purge workflow ([20405db](https://github.com/calvinnwq/shelf/commit/20405db8a7856440afe6aaf487cc156e6c66245d))
+* **cli:** add approval-first trash list and purge workflow ([5a389f3](https://github.com/calvinnwq/shelf/commit/5a389f3e4f18c75973f29dc727969063e3b3f54b))
+
+
+### Bug Fixes
+
+* **trash:** harden purge execution guardrails ([e569b1b](https://github.com/calvinnwq/shelf/commit/e569b1be4a4f931f856fa9683afcb14023724ad9))
+
 ## [0.2.0](https://github.com/calvinnwq/shelf/compare/shelf-v0.1.0...shelf-v0.2.0) (2026-06-04)
 
 
