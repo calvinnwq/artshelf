@@ -91,8 +91,8 @@ and should only be physically removed through a separately reviewed trash purge
 plan:
 
 ```bash
-shelf trash purge --older-than 30d --dry-run --ledger /tmp/shelf-ledger.jsonl --json
-shelf trash purge --execute --plan-id purge_20260601_120000_ab12 --ledger /tmp/shelf-ledger.jsonl
+shelf trash purge --older-than 30d --dry-run --json
+shelf trash purge --execute --plan-id purge_20260601_120000_ab12
 ```
 
 This adds a separate approval boundary between quarantine and destructive deletion.

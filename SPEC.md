@@ -383,6 +383,10 @@ Rules:
   and registers a Shelf-owned plan record (`ttl=14d`, `cleanup=review`, labels
   including `shelf`, `trash-purge-plan`, and the purge plan id). No-op dry-runs
   report `not-created` and write no plan file.
+- The purge plan records `purgePlanId`, `generatedAt`, `ledgerPath`,
+  `olderThan`, and the computed `cutoff`. Each executable entry includes
+  `id`, `targetPath`, `cleanedAt`, `receiptPath`, and `cleanupPlanId`; skipped
+  records include `id`, `targetPath`, and the skip `reason`.
 - `--execute` requires a `--plan-id` produced by an earlier reviewed dry-run; it
   refuses to compute a fresh purge set and refuses to rerun a purge plan with an
   already completed receipt. It physically removes each planned trash target,
