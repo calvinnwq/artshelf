@@ -87,6 +87,8 @@ test("install docs cover npm install and source fallback paths", () => {
   assert.match(packageJson, /"artshelf": "dist\/src\/cli\.js"/);
   assert.doesNotMatch(packageJson, /"shelf": "dist\/src\/cli\.js"/);
   assert.match(packageJson, /"access": "public"/);
+  assert.match(packageJson, /"prepack": "pnpm run build"/);
+  assert.match(packageJson, /"prepublishOnly": "pnpm run build"/);
   assert.match(readme, /pnpm docs:serve/);
   assert.match(install, /pnpm docs:serve/);
   assert.match(install, /127\.0\.0\.1:8080/);
