@@ -315,13 +315,16 @@ when entries exist, but must not move or delete files:
 ```bash
 shelf cleanup --dry-run --json
 shelf trash list --ledger <ledger-path> --json
+shelf trash list --all --json
 shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
 
 The scheduled job should report the ledger path, due/manual-review/missing-path
 counts, cleanup dry-run plan id, executable entries, skipped entries, and refused
-entries. When reporting trash, include the trashed record count, target ages, and
-any purge dry-run plan id, matching entries, and skipped entries. It should be
+entries. When reporting trash, `shelf trash list --all --json` may discover trashed
+records across registered ledgers. Include trashed record counts and target ages;
+run purge dry-runs only for an explicit ledger and report any plan id, matching
+entries, and skipped entries. It should be
 quiet when nothing needs attention unless the user asked for a regular summary.
 
 Use explicit ledger paths when scheduling checks for a known project or user

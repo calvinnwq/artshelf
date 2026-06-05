@@ -280,6 +280,7 @@ shelf due --json
 shelf review --all --json
 shelf cleanup --dry-run --json
 shelf trash list --ledger <ledger-path> --json
+shelf trash list --all --json
 shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
 
@@ -295,8 +296,10 @@ shelf status --all --json
 
 The report should include the ledger path, due/manual-review/missing-path counts,
 cleanup dry-run plan id, executable entries, skipped entries, and refused
-entries. When reporting trash, include the trashed record count, target ages, and
-any purge dry-run plan id, matching entries, and skipped entries. Stay quiet when
+entries. When reporting trash, `shelf trash list --all --json` may discover trashed
+records across registered ledgers. Include trashed record counts and target ages;
+run purge dry-runs only for an explicit ledger and report any plan id, matching
+entries, and skipped entries. Stay quiet when
 nothing needs attention unless a regular summary was requested.
 
 Repeated dry-runs with the same executable cleanup entries reuse the existing

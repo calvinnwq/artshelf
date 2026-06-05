@@ -599,6 +599,7 @@ shelf status --all --json
 shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 shelf trash list --ledger <path> --json
+shelf trash list --all --json
 shelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
 ```
 
@@ -606,8 +607,10 @@ shelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
 scheduled reports should include its aggregate `summary` and `nextAction` when
 whole-machine review is needed.
 
-Scheduled trash reports should include the trashed record count, target ages,
-and any purge dry-run plan id, matching entries, and skipped entries.
+Scheduled trash reports may use `shelf trash list --all --json` for
+registered-ledger discovery and should include trashed record counts and target
+ages. Purge dry-runs stay scoped to one explicit ledger and should report any
+plan id, matching entries, and skipped entries.
 
 Scheduled jobs must never run `shelf cleanup --execute` or
 `shelf trash purge --execute`; they may only dry-run and report plans for later
