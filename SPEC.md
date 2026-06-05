@@ -439,8 +439,10 @@ V1 also supports a user-level registry of known ledgers:
 - `put` registers the ledger it writes to.
 - `ledgers add` registers an existing ledger explicitly.
 - `--all` reads registered ledgers as one review surface.
-- `cleanup --execute --all` is refused; execution stays scoped to one explicit
-  ledger and one reviewed plan id.
+- `trash list --all` reads trashed records across registered ledgers after
+  registry validation.
+- `cleanup --execute --all` and `trash purge --all` are refused; execution stays
+  scoped to one explicit ledger and one reviewed plan id.
 
 ## Ledger Registry Schema
 

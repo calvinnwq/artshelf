@@ -212,14 +212,19 @@ shelf review --all --json</code></pre>
               <pre><code>shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json</code></pre>
               <pre><code>shelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
+              <pre><code>shelf trash list --ledger &lt;ledger-path&gt; --json
+shelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json
+shelf trash purge --execute --plan-id &lt;purge-plan-id&gt; --ledger &lt;ledger-path&gt; --json</code></pre>
               <div class="note">
                 Execution is approval-only: no daemon, no auto-execute, no global execute, and no
-                fresh-plan-then-execute shortcut. Execution needs explicit human approval for the
-                reviewed plan id, writes a receipt, and updates touched ledger records to
-                `trashed`, `review-required`, or `cleanup-refused`. <code>cleanup=delete</code>
-                stays refused instead of silently deleting files; physical deletion requires
-                a separate reviewed trash purge plan. Shelf records generated plans and
-                receipts as `owner=shelf` artifacts.
+                fresh-plan-then-execute shortcut. Cleanup execution needs explicit human approval
+                for the reviewed plan id. Trash list and purge dry-run are review steps; trash
+                purge execution needs separate approval naming the ledger and reviewed purge plan
+                id. Execution writes a receipt and updates touched ledger records to `trashed`,
+                `review-required`, or `cleanup-refused`. <code>cleanup=delete</code> stays refused
+                instead of silently deleting files; physical deletion requires a separate reviewed
+                trash purge plan. Shelf records generated plans and receipts as `owner=shelf`
+                artifacts.
               </div>
               <p>
                 Agents may mark a ledger record manually resolved when the user confirms the

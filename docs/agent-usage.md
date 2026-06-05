@@ -249,6 +249,21 @@ shelf cleanup --execute --plan-id <id>
 
 Approval should name the plan id. Do not generate a fresh plan and execute it in
 the same breath. Review the dry-run first, then execute the reviewed plan id.
+After cleanup execution, agents may inspect trash and create a purge dry-run for
+review:
+
+```bash
+shelf trash list --ledger <ledger-path> --json
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
+```
+
+Trash purge execution is separately approval-only and must name the ledger and
+reviewed purge plan id:
+
+```bash
+shelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
+```
+
 No-op dry-runs report `not-created` and do not write plan files. When dry-run or
 execute creates plan or receipt artifacts, Shelf records those artifacts in the
 ledger as `owner=shelf`.

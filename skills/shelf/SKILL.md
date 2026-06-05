@@ -232,13 +232,15 @@ shelf cleanup --dry-run --json
 shelf cleanup --dry-run --all --json
 ```
 
-Requires explicit approval that names the reviewed plan id:
+Cleanup execution requires explicit approval that names the reviewed plan id:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
 ```
 
-After cleanup execution, review and execute trash purges separately:
+After cleanup execution, trash list and purge dry-run are safe review steps, but
+trash purge execution requires separate human approval naming the ledger and
+reviewed purge plan id:
 
 ```bash
 shelf trash list --ledger <ledger-path>

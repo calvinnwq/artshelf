@@ -125,8 +125,9 @@ shelf cleanup --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
               <pre><code>shelf trash list --ledger /tmp/shelf-ledger.jsonl
 shelf trash purge --older-than 7d --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
               <p>
-                If that dry-run output and reviewed evidence are sufficient, execute only with
-                the plan id that was explicitly reviewed:
+                A fresh quickstart record will usually be newer than the <code>7d</code>
+                purge cutoff and report <code>not-created</code>; for real old trash, execute
+                only if the dry-run produced entries and the plan id was explicitly reviewed:
               </p>
               <pre><code>shelf trash purge --execute \
   --plan-id purge_20260601_120000_ab12 \

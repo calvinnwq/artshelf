@@ -148,14 +148,17 @@ shelf get &lt;id&gt; --all --json</code></pre>
               <pre><code>shelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
 shelf review --all --json
 shelf status --all --json
-shelf cleanup --dry-run --all --json</code></pre>
+shelf cleanup --dry-run --all --json
+shelf trash list --all --json</code></pre>
               <p>
                 <code>shelf ledgers add</code> requires an existing ledger path. Scope may be
                 <code>repo</code>, <code>user</code>, or <code>other</code>; when omitted, Shelf infers
                 it from the path. All-mode reads report stale or invalid registered ledgers
                 before returning records. Global cleanup dry-run writes plan files only for ledgers
-                with cleanup entries, while global cleanup execution is refused. Execute only
-                a specific reviewed plan id against the ledger that produced it.
+                with cleanup entries, and <code>shelf trash list --all --json</code> is read-only
+                trash discovery. Global cleanup execution and trash purge with <code>--all</code>
+                are refused. Execute only a specific reviewed plan id against the ledger that
+                produced it.
               </p>
             </section>
           </article>
