@@ -440,7 +440,9 @@ Default behavior:
 V1 also supports a user-level registry of known ledgers:
 
 - registry: `~/.shelf/ledgers.json`
-- `ARTSHELF_REGISTRY` or `--registry <path>` can override the registry path.
+- `--registry <path>` overrides the registry path. Without it,
+  `ARTSHELF_REGISTRY` is read first, then legacy `SHELF_REGISTRY`, then the
+  default registry path.
 - `put` registers the ledger it writes to.
 - `ledgers add` registers an existing ledger explicitly.
 - `--all` reads registered ledgers as one review surface.
@@ -672,4 +674,3 @@ human review.
 - Retention classes like keep-daily/weekly/monthly.
 - Dependency roots and pinning.
 - Credential scanning.
-- Public package publishing.

@@ -88,6 +88,7 @@ $ artshelf --version</code></pre>
 --registry &lt;path&gt; Use an explicit ledger registry
 --all             Read all registered ledgers for supported commands
 ARTSHELF_REGISTRY    Override the default ledger registry path
+SHELF_REGISTRY       Legacy fallback when ARTSHELF_REGISTRY is unset
 --json            Emit machine-readable JSON
 --help            Show help
 --version         Show version</code></pre>
@@ -141,9 +142,10 @@ artshelf get &lt;id&gt; --all --json</code></pre>
               </p>
               <p>
                 Artshelf also keeps a user-level registry at `~/.shelf/ledgers.json`. Override it
-                with <code>--registry &lt;path&gt;</code> or <code>ARTSHELF_REGISTRY</code>. The registry
-                is a discovery index for supported `--all` review, status, cleanup dry-run, and trash-list commands; project records stay
-                in their own repo-local ledgers.
+                with <code>--registry &lt;path&gt;</code> or <code>ARTSHELF_REGISTRY</code>; legacy
+                <code>SHELF_REGISTRY</code> is used only when <code>ARTSHELF_REGISTRY</code> is unset.
+                The registry is a discovery index for supported `--all` review, status, cleanup
+                dry-run, and trash-list commands; project records stay in their own repo-local ledgers.
               </p>
               <pre><code>artshelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
 artshelf review --all --json

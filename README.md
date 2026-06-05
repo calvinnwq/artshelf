@@ -127,8 +127,9 @@ artshelf list --ledger /tmp/artshelf-ledger.jsonl
 
 Artshelf also keeps a small global registry of known ledgers at
 `~/.shelf/ledgers.json`. Override it with `--registry <path>` or
-`ARTSHELF_REGISTRY`. `put` registers its ledger automatically, and you can register
-an existing ledger explicitly:
+`ARTSHELF_REGISTRY`; renamed installs still honor legacy `SHELF_REGISTRY` when
+`ARTSHELF_REGISTRY` is unset. `put` registers its ledger automatically, and you
+can register an existing ledger explicitly:
 
 ```bash
 artshelf ledgers list
@@ -245,9 +246,9 @@ purge, and when `artshelf resolve <id> --status resolved --reason <text>` may ma
 confirmed handled, missing, or no-longer-needed records without moving or
 deleting files.
 
-From a source checkout, use `skills/artshelf/SKILL.md` directly. Agents should ask
-where the user wants Artshelf cloned before installing or linking it. Package-manager
-distribution for agent skills can come later.
+The same skill ships in the npm package. From a source checkout, use
+`skills/artshelf/SKILL.md` directly. Agents should ask where the user wants
+Artshelf cloned before installing or linking it.
 
 ## Development
 
