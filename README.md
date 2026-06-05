@@ -154,7 +154,8 @@ plan id and refresh its timestamp instead of creating duplicate plan files.
 - Dry-run before mutation.
 - Execute only from a reviewed plan id.
 - No daemon or auto-execute path.
-- No global execute; `--all` is dry-run only.
+- No global execute; cleanup execute and trash purge refuse `--all`.
+  `--all` is read-only or dry-run reporting only.
 - No fresh-plan-then-execute shortcut.
 - Trash/review by default, not delete.
 - No silent deletion; `cleanup=delete` stays refused, and trash purge needs its own reviewed plan.

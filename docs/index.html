@@ -151,7 +151,7 @@ $ shelf cleanup --dry-run --json
                 <li>Ledger-first. Shelf only cleans entries that were registered intentionally.</li>
                 <li>Dry-run before mutation. Plans are written before execution.</li>
                 <li>No daemon or auto-execute path. Only a human-run command can mutate files.</li>
-                <li>No global execute. <code>--all</code> is dry-run only.</li>
+                <li>No global execute. <code>--all</code> is read-only or dry-run reporting only; trash purge refuses it.</li>
                 <li>No fresh-plan-then-execute shortcut. Execute only a reviewed plan id.</li>
                 <li>Handled records stop appearing in future due and cleanup dry-run output.</li>
                 <li>Cleanup refuses delete actions; physical trash purge needs its own reviewed plan.</li>

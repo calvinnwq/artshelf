@@ -535,8 +535,9 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
   that move, trash, or delete files are `shelf cleanup --execute` and
   `shelf trash purge --execute`, each run by a human against a separately
   reviewed plan id.
-- **No global execute.** `cleanup --execute --all` is refused; `--all` is
-  dry-run only. Execution is always scoped to a single reviewed plan id.
+- **No global execute.** `cleanup --execute --all` and `trash purge --all`
+  are refused; `--all` is read-only or dry-run reporting only. Execution is
+  always scoped to a single reviewed plan id.
 - **No fresh-plan-then-execute.** `cleanup --execute` refuses to compute a new
   live set. It acts only on a plan id that an earlier `cleanup --dry-run`
   produced and a human reviewed; it will not plan and execute in one step.
