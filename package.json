@@ -1,17 +1,17 @@
 {
-  "name": "shelf",
+  "name": "artshelf",
   "version": "0.3.0",
   "description": "Tiny CLI for accountable temporary artifact retention.",
   "type": "module",
   "author": "Calvin",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/calvinnwq/shelf.git"
+    "url": "git+https://github.com/calvinnwq/artshelf.git"
   },
   "bugs": {
-    "url": "https://github.com/calvinnwq/shelf/issues"
+    "url": "https://github.com/calvinnwq/artshelf/issues"
   },
-  "homepage": "https://calvinnwq.github.io/shelf/",
+  "homepage": "https://calvinnwq.github.io/artshelf/",
   "keywords": [
     "artifact-retention",
     "cleanup",
@@ -20,7 +20,10 @@
     "tmp"
   ],
   "bin": {
-    "shelf": "dist/src/cli.js"
+    "artshelf": "dist/src/cli.js"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "files": [
     "dist/src",
@@ -39,6 +42,8 @@
     "test": "node --test dist/tests/*.test.js",
     "check": "pnpm run build && pnpm run test",
     "docs:serve": "python3 -m http.server 8080 --bind 127.0.0.1 --directory docs",
+    "prepack": "pnpm run build",
+    "prepublishOnly": "pnpm run build",
     "start": "node dist/src/cli.js"
   },
   "devDependencies": {

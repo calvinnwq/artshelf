@@ -26,7 +26,7 @@ export type RegisterLedgerInput = {
 };
 
 export function defaultRegistryPath(): string {
-  return process.env.SHELF_REGISTRY ?? join(homedir(), ".shelf", "ledgers.json");
+  return process.env.ARTSHELF_REGISTRY ?? process.env.SHELF_REGISTRY ?? join(homedir(), ".shelf", "ledgers.json");
 }
 
 export function normalizeRegistryPath(path?: string): string {
@@ -37,7 +37,7 @@ export function readRegistry(registryPath = normalizeRegistryPath()): LedgerRegi
   if (!existsSync(registryPath)) return { version: 1, ledgers: [] };
   const parsed = JSON.parse(readFileSync(registryPath, "utf8")) as Partial<LedgerRegistry>;
   if (parsed.version !== 1 || !Array.isArray(parsed.ledgers)) {
-    throw new Error(`Invalid Shelf ledger registry: ${registryPath}`);
+    throw new Error(`Invalid Artshelf ledger registry: ${registryPath}`);
   }
   return {
     version: 1,
@@ -99,7 +99,7 @@ function withRegistryLock<T>(registryPath: string, fn: () => T): T {
         rmSync(lockPath, { recursive: true, force: true });
         continue;
       }
-      if (Date.now() > deadline) throw new Error(`Timed out waiting for Shelf ledger registry lock: ${registryPath}`);
+      if (Date.now() > deadline) throw new Error(`Timed out waiting for Artshelf ledger registry lock: ${registryPath}`);
       sleep(25);
     }
   }
@@ -126,7 +126,7 @@ function isStaleLock(lockPath: string, staleAfterMs: number): boolean {
 
 function normalizeEntry(entry: Partial<LedgerRegistryEntry>): LedgerRegistryEntry {
   if (!entry.name || !entry.path || !entry.scope || !entry.createdAt || !entry.updatedAt) {
-    throw new Error("Invalid Shelf ledger registry entry");
+    throw new Error("Invalid Artshelf ledger registry entry");
   }
   return {
     name: entry.name,

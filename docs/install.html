@@ -3,15 +3,15 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Install Shelf</title>
-    <meta name="description" content="Install Shelf 0.1.0 from a local source checkout.">
+    <title>Install Artshelf</title>
+    <meta name="description" content="Install Artshelf from npm or a local source checkout.">
     <link rel="stylesheet" href="site.css">
     <script src="theme.js" defer></script>
   </head>
   <body>
     <div class="docs-shell">
       <nav class="global-nav" aria-label="Documentation">
-        <a class="site-mark" href="index.html"><strong>Shelf</strong><span>Artifact retention CLI</span></a>
+        <a class="site-mark" href="index.html"><strong>Artshelf</strong><span>Artifact retention CLI</span></a>
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
         <div class="nav-scroll" aria-label="Documentation sections">
         <div class="nav-section">
@@ -23,12 +23,12 @@
         <div class="nav-section">
           <p class="nav-section-title">Agents</p>
           <a href="agent-usage.html">Agent usage</a>
-          <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
+          <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">Agent skill</a>
         </div>
         <div class="nav-section">
           <p class="nav-section-title">Reference</p>
           <a href="reference.html">CLI reference</a>
-          <a href="https://github.com/calvinnwq/shelf">GitHub</a>
+          <a href="https://github.com/calvinnwq/artshelf">GitHub</a>
         </div>
         </div>
       </nav>
@@ -39,23 +39,18 @@
             <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Install</span></nav>
             <div class="hero">
               <div>
-                <p class="eyebrow">Source install</p>
-                <h1>Install from source.</h1>
+                <p class="eyebrow">Install</p>
+                <h1>Install Artshelf.</h1>
                 <p class="lede">
-                  Shelf 0.1.0 is GitHub/source-first. The supported path is a local
-                  clone, build, and `npm link`.
+                  Artshelf is distributed under the unscoped `artshelf` package name.
+                  Source install remains the fallback path.
                 </p>
               </div>
               <div class="terminal">
                 <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>install</span></div>
-                <pre><code>$ git clone https://github.com/calvinnwq/shelf.git
-$ cd shelf
-$ corepack enable
-$ pnpm install --frozen-lockfile
-$ pnpm run build
-$ npm link
-$ shelf --version
-$ shelf doctor</code></pre>
+                <pre><code>$ npm install -g artshelf
+$ artshelf --version
+$ artshelf doctor</code></pre>
               </div>
             </div>
           </div>
@@ -67,48 +62,58 @@ $ shelf doctor</code></pre>
               <h2>Requirements</h2>
               <div class="grid">
                 <div class="card"><h3>Node.js 22+</h3><p>The package declares `node &gt;=22` and CI runs on Node 24.</p></div>
-                <div class="card"><h3>Corepack</h3><p>Use Corepack to activate the pinned pnpm version from `packageManager`.</p></div>
-                <div class="card"><h3>Git</h3><p>Clone the public repo and keep source installs easy to update with `git pull`.</p></div>
+                <div class="card"><h3>npm or pnpm</h3><p>Install the global package with your preferred Node package manager.</p></div>
+                <div class="card"><h3>Source tooling</h3><p>Corepack and Git are only needed when cloning, building, and linking from source.</p></div>
               </div>
             </section>
 
             <section>
-              <h2>Install Locally</h2>
-              <pre><code>git clone https://github.com/calvinnwq/shelf.git
-cd shelf
+              <h2>Install From npm</h2>
+              <pre><code>npm install -g artshelf
+artshelf --version
+artshelf doctor</code></pre>
+              <pre><code>pnpm add -g artshelf
+artshelf --version
+artshelf doctor</code></pre>
+              <pre><code>npm uninstall -g artshelf</code></pre>
+            </section>
+
+            <section>
+              <h2>Install From Source</h2>
+              <pre><code>git clone https://github.com/calvinnwq/artshelf.git
+cd artshelf
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
 npm link
-shelf --version
-shelf doctor</code></pre>
+artshelf --version
+artshelf doctor</code></pre>
               <p>
-                This is the only supported install method for now. `npm link` connects the
-                local checkout to your global npm bin, so future rebuilds update the `shelf`
+                `npm link` connects the local checkout to your global npm bin, so future rebuilds update the `artshelf`
                 command.
               </p>
-              <pre><code>npm unlink -g shelf</code></pre>
+              <pre><code>npm unlink -g artshelf</code></pre>
             </section>
 
             <section>
               <h2>Update A Source Install</h2>
-              <pre><code>cd shelf
+              <pre><code>cd artshelf
 git pull
 pnpm install --frozen-lockfile
 pnpm run build
 npm link
-shelf --version
-shelf doctor</code></pre>
+artshelf --version
+artshelf doctor</code></pre>
             </section>
 
             <section>
               <h2>Agent Setup</h2>
               <p>
-                Agents should use the same local source install. If Shelf is not installed,
+                Agents should prefer the npm install when available. If using a source install,
                 ask the user where to clone it before linking the command.
               </p>
               <pre><code>docs/agent-usage.md</code></pre>
-              <div class="note">npm publishing is intentionally deferred. Use the source checkout for 0.1.0.</div>
+              <div class="note">Verify `artshelf --version` and `artshelf doctor` after either install method.</div>
             </section>
 
             <section>
@@ -121,7 +126,7 @@ shelf doctor</code></pre>
             </section>
           </article>
         </main>
-        <footer class="site-footer"><div class="wrap">Shelf docs · <a href="quickstart.html">Next: quickstart</a></div></footer>
+        <footer class="site-footer"><div class="wrap">Artshelf docs · <a href="quickstart.html">Next: quickstart</a></div></footer>
       </div>
     </div>
   </body>

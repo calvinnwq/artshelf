@@ -3,8 +3,8 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Shelf Docs</title>
-    <meta name="description" content="Shelf is a tiny CLI for accountable temporary artifact retention.">
+    <title>Artshelf Docs</title>
+    <meta name="description" content="Artshelf is a tiny CLI for accountable temporary artifact retention.">
     <link rel="stylesheet" href="site.css">
     <script src="theme.js" defer></script>
   </head>
@@ -12,7 +12,7 @@
     <div class="docs-shell">
       <nav class="global-nav" aria-label="Documentation">
         <a class="site-mark" href="index.html" aria-current="page">
-          <strong>Shelf</strong>
+          <strong>Artshelf</strong>
           <span>Artifact retention CLI</span>
         </a>
         <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
@@ -26,12 +26,12 @@
         <div class="nav-section">
           <p class="nav-section-title">Agents</p>
           <a href="agent-usage.html">Agent usage</a>
-          <a href="https://github.com/calvinnwq/shelf/blob/main/skills/shelf/SKILL.md">Agent skill</a>
+          <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">Agent skill</a>
         </div>
         <div class="nav-section">
           <p class="nav-section-title">Reference</p>
           <a href="reference.html">CLI reference</a>
-          <a href="https://github.com/calvinnwq/shelf">GitHub</a>
+          <a href="https://github.com/calvinnwq/artshelf">GitHub</a>
         </div>
         </div>
       </nav>
@@ -47,19 +47,19 @@
                 <p class="eyebrow">Temporary artifacts · Accountable cleanup</p>
                 <h1>Put run outputs somewhere accountable.</h1>
                 <p class="lede">
-                  Shelf records why temporary artifacts, backups, and debug evidence exist,
+                  Artshelf records why temporary artifacts, backups, and debug evidence exist,
                   then gives humans and agents a reviewable cleanup plan before anything moves.
                 </p>
                 <div class="actions">
-                  <a class="button primary" href="install.html">Install from source</a>
+                  <a class="button primary" href="install.html">Install from npm</a>
                   <a class="button" href="quickstart.html">Quickstart</a>
                   <a class="button" href="agent-usage.html">Agent usage</a>
-                  <a class="button" href="https://github.com/calvinnwq/shelf">GitHub</a>
+                  <a class="button" href="https://github.com/calvinnwq/artshelf">GitHub</a>
                 </div>
               </div>
-              <div class="terminal" aria-label="Shelf terminal example">
-                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>shelf</span></div>
-                <pre><code>$ shelf put /tmp/parser-output \
+              <div class="terminal" aria-label="Artshelf terminal example">
+                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>artshelf</span></div>
+                <pre><code>$ artshelf put /tmp/parser-output \
   --reason "debug evidence for parser fix" \
   --ttl 3d \
   --kind run-artifact \
@@ -68,7 +68,7 @@
 recorded shf_20260601_182800_ab12
 retains until: 2026-06-04T08:28:00Z
 
-$ shelf cleanup --dry-run --json
+$ artshelf cleanup --dry-run --json
 { "plan": { "planId": "not-created", "planPath": null } }</code></pre>
               </div>
             </div>
@@ -78,11 +78,11 @@ $ shelf cleanup --dry-run --json
         <main class="wrap">
           <article>
             <section>
-              <h2>Why Shelf Exists</h2>
+              <h2>Why Artshelf Exists</h2>
               <p>
                 Agent-heavy projects create a lot of temporary stuff: copied files, rollback
                 folders, smoke-test output, reports, and logs. Filesystem age cannot tell a future
-                agent whether those artifacts are still useful. Shelf captures intent at creation
+                agent whether those artifacts are still useful. Artshelf captures intent at creation
                 time, while the reason is still fresh.
               </p>
               <div class="summary-grid">
@@ -94,15 +94,15 @@ $ shelf cleanup --dry-run --json
             </section>
 
             <section>
-              <h2>What Shelf Does</h2>
+              <h2>What Artshelf Does</h2>
               <div class="grid">
                 <div class="card">
                   <h3>Register a temp artifact</h3>
-                  <p>Record path, reason, owner, labels, retention, and cleanup mode with `shelf put`.</p>
+                  <p>Record path, reason, owner, labels, retention, and cleanup mode with `artshelf put`.</p>
                 </div>
                 <div class="card">
                   <h3>Review everything safely</h3>
-                  <p>Use `shelf due` and `shelf cleanup --dry-run` to inspect what needs attention; no-op previews report `not-created`.</p>
+                  <p>Use `artshelf due` and `artshelf cleanup --dry-run` to inspect what needs attention; no-op previews report `not-created`.</p>
                 </div>
                 <div class="card">
                   <h3>Approve cleanup safely</h3>
@@ -119,8 +119,8 @@ $ shelf cleanup --dry-run --json
               <h2>Pick Your Path</h2>
               <div class="grid">
                 <a class="doc-card" href="install.html">
-                  <strong>Install from source</strong>
-                  <span>Clone locally, build, link with npm, and smoke-test the CLI.</span>
+                  <strong>Install from npm</strong>
+                  <span>Install the package globally, or use source install as the fallback path.</span>
                 </a>
                 <a class="doc-card" href="quickstart.html">
                   <strong>Try the workflow</strong>
@@ -128,17 +128,17 @@ $ shelf cleanup --dry-run --json
                 </a>
                 <a class="doc-card" href="agent-usage.html">
                   <strong>Wire up agents</strong>
-                  <span>Teach agents when to call Shelf and how to report Shelf ids.</span>
+                  <span>Teach agents when to call Artshelf and how to report Artshelf ids.</span>
                 </a>
                 <a class="doc-card" href="reference.html">
                   <strong>Look up commands</strong>
                   <span>See the v1 command surface and cleanup safety rules.</span>
                 </a>
-                <a class="doc-card" href="https://github.com/calvinnwq/shelf/blob/main/SPEC.md">
+                <a class="doc-card" href="https://github.com/calvinnwq/artshelf/blob/main/SPEC.md">
                   <strong>Read the spec</strong>
                   <span>Understand the ledger-first contract and v1 non-goals.</span>
                 </a>
-                <a class="doc-card" href="https://github.com/calvinnwq/shelf">
+                <a class="doc-card" href="https://github.com/calvinnwq/artshelf">
                   <strong>Open the repo</strong>
                   <span>Source, tests, release automation, and the portable agent skill.</span>
                 </a>
@@ -148,7 +148,7 @@ $ shelf cleanup --dry-run --json
             <section>
               <h2>Safety Model</h2>
               <ul>
-                <li>Ledger-first. Shelf only cleans entries that were registered intentionally.</li>
+                <li>Ledger-first. Artshelf only cleans entries that were registered intentionally.</li>
                 <li>Dry-run before mutation. Plans are written before execution.</li>
                 <li>No daemon or auto-execute path. Only a human-run command can mutate files.</li>
                 <li>No global execute. <code>--all</code> is read-only or dry-run reporting only; trash purge refuses it.</li>
@@ -157,14 +157,14 @@ $ shelf cleanup --dry-run --json
                 <li>Cleanup refuses delete actions; physical trash purge needs its own reviewed plan.</li>
               </ul>
               <div class="note">
-                Shelf is an early v1 MVP. Source install and live dogfooding come before npm publishing.
+                Artshelf is an early v1 MVP. The npm package is the primary install path; source install remains available as a fallback.
               </div>
             </section>
           </article>
         </main>
 
         <footer class="site-footer">
-          <div class="wrap">Shelf docs · MIT · <a href="https://github.com/calvinnwq/shelf">GitHub</a></div>
+          <div class="wrap">Artshelf docs · MIT · <a href="https://github.com/calvinnwq/artshelf">GitHub</a></div>
         </footer>
       </div>
     </div>

@@ -1,6 +1,6 @@
 # Contributing
 
-Shelf is intentionally small. Contributions should keep it boring, predictable,
+Artshelf is intentionally small. Contributions should keep it boring, predictable,
 and safe around file cleanup.
 
 ## Local Setup
@@ -27,5 +27,6 @@ accident.
 
 ## Release Process
 
-Release Please owns release PRs and changelog updates after the GitHub remote is
-created. Use conventional commit messages so release notes stay useful.
+Release Please owns release PRs and changelog updates for the [Artshelf GitHub
+repository](https://github.com/calvinnwq/artshelf). Use conventional commit
+messages so release notes stay useful.

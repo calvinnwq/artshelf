@@ -2,7 +2,7 @@
 
 Be kind, direct, and useful.
 
-Shelf is a small technical project. Keep discussion focused on the work, assume
+Artshelf is a small technical project. Keep discussion focused on the work, assume
 good intent, and make room for people with different backgrounds and experience
 levels.
 

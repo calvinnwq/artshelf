@@ -65,21 +65,30 @@ test("docs site local links resolve inside docs", () => {
   }
 });
 
-test("install docs cover the local clone, build, and npm link path", () => {
+test("install docs cover npm install and source fallback paths", () => {
   const readme = read("README.md");
   const install = read("docs/install.html");
   const packageJson = read("package.json");
 
   for (const text of [readme, install]) {
-    assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/shelf\.git/);
+    assert.match(text, /npm install -g artshelf/);
+    assert.match(text, /pnpm add -g artshelf/);
+    assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/artshelf\.git/);
     assert.match(text, /corepack enable/);
     assert.match(text, /pnpm install --frozen-lockfile/);
     assert.match(text, /pnpm run build/);
     assert.match(text, /npm link/);
-    assert.match(text, /shelf --version/);
+    assert.match(text, /artshelf --version/);
+    assert.match(text, /artshelf doctor/);
     assert.doesNotMatch(text, /Optional global link|optional local global link/);
   }
 
+  assert.match(packageJson, /"name": "artshelf"/);
+  assert.match(packageJson, /"artshelf": "dist\/src\/cli\.js"/);
+  assert.doesNotMatch(packageJson, /"shelf": "dist\/src\/cli\.js"/);
+  assert.match(packageJson, /"access": "public"/);
+  assert.match(packageJson, /"prepack": "pnpm run build"/);
+  assert.match(packageJson, /"prepublishOnly": "pnpm run build"/);
   assert.match(readme, /pnpm docs:serve/);
   assert.match(install, /pnpm docs:serve/);
   assert.match(install, /127\.0\.0\.1:8080/);
@@ -88,7 +97,7 @@ test("install docs cover the local clone, build, and npm link path", () => {
 
 test("docs site explains cleanup approval boundary", () => {
   const pages = DOC_PAGES.map(read).join("\n");
-  assert.match(pages, /shelf validate --json/);
+  assert.match(pages, /artshelf validate --json/);
   assert.match(pages, /cleanup --dry-run/);
   assert.match(pages, /cleanup --execute --plan-id/);
   assert.match(pages, /explicit human approval|reviewed plan id/);
@@ -96,51 +105,51 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /updates ledger state|updates touched records/);
   assert.match(pages, /review-required/);
   assert.match(pages, /cleanup-refused/);
-  assert.match(pages, /shelf list --status active|--status active/);
-  assert.match(pages, /shelf find --path|shelf find --path/);
-  assert.match(pages, /shelf ledgers add|shelf ledgers list/);
-  assert.match(pages, /shelf review --all/);
+  assert.match(pages, /artshelf list --status active|--status active/);
+  assert.match(pages, /artshelf find --path|artshelf find --path/);
+  assert.match(pages, /artshelf ledgers add|artshelf ledgers list/);
+  assert.match(pages, /artshelf review --all/);
   assert.match(pages, /cleanup --dry-run --all/);
   assert.match(pages, /not-created/);
-  assert.match(pages, /owner=shelf/);
+  assert.match(pages, /owner=artshelf/);
   assert.match(pages, /reuse the existing plan id|reuses the existing plan id/);
-  assert.match(pages, /shelf get <id>|shelf get &lt;id&gt;/);
-  assert.match(pages, /shelf resolve <id> --status resolved|shelf resolve &lt;id&gt; --status resolved/);
-  assert.match(pages, /shelf trash purge --older-than &lt;ttl&gt; --dry-run \[--ledger/);
-  assert.match(pages, /shelf trash purge --execute --plan-id &lt;id&gt; \[--ledger/);
+  assert.match(pages, /artshelf get <id>|artshelf get &lt;id&gt;/);
+  assert.match(pages, /artshelf resolve <id> --status resolved|artshelf resolve &lt;id&gt; --status resolved/);
+  assert.match(pages, /artshelf trash purge --older-than &lt;ttl&gt; --dry-run \[--ledger/);
+  assert.match(pages, /artshelf trash purge --execute --plan-id &lt;id&gt; \[--ledger/);
 });
 
 test("docs menu keeps the reference section focused on user-facing pages", () => {
   for (const page of DOC_PAGES) {
     const html = read(page);
-    assert.doesNotMatch(html, /<a href="https:\/\/github\.com\/calvinnwq\/shelf\/blob\/main\/SPEC\.md">V1 spec<\/a>/, page);
+    assert.doesNotMatch(html, /<a href="https:\/\/github\.com\/calvinnwq\/artshelf\/blob\/main\/SPEC\.md">V1 spec<\/a>/, page);
   }
 });
 
 test("agent docs define scheduled review without scheduled execution", () => {
   const markdownGuide = read("docs/agent-usage.md");
-  const portableSkill = read("skills/shelf/SKILL.md");
+  const portableSkill = read("skills/artshelf/SKILL.md");
   const agentPage = read("docs/agent-usage.html");
 
   for (const text of [markdownGuide, portableSkill, agentPage]) {
     assert.match(text, /Scheduled Review/);
-    assert.match(text, /shelf validate --json/);
-    assert.match(text, /shelf due --json/);
-    assert.match(text, /shelf cleanup --dry-run --json/);
-    assert.match(text, /shelf cleanup --dry-run --all --json/);
-    assert.match(text, /shelf review --all --json/);
+    assert.match(text, /artshelf validate --json/);
+    assert.match(text, /artshelf due --json/);
+    assert.match(text, /artshelf cleanup --dry-run --json/);
+    assert.match(text, /artshelf cleanup --dry-run --all --json/);
+    assert.match(text, /artshelf review --all --json/);
     assert.match(text, /ledger registry|Ledger Registry/);
     assert.match(text, /ledger path/);
     assert.match(text, /plan id/);
     assert.match(text, /Do not scan arbitrary filesystem locations|Do not scan arbitrary filesystem/);
     assert.match(text, /Never\s+schedule|Scheduled jobs must not run/);
-    assert.match(text, /shelf cleanup --execute --plan-id/);
+    assert.match(text, /artshelf cleanup --execute --plan-id/);
   }
 });
 
 test("agent docs turn daily reviews into decision packets", () => {
   const markdownGuide = read("docs/agent-usage.md");
-  const portableSkill = read("skills/shelf/SKILL.md");
+  const portableSkill = read("skills/artshelf/SKILL.md");
   const agentPage = read("docs/agent-usage.html");
 
   for (const text of [markdownGuide, portableSkill, agentPage]) {
@@ -150,15 +159,15 @@ test("agent docs turn daily reviews into decision packets", () => {
     assert.match(text, /needs-human-review/);
     assert.match(text, /resolve-candidate/);
     assert.match(text, /registry-problem/);
-    assert.match(text, /approve shelf cleanup ledger/);
+    assert.match(text, /approve artshelf cleanup ledger/);
     assert.match(text, /read-only preview id/);
-    assert.match(text, /verify quiet|verify with `shelf review --all --json`/);
+    assert.match(text, /verify quiet|verify with `artshelf review --all --json`/);
   }
 });
 
 test("agent docs define registration triggers and completion checks", () => {
   const markdownGuide = read("docs/agent-usage.md");
-  const portableSkill = read("skills/shelf/SKILL.md");
+  const portableSkill = read("skills/artshelf/SKILL.md");
   const agentPage = read("docs/agent-usage.html");
   const finalizationTrigger = /before .*(final|finaliz|handoff|done|status)/i;
 
@@ -173,7 +182,7 @@ test("agent docs define registration triggers and completion checks", () => {
 });
 
 test("portable skill description exposes the completion gate", () => {
-  const portableSkill = read("skills/shelf/SKILL.md");
+  const portableSkill = read("skills/artshelf/SKILL.md");
   const description = portableSkill.split("\n").slice(0, 4).join("\n");
 
   assert.match(description, /before any final response/i);
@@ -185,18 +194,18 @@ test("portable skill description exposes the completion gate", () => {
 
 test("agent install guidance prompts for paths and avoids unsupported install methods", () => {
   const markdownGuide = read("docs/agent-usage.md");
-  const portableSkill = read("skills/shelf/SKILL.md");
+  const portableSkill = read("skills/artshelf/SKILL.md");
   const agentPage = read("docs/agent-usage.html");
 
   for (const text of [markdownGuide, portableSkill, agentPage]) {
     assert.match(text, /ask|Ask/);
-    assert.match(text, /repo path|where the user wants|where to clone|where the Shelf repo/);
-    assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/shelf\.git/);
+    assert.match(text, /repo path|where the user wants|where to clone|where the Artshelf repo/);
+    assert.match(text, /git clone https:\/\/github\.com\/calvinnwq\/artshelf\.git/);
     assert.match(text, /pnpm run build/);
     assert.match(text, /npm link/);
-    assert.doesNotMatch(text, /\/Users\/ngxcalvin\/repos\/shelf/);
+    assert.doesNotMatch(text, /\/Users\/ngxcalvin\/repos\/artshelf/);
     assert.doesNotMatch(text, /node dist\/src\/cli\.js/);
-    assert.doesNotMatch(text, /\.local\/bin\/shelf/);
+    assert.doesNotMatch(text, /\.local\/bin\/artshelf/);
   }
 });
 
@@ -211,14 +220,15 @@ test("docs and portable skill stay workflow-agnostic", () => {
     read("docs/quickstart.html"),
     read("docs/agent-usage.html"),
     read("docs/reference.html"),
-    read("skills/shelf/SKILL.md")
+    read("skills/artshelf/SKILL.md")
   ].join("\n");
 
   assert.doesNotMatch(docsAndSkill, /OpenClaw|openclaw/);
-  assert.doesNotMatch(docsAndSkill, /coding-workflow|coding_workflow|workflow_plan|shelf-register|artifactRetention/);
+  assert.doesNotMatch(docsAndSkill, /coding-workflow|coding_workflow|workflow_plan|artshelf-register|artifactRetention/);
   assert.doesNotMatch(docsAndSkill, /\/Users\/ngxcalvin|Calvin's/);
   assert.doesNotMatch(docsAndSkill, /\.agent-workflows|\.gnhf|no-mistakes|ShakedownKit|Momentum/);
-  assert.match(readme, /not published to npm/);
+  assert.match(readme, /npm install -g artshelf/);
+  assert.match(readme, /pnpm add -g artshelf/);
 });
 
 test("README and quickstart lead with the three core workflows", () => {
