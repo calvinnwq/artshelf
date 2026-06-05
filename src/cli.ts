@@ -663,7 +663,7 @@ function printDoctor(report: DoctorReport): void {
     process.stdout.write(`  ${ledger.status} ${ledger.name} ${ledger.path}\n`);
     for (const message of ledger.errors) process.stdout.write(`    error: ${message}\n`);
   }
-  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; physical delete is refused in v1\n");
+  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; cleanup=delete is refused; physical trash purge requires a separate reviewed plan\n");
   if (!report.ok) {
     for (const message of report.errors) process.stdout.write(`error: ${message}\n`);
   }
@@ -1107,7 +1107,7 @@ function printHelp(command?: string): void {
 
 Options:
   --kind scratch|backup|run-artifact|evidence|cache|quarantine|other
-  --cleanup trash|review|delete  (v1 refuses physical delete)
+  --cleanup trash|review|delete  (cleanup=delete is refused; trash purge needs a reviewed plan)
   --owner <name>
   --label <label>        Repeatable
   --ledger <path>
@@ -1126,7 +1126,7 @@ Options:
 Cleanup execution is approval-only. There is no daemon, no auto-execute, and no
 global execute path: review a dry-run plan, then execute that one reviewed plan id.
 Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a reviewed plan id.
-V1 refuses physical delete and records cleanup-refused instead of deleting files.
+cleanup=delete records cleanup-refused instead of deleting files; physical trash purge needs a separate reviewed plan.
 Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
 Matching dry-runs reuse the existing plan id and refresh its Shelf-owned plan artifact.
 Execute writes and registers a Shelf-owned receipt artifact.

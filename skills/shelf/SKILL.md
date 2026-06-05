@@ -141,13 +141,15 @@ shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 shelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
 ```
 
-7. After approved execute or resolve, verify quiet with
-   `shelf review --all --json` or explain what remains.
+7. After approved cleanup execute, trash purge, or resolve, verify quiet with
+   `shelf review --all --json`, plus `shelf trash list --ledger <ledger-path> --json`
+   and purge receipt evidence after purge, or explain what remains.
 
 Approval wording should be exact:
 
 ```text
 approve shelf cleanup ledger <ledger-path> plan <plan-id>
+approve shelf trash purge ledger <ledger-path> plan <purge-plan-id>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and

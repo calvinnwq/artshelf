@@ -562,7 +562,9 @@ Agents should call `shelf put` immediately after creating:
 - one-off generated reports
 - copied files kept for rollback
 
-Agents should not run `shelf cleanup --execute` without explicit approval.
+Agents should not run `shelf cleanup --execute` or
+`shelf trash purge --execute` without explicit approval naming the ledger path
+and reviewed plan id.
 
 Agents may run `shelf find` and `shelf get` before `put` to avoid duplicate
 registrations. `find`/`get` are read-only ledger queries; they must not be used

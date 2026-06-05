@@ -8,10 +8,11 @@ created in `tmp/`, repo folders, or backup locations and then forgotten. Shelf
 records why an artifact exists at creation time, then makes later cleanup
 visible and reviewable.
 
-Shelf centers on three core workflows: **register a temp artifact** the moment it
-is created, **review everything safely** before anything moves, and **approve
-cleanup safely** from a reviewed plan. The reference sections further down stay
-out of the way until you need them.
+Shelf centers on four approval-first workflows: **register a temp artifact** the
+moment it is created, **review everything safely** before anything moves,
+**approve cleanup safely** from a reviewed plan, and **purge old trash
+explicitly** from a separate reviewed plan. The reference sections further down
+stay out of the way until you need them.
 
 ## Status
 
@@ -43,8 +44,8 @@ npm unlink -g shelf
 
 ## Core Workflows
 
-Shelf is built around three core workflows. Start here; the reference sections
-below are there when you need them, not before.
+Shelf is built around four approval-first workflows. Start here; the reference
+sections below are there when you need them, not before.
 
 ### 1. Register a temp artifact
 
