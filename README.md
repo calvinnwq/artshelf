@@ -52,7 +52,7 @@ sections below are there when you need them, not before.
 Record an artifact the moment it is created, while the reason is still fresh:
 
 ```bash
-shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
+shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch --cleanup trash
 ```
 
 Shelf returns an id. Capture it anywhere future cleanup context matters.
