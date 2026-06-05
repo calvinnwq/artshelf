@@ -443,6 +443,9 @@ V1 also supports a user-level registry of known ledgers:
 - `--registry <path>` overrides the registry path. Without it,
   `ARTSHELF_REGISTRY` is read first, then legacy `SHELF_REGISTRY`, then the
   default registry path.
+- Retention and due calculations use wall-clock time by default. `ARTSHELF_NOW`
+  overrides it for tests and controlled runs; legacy `SHELF_NOW` is read only
+  when `ARTSHELF_NOW` is unset.
 - `put` registers the ledger it writes to.
 - `ledgers add` registers an existing ledger explicitly.
 - `--all` reads registered ledgers as one review surface.
