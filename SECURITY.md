@@ -9,7 +9,7 @@ channels are established.
 
 Please do not open a public issue for vulnerabilities that could put users at
 risk. Contact the maintainer privately, or open a minimal GitHub security
-advisory once the public remote exists.
+advisory for `calvinnwq/artshelf`.
 
 Include:
 

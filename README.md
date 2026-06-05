@@ -16,13 +16,13 @@ stay out of the way until you need them.
 
 ## Status
 
-Artshelf is an early v1 MVP. The CLI is being prepared for npm distribution
-under the unscoped `artshelf` package name. The existing local/source install
-path remains supported as a fallback while npm publishing is wired up.
+Artshelf is an early v1 MVP. The CLI is distributed under the unscoped
+`artshelf` package name. The existing local/source install path remains supported
+as a fallback.
 
 ## Install
 
-Use the npm package once it is published:
+Install the npm package:
 
 ```bash
 npm install -g artshelf
@@ -274,7 +274,8 @@ covered by tests. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Support And Security
 
-Use GitHub issues for bugs and feature ideas once the public remote exists. See
+Use [GitHub issues](https://github.com/calvinnwq/artshelf/issues) for bugs and
+feature ideas. See
 [SUPPORT.md](SUPPORT.md) and [SECURITY.md](SECURITY.md).
 
 ## License

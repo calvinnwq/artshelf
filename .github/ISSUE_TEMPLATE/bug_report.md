@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a Artshelf behavior that looks wrong
+about: Report Artshelf behavior that looks wrong
 labels: bug
 ---
 

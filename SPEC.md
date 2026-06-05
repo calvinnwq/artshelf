@@ -537,7 +537,7 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
 ...) must preserve them rather than add a shortcut around them:
 
 - **No daemon.** Artshelf never runs in the background or watches the clock. It
-  only does work while you are running a `artshelf` command.
+  only does work while you are running an `artshelf` command.
 - **No auto-execute.** No command cleans up as a side effect. The only commands
   that move, trash, or delete files are `artshelf cleanup --execute` and
   `artshelf trash purge --execute`, each run by a human against a separately

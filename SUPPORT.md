@@ -1,6 +1,7 @@
 # Support
 
-Use GitHub issues once the public remote exists:
+Use [GitHub issues](https://github.com/calvinnwq/artshelf/issues) for Artshelf
+support:
 
 - Bug report: something implemented behaves incorrectly.
 - Feature request: a small addition that fits Artshelf's v1 safety model.
