@@ -714,10 +714,9 @@ function registerArtshelfArtifact(
   });
   const records = readLedger(ledgerPath);
   const index = records.findIndex((record) => (
-    record.owner === "artshelf" &&
+    isMatchingArtshelfArtifact(record, path, input.labels) &&
     record.status === "active" &&
-    record.path === path &&
-    sameLabels(record.labels, input.labels)
+    record.path === path
   ));
 
   if (index === -1) {
@@ -735,9 +734,19 @@ function registerArtshelfArtifact(
     retention: prepared.retention,
     kind: prepared.kind,
     cleanup: prepared.cleanup,
+    owner: prepared.owner,
     labels: prepared.labels
   };
   writeLedger(ledgerPath, records);
+}
+
+function isMatchingArtshelfArtifact(record: ArtshelfRecord, path: string, labels: string[]): boolean {
+  if (record.path !== path) return false;
+  if (record.owner === "artshelf") return sameLabels(record.labels, labels);
+  if (record.owner !== "shelf") return false;
+
+  const legacyLabels = labels.map((label, index) => index === 0 && label === "artshelf" ? "shelf" : label);
+  return sameLabels(record.labels, legacyLabels);
 }
 
 function sameLabels(left: string[], right: string[]): boolean {

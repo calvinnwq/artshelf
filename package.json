@@ -20,8 +20,7 @@
     "tmp"
   ],
   "bin": {
-    "artshelf": "dist/src/cli.js",
-    "shelf": "dist/src/cli.js"
+    "artshelf": "dist/src/cli.js"
   },
   "publishConfig": {
     "access": "public"

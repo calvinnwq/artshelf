@@ -893,6 +893,32 @@ test("cleanup dry-run reuses an unchanged existing plan", () => {
   assert.equal(JSON.parse(executed.stdout).receipt.results[0].status, "trashed");
 });
 
+test("cleanup dry-run migrates legacy Shelf-owned plan records instead of duplicating them", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const first = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const legacyRecords = readLedger(ledger).map((record) => record.owner === "artshelf" ? {
+    ...record,
+    owner: "shelf",
+    labels: record.labels.map((label: string) => label === "artshelf" ? "shelf" : label)
+  } : record);
+  writeFileSync(ledger, legacyRecords.map((record) => JSON.stringify(record)).join("\n") + "\n");
+
+  const second = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+  assert.equal(second.planId, first.planId);
+
+  const records = readLedger(ledger);
+  const planRecords = records.filter((record: any) => record.path === first.planPath);
+  assert.equal(planRecords.length, 1);
+  assert.equal(planRecords[0].owner, "artshelf");
+  assert.deepEqual(planRecords[0].labels, ["artshelf", "cleanup-plan", first.planId]);
+  assert.equal(planRecords[0].createdAt, "2026-06-04T00:00:00Z");
+});
+
 test("cleanup execute records review and refused outcomes as terminal ledger state", () => {
   const fixture = fixtureDir();
   const review = join(fixture, "review.txt");
