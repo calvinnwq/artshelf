@@ -95,6 +95,20 @@ test("install docs cover npm install and source fallback paths", () => {
   assert.match(packageJson, /"docs:serve": "python3 -m http\.server 8080 --bind 127\.0\.0\.1 --directory docs"/);
 });
 
+test("release workflow publishes npm only after release creation", () => {
+  const workflow = read(".github/workflows/release-please.yml");
+
+  assert.match(workflow, /id-token: write/);
+  assert.match(workflow, /id: release/);
+  assert.match(workflow, /release_created: \$\{\{ steps\.release\.outputs\.release_created \}\}/);
+  assert.match(workflow, /if: \$\{\{ needs\.release-please\.outputs\.release_created == 'true' \}\}/);
+  assert.match(workflow, /registry-url: https:\/\/registry\.npmjs\.org\//);
+  assert.match(workflow, /pnpm install --frozen-lockfile/);
+  assert.match(workflow, /pnpm check/);
+  assert.match(workflow, /npm publish --access public/);
+  assert.doesNotMatch(workflow, /NODE_AUTH_TOKEN|NPM_TOKEN/);
+});
+
 test("docs site explains cleanup approval boundary", () => {
   const pages = DOC_PAGES.map(read).join("\n");
   assert.match(pages, /artshelf validate --json/);
