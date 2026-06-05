@@ -167,8 +167,8 @@ shelf trash list --all --json</code></pre>
               </p>
               <ol>
                 <li>Register artifacts early during work, or state why an eligible artifact was skipped.</li>
-                <li>Review state with read-only commands first: <code>shelf ledgers list --json</code> and <code>shelf review --all --json</code>.</li>
-                <li>Present a decision packet instead of raw counts. Include registry health, affected ledgers, due/manual-review/missing-path counts, executable entries, skipped entries, refused entries, and the next safe action.</li>
+                <li>Review state with read-only commands first: <code>shelf ledgers list --json</code>, <code>shelf review --all --json</code>, and <code>shelf trash list --all --json</code>; for old trash on a selected ledger, run <code>shelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json</code>.</li>
+                <li>Present a decision packet instead of raw counts. Include registry health, affected ledgers, due/manual-review/missing-path counts, executable entries, skipped entries, refused entries, trashed record counts and ages, purge dry-run plan ids/skipped entries, and the next safe action.</li>
                 <li>Classify each candidate as <code>trash-safe</code>, <code>needs-human-review</code>, <code>resolve-candidate</code>, or <code>registry-problem</code>.</li>
                 <li>If cleanup execution is appropriate, generate or reuse a dry-run plan, then ask for explicit approval naming the ledger path and reviewed plan id.</li>
                 <li>For trashed records, require a separate reviewed purge plan before physical deletion.</li>

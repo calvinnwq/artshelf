@@ -623,6 +623,8 @@ human review.
 2. Record a config backup with manual review retention.
 3. Generate a dry-run cleanup plan after TTL expiry using fixture data.
 4. Execute a cleanup plan in a temporary test fixture and verify receipt output.
+5. List trashed records, dry-run an old-trash purge, then execute the reviewed
+   purge plan in a fixture and verify receipt output plus resolved ledger state.
 
 ## V1 Acceptance Criteria
 

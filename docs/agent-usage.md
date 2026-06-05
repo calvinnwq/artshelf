@@ -143,10 +143,13 @@ Shelf cleanup attention:
 1. Register artifacts early during work, or state why an eligible artifact was
    skipped.
 2. Review state with read-only commands first:
-   `shelf ledgers list --json` and `shelf review --all --json`.
+   `shelf ledgers list --json`, `shelf review --all --json`, and
+   `shelf trash list --all --json`; for old trash on a selected ledger, run
+   `shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json`.
 3. Present a decision packet instead of raw counts. Include registry health,
    affected ledgers, due/manual-review/missing-path counts, executable entries,
-   skipped entries, refused entries, and the next safe action.
+   skipped entries, refused entries, trashed record counts and ages, purge
+   dry-run plan ids/skipped entries, and the next safe action.
 4. Classify each candidate:
    - `trash-safe`: disposable after the reviewed plan moves it into Shelf trash.
    - `needs-human-review`: `cleanup=review`, evidence, backups, reports, or
