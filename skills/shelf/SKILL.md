@@ -323,10 +323,15 @@ When asked to review Shelf state:
 
 1. Run `shelf validate --json`.
 2. Run `shelf due --json`.
-3. If cleanup is requested, run `shelf cleanup --dry-run --json`.
-4. Report plan id, executable entries, skipped entries, and refused entries.
-5. Stop before `cleanup --execute` unless the user explicitly approves that
-   plan id.
+3. Run `shelf trash list --json` to surface quarantined artifacts.
+4. If cleanup is requested, run `shelf cleanup --dry-run --json`.
+5. If old-trash purge review is requested, run
+   `shelf trash purge --older-than <ttl> --dry-run --json` for the explicit
+   ledger.
+6. Report plan id, executable entries, skipped entries, refused entries, trashed
+   records, and any purge plan id.
+7. Stop before `cleanup --execute` or `trash purge --execute` unless the user
+   explicitly approves that reviewed plan id.
 
 For a whole-machine Shelf review, prefer:
 

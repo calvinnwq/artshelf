@@ -247,7 +247,8 @@ Doctor reports:
   (unparseable or malformed) entries.
 - The cleanup safety posture, including that `cleanup --execute` is scoped to
   one selected/default ledger and still requires a reviewed `--plan-id`, that
-  global execute is refused, and that `cleanup=delete` is refused in v1.
+  global execute is refused, that `cleanup=delete` is refused in v1, and that
+  physical trash purge requires a separate reviewed purge plan.
 
 A healthy machine exits 0. A broken registry file or any stale or invalid
 registered ledger exits non-zero with actionable errors. Humans should run
