@@ -3,11 +3,14 @@ import { existsSync } from "node:fs";
 import {
   appendPreparedRecord,
   createCleanupPlan,
+  createTrashPurgePlan,
   dueEntries,
   executeCleanupPlan,
+  executeTrashPurgePlan,
   filterRecordsByStatus,
   findRecords,
   getRecord,
+  listTrashedRecords,
   normalizeLedgerPath,
   prepareRecord,
   previewCleanupPlan,
@@ -34,6 +37,7 @@ const VALUE_FLAGS = new Set([
   "owner",
   "path",
   "plan-id",
+  "older-than",
   "registry",
   "reason",
   "retain-until",
@@ -79,6 +83,8 @@ function main(argv: string[]): number {
         return handleValidate(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "cleanup":
         return handleCleanup(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      case "trash":
+        return handleTrash(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "review":
         return handleReview(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       case "doctor":
@@ -449,6 +455,77 @@ function handleCleanup(parsed: ParsedArgs, ledgerPath: string, json: boolean): n
   throw new Error("cleanup requires --dry-run or --execute");
 }
 
+function handleTrash(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const action = parsed.positionals[0];
+  if (!action) throw new Error("trash requires a subcommand: list or purge");
+
+  if (action === "list") {
+    return handleTrashList(parsed, ledgerPath, json);
+  }
+  if (action === "purge") {
+    return handleTrashPurge(parsed, ledgerPath, json);
+  }
+  if (action === "help") {
+    printHelp("trash");
+    return 0;
+  }
+  throw new Error(`Unknown trash subcommand: ${action}`);
+}
+
+function handleTrashList(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  if (boolFlag(parsed, "all")) {
+    const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
+    const validation = validateRegisteredLedgersOrThrow(registryPath);
+    if (!validation.ok) return printRegisteredLedgerValidation(registryPath, validation.results, json);
+    const results = validation.results.map(({ ledger }) => ({ ledger, entries: listTrashedRecords(ledger.path) }));
+    if (json) return printJson({ ok: true, registryPath, ledgers: results });
+    printTrashListEntries(results);
+    process.stdout.write(`registry: ${registryPath}\n`);
+    return 0;
+  }
+
+  const entries = listTrashedRecords(ledgerPath);
+  if (json) return printJson({ ok: true, ledgerPath, entries });
+  if (entries.length === 0) {
+    process.stdout.write(`no trashed records\nledger: ${ledgerPath}\n`);
+    return 0;
+  }
+  for (const entry of entries) {
+    process.stdout.write(`${entry.id} age ${entry.age} target ${entry.targetPath} cleaned ${entry.cleanedAt} receipt ${entry.receiptPath} plan ${entry.cleanupPlanId}\n`);
+  }
+  process.stdout.write(`ledger: ${ledgerPath}\n`);
+  return 0;
+}
+
+function handleTrashPurge(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const execute = boolFlag(parsed, "execute");
+  const dryRun = boolFlag(parsed, "dry-run");
+  if (dryRun && execute) throw new Error("trash purge accepts either --dry-run or --execute, not both");
+  if (boolFlag(parsed, "all")) {
+    throw new Error("trash purge --all is not supported; scope the purge to one --ledger and review the plan id before execute");
+  }
+  if (!dryRun && !execute) throw new Error("trash purge requires either --dry-run or --execute");
+
+  if (execute) {
+    const planId = requiredStringFlag(parsed, "plan-id");
+    const receipt = executeTrashPurgePlan(ledgerPath, planId);
+    if (json) return printJson({ ok: true, receipt });
+    process.stdout.write(`trash receipt ${receipt.purgePlanId}: ${receipt.results.length} results\nreceipt: ${receipt.receiptPath}\nledger: ${ledgerPath}\n`);
+    return 0;
+  }
+
+  const olderThan = requiredStringFlag(parsed, "older-than");
+  const plan = createTrashPurgePlan(ledgerPath, olderThan);
+  if (json) return printJson({ ok: true, plan });
+  if (plan.entries.length === 0) {
+    process.stdout.write(`trash purge plan ${plan.purgePlanId}: no matching trashed records\nledger: ${ledgerPath}\n`);
+    return 0;
+  }
+  process.stdout.write(`trash purge plan ${plan.purgePlanId}: ${plan.entries.length} entries, ${plan.skipped.length} skipped\n`);
+  process.stdout.write(`plan: ${plan.planPath ?? "not-created"}\nledger: ${ledgerPath}\n`);
+  return 0;
+}
+
 function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
@@ -586,7 +663,7 @@ function printDoctor(report: DoctorReport): void {
     process.stdout.write(`  ${ledger.status} ${ledger.name} ${ledger.path}\n`);
     for (const message of ledger.errors) process.stdout.write(`    error: ${message}\n`);
   }
-  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; physical delete is refused in v1\n");
+  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; cleanup=delete is refused; physical trash purge requires a separate reviewed plan\n");
   if (!report.ok) {
     for (const message of report.errors) process.stdout.write(`error: ${message}\n`);
   }
@@ -935,6 +1012,21 @@ function printPlan(plan: CleanupPlan, ledgerPath: string): void {
   process.stdout.write(`plan: ${plan.planPath ?? "not created"}\nledger: ${ledgerPath}\n`);
 }
 
+function printTrashListEntries(results: Array<{ ledger: LedgerRegistryEntry; entries: ReturnType<typeof listTrashedRecords> }>): void {
+  const total = results.reduce((count, result) => count + result.entries.length, 0);
+  if (total === 0) {
+    process.stdout.write("no trashed records\n");
+    return;
+  }
+  for (const result of results) {
+    if (result.entries.length === 0) continue;
+    process.stdout.write(`\n[${result.ledger.name}] ${result.ledger.path}\n`);
+    for (const entry of result.entries) {
+      process.stdout.write(`trash ${entry.id} ${entry.age} ${entry.cleanedAt} ${entry.targetPath} -> ${entry.receiptPath} (${entry.cleanupPlanId})\n`);
+    }
+  }
+}
+
 function summarizeReview(results: ReviewResult[]): ReviewSummary {
   const summary: ReviewSummary = {
     ledgers: results.length,
@@ -1015,7 +1107,7 @@ function printHelp(command?: string): void {
 
 Options:
   --kind scratch|backup|run-artifact|evidence|cache|quarantine|other
-  --cleanup trash|review|delete  (v1 refuses physical delete)
+  --cleanup trash|review|delete  (cleanup=delete is refused; trash purge needs a reviewed plan)
   --owner <name>
   --label <label>        Repeatable
   --ledger <path>
@@ -1034,11 +1126,29 @@ Options:
 Cleanup execution is approval-only. There is no daemon, no auto-execute, and no
 global execute path: review a dry-run plan, then execute that one reviewed plan id.
 Cleanup is ledger-first. Execute never computes a fresh live set; it only uses a reviewed plan id.
-V1 refuses physical delete and records cleanup-refused instead of deleting files.
+cleanup=delete records cleanup-refused instead of deleting files; physical trash purge needs a separate reviewed plan.
 Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
 Matching dry-runs reuse the existing plan id and refresh its Shelf-owned plan artifact.
 Execute writes and registers a Shelf-owned receipt artifact.
 Global --all mode is dry-run only.
+`);
+    return;
+  }
+
+  if (command === "trash") {
+    process.stdout.write(`Usage:
+  shelf trash list [--ledger <path>] [--all] [--json]
+  shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
+  shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
+
+Trash is approval-first. Use list to inspect what is currently in Shelf trash and
+dry-run purge to generate a reviewed plan id for age-based deletion. Purge
+requires either --dry-run or --execute. Execute requires a reviewed plan id, and
+trash purge is always scoped to one --ledger; --all is not supported for purge
+(only for trash list).
+Trash receipt artifacts are registered when purge executes. Completed receipts are
+refused on repeat execute; started receipts from interrupted purges may be resumed
+and reconciled. Purged records are resolved and no longer reappear as trashed.
 `);
     return;
   }
@@ -1124,7 +1234,8 @@ Doctor reports whether Shelf is healthy on this machine: CLI version, selected
 or default ledger path, selected or global registry path, registered ledger health
 (stale/missing/invalid), and the cleanup safety posture. Execute is scoped to one
 selected or default ledger and still requires a reviewed plan id; --all execute
-and physical delete are refused in v1.
+and cleanup=delete are refused, while physical trash purge requires a separate
+reviewed purge plan.
 
 Run it after install, when --all commands behave unexpectedly, or on a schedule to
 catch stale registry entries. Doctor is read-only. A healthy machine exits 0; a
@@ -1177,6 +1288,9 @@ Usage:
   shelf cleanup --dry-run [--json]
   shelf cleanup --dry-run --all [--json]
   shelf cleanup --execute --plan-id <id> [--json]
+  shelf trash list [--all] [--ledger <path>] [--json]
+  shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
+  shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
   shelf resolve <id> --status resolved --reason <text> [--json]
 
 Global options:

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
 
 const CLI = new URL("../src/cli.js", import.meta.url);
@@ -13,6 +13,8 @@ test("help and version are useful", () => {
   assert.equal(help.status, 0);
   assert.match(help.stdout, /Shelf 0\.1\.0/);
   assert.match(help.stdout, /shelf cleanup --dry-run/);
+  assert.match(help.stdout, /shelf trash list \[--all\] \[--ledger <path>\] \[--json\]/);
+  assert.match(help.stdout, /shelf trash purge --older-than <ttl> --dry-run \[--ledger <path>\] \[--json\]/);
 
   const putHelp = shelf(["put", "--help"]);
   assert.equal(putHelp.status, 0);
@@ -32,6 +34,11 @@ test("help and version are useful", () => {
   const getHelp = shelf(["help", "get"]);
   assert.equal(getHelp.status, 0);
   assert.match(getHelp.stdout, /shelf get <id>/);
+
+  const trashHelp = shelf(["help", "trash"]);
+  assert.equal(trashHelp.status, 0);
+  assert.match(trashHelp.stdout, /shelf trash purge --execute --plan-id <id>/);
+  assert.match(trashHelp.stdout, /--ledger <path>/);
 
   const ledgersHelp = shelf(["help", "ledgers"]);
   assert.equal(ledgersHelp.status, 0);
@@ -921,6 +928,421 @@ test("cleanup execute records review and refused outcomes as terminal ledger sta
   assert.equal(followupPlan.planId, "not-created");
   assert.equal(followupPlan.planPath, null);
   assert.equal(followupPlan.entries.length, 0);
+});
+
+test("trash list reports trashed entries with target/receipt/plan metadata and age", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const execute = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const purgedEntry = readLedger(ledger).find((entry) => entry.status === "trashed");
+  assert.ok(purgedEntry);
+
+  const listed = JSON.parse(shelf(["trash", "list", "--ledger", ledger, "--json"]).stdout);
+  assert.equal(listed.entries.length, 1);
+  const listedEntry = listed.entries[0];
+  assert.equal(listedEntry.id, purgedEntry.id);
+  assert.equal(listedEntry.targetPath, execute.results[0].target);
+  assert.equal(listedEntry.receiptPath, execute.receiptPath);
+  assert.equal(listedEntry.cleanupPlanId, plan.planId);
+  assert.equal(typeof listedEntry.age, "string");
+  assert.match(listedEntry.age, /\d+[dhm](\s\d+[dhm])*/);
+  assert.equal(existsSync(execute.results[0].target), true);
+});
+
+test("trash list --all aggregates trashed records across a registry", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifactOne = join(fixture, "artifact-1.txt");
+  const artifactTwo = join(fixture, "artifact-2.txt");
+  const ledgerOne = ledgerPath(join(fixture, "one"));
+  const ledgerTwo = ledgerPath(join(fixture, "two"));
+  writeFileSync(artifactOne, "hello one");
+  writeFileSync(artifactTwo, "hello two");
+
+  shelf(["ledgers", "add", "--ledger", ledgerOne, "--name", "one", "--registry", registry]);
+  shelf(["ledgers", "add", "--ledger", ledgerTwo, "--name", "two", "--registry", registry]);
+  shelf(["put", artifactOne, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledgerOne, "--registry", registry], "2026-06-01T00:00:00Z");
+  shelf(["put", artifactTwo, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledgerTwo, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const cleanupOne = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledgerOne, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const cleanupTwo = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledgerTwo, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const receiptOne = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", cleanupOne.planId, "--ledger", ledgerOne, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const receiptTwo = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", cleanupTwo.planId, "--ledger", ledgerTwo, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+
+  const listed = JSON.parse(shelf(["trash", "list", "--all", "--registry", registry, "--json"], "2026-06-03T00:02:00Z").stdout);
+  assert.equal(listed.ledgers.length, 2);
+  assert.equal(listed.ledgers[0].ledger.name, "one");
+  assert.equal(listed.ledgers[1].ledger.name, "two");
+  assert.equal(listed.ledgers[0].entries.length, 1);
+  assert.equal(listed.ledgers[1].entries.length, 1);
+
+  assert.equal(listed.ledgers[0].entries[0].receiptPath, receiptOne.receiptPath);
+  assert.equal(listed.ledgers[1].entries[0].receiptPath, receiptTwo.receiptPath);
+});
+
+test("trash list fails loudly for malformed trashed records", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  mkdirSync(dirname(ledger), { recursive: true });
+  writeFileSync(ledger, `${JSON.stringify({ id: "broken", path: fixture, status: "trashed" })}\n`);
+
+  const listed = shelf(["trash", "list", "--ledger", ledger], "2026-06-03T00:02:00Z");
+  assert.equal(listed.status, 1);
+  assert.match(listed.stderr, /trashed record broken missing cleanup metadata/);
+});
+
+test("trash purge refuses execution without review and refuses --all execution", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const barePreview = shelf(["trash", "purge", "--older-than", "1h", "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(barePreview.status, 1);
+  assert.match(barePreview.stderr, /trash purge requires either --dry-run or --execute/);
+
+  const missing = shelf(["trash", "purge", "--execute", "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(missing.status, 1);
+  assert.match(missing.stderr, /Missing required --plan-id/);
+
+  const unreviewed = shelf(["trash", "purge", "--execute", "--plan-id", "purge_missing", "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(unreviewed.status, 1);
+  assert.match(unreviewed.stderr, /Trash purge plan not found/);
+  const unsafePlanId = shelf(["trash", "purge", "--execute", "--plan-id", "../purge_escape", "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(unsafePlanId.status, 1);
+  assert.match(unsafePlanId.stderr, /Invalid trash purge plan id/);
+
+  const allExecute = shelf(["trash", "purge", "--all", "--execute", "--plan-id", "purge_missing", "--registry", join(fixture, "registry.json")], "2026-06-03T00:01:00Z");
+  assert.equal(allExecute.status, 1);
+  assert.match(allExecute.stderr, /trash purge --all is not supported/);
+  const allDryRun = shelf(["trash", "purge", "--older-than", "1h", "--all", "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(allDryRun.status, 1);
+  assert.match(allDryRun.stderr, /trash purge --all is not supported/);
+});
+
+test("trash purge dry-run then execute deletes trashed targets and updates ledger records", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const cleanupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const cleanupReceipt = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", cleanupPlan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const trashedId = cleanupReceipt.results[0].id;
+  const trashedPath = cleanupReceipt.results[0].target;
+
+  assert.equal(existsSync(trashedPath), true);
+
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+  assert.equal(purgePlan.entries.length, 1);
+  assert.equal(purgePlan.entries[0].id, trashedId);
+  assert.equal(purgePlan.entries[0].targetPath, trashedPath);
+  assert.equal(purgePlan.entries[0].cleanupPlanId, cleanupPlan.planId);
+  assert.equal(purgePlan.entries[0].receiptPath, cleanupReceipt.receiptPath);
+
+  const result = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+  assert.equal(result.results[0].status, "purged");
+  assert.equal(existsSync(trashedPath), false);
+  const receiptFile = JSON.parse(readFileSync(result.receiptPath, "utf8"));
+  assert.equal(receiptFile.status, undefined);
+  assert.equal(receiptFile.completedAt, "2026-06-03T02:01:00Z");
+
+  const ledgerEntries = readLedger(ledger);
+  const record = ledgerEntries.find((entry) => entry.id === trashedId);
+  assert.ok(record);
+  assert.equal(record.status, "resolved");
+  assert.equal(record.purgePlanId, purgePlan.purgePlanId);
+  assert.equal(record.purgeReceiptPath, result.receiptPath);
+  assert.equal(record.resolutionReason, "trash purge completed");
+  assert.equal(record.resolvedAt, "2026-06-03T02:01:00Z");
+  const receiptBeforeRepeat = readFileSync(result.receiptPath, "utf8");
+  const repeated = shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:02:00Z");
+  assert.equal(repeated.status, 1);
+  assert.match(repeated.stderr, /Trash purge receipt already exists/);
+  assert.equal(readFileSync(result.receiptPath, "utf8"), receiptBeforeRepeat);
+});
+
+test("trash purge execute skips stale plans and targets outside Shelf trash", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  const outside = join(fixture, "outside.txt");
+  writeFileSync(artifact, "hello");
+  writeFileSync(outside, "do not delete");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const cleanupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const cleanupReceipt = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", cleanupPlan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const trashedPath = cleanupReceipt.results[0].target;
+
+  const stalePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+  stalePlan.entries[0].targetPath = outside;
+  writeFileSync(stalePlan.planPath, `${JSON.stringify(stalePlan, null, 2)}\n`);
+
+  const staleResult = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", stalePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+  assert.equal(staleResult.results[0].status, "skipped");
+  assert.equal(staleResult.results[0].reason, "plan entry no longer matches ledger record");
+  assert.equal(existsSync(outside), true);
+  assert.equal(existsSync(trashedPath), true);
+
+  const ledgerEntries = readFileSync(ledger, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const trashedRecord = ledgerEntries.find((entry) => entry.status === "trashed");
+  assert.ok(trashedRecord);
+  trashedRecord.targetPath = outside;
+  writeFileSync(ledger, `${ledgerEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+  const outsidePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:02:00Z").stdout).plan;
+  const outsideResult = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", outsidePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:03:00Z").stdout).receipt;
+  assert.equal(outsideResult.results[0].status, "skipped");
+  assert.equal(outsideResult.results[0].reason, "target is outside Shelf trash");
+  assert.equal(existsSync(outside), true);
+  assert.equal(existsSync(trashedPath), true);
+
+  const planTrashRoot = dirname(trashedPath);
+  const rootTargetEntries = readFileSync(ledger, "utf8")
+    .trim()
+    .split("\n")
+    .map((line) => JSON.parse(line));
+  const rootTargetRecord = rootTargetEntries.find((entry) => entry.status === "trashed");
+  assert.ok(rootTargetRecord);
+  rootTargetRecord.targetPath = planTrashRoot;
+  writeFileSync(ledger, `${rootTargetEntries.map((entry) => JSON.stringify(entry)).join("\n")}\n`);
+
+  const rootTargetPlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:04:00Z").stdout).plan;
+  const rootTargetResult = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", rootTargetPlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:05:00Z").stdout).receipt;
+  assert.equal(rootTargetResult.results[0].status, "skipped");
+  assert.equal(rootTargetResult.results[0].reason, "target is not a trashed artifact path");
+  assert.equal(existsSync(trashedPath), true);
+});
+
+test("trash purge writes receipt and records failed delete attempts", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const cleanupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const cleanupReceipt = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", cleanupPlan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const trashedPath = cleanupReceipt.results[0].target;
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+
+  chmodSync(dirname(trashedPath), 0o500);
+  const result = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+  chmodSync(dirname(trashedPath), 0o700);
+
+  assert.equal(result.results[0].status, "failed");
+  assert.equal(existsSync(trashedPath), true);
+  const receiptFile = JSON.parse(readFileSync(result.receiptPath, "utf8"));
+  assert.equal(receiptFile.results[0].status, "failed");
+  assert.equal(receiptFile.completedAt, "2026-06-03T02:01:00Z");
+  assert.equal(readLedger(ledger).find((entry) => entry.id === cleanupReceipt.results[0].id)?.status, "trashed");
+});
+
+test("trash purge validates malformed plans before writing a blocking receipt", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const cleanupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  shelf(["cleanup", "--execute", "--plan-id", cleanupPlan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z");
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+
+  purgePlan.entries = null;
+  writeFileSync(purgePlan.planPath, `${JSON.stringify(purgePlan, null, 2)}\n`);
+
+  const result = shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z");
+  assert.equal(result.status, 1);
+  assert.equal(existsSync(join(dirname(ledger), "purge-receipts", `${purgePlan.purgePlanId}.json`)), false);
+});
+
+test("trash purge resumes started receipts after an interrupted delete", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const cleanupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const cleanupReceipt = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", cleanupPlan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const trashedPath = cleanupReceipt.results[0].target;
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+  const receiptPath = join(dirname(ledger), "purge-receipts", `${purgePlan.purgePlanId}.json`);
+
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({
+    purgePlanId: purgePlan.purgePlanId,
+    executedAt: "2026-06-03T02:00:30Z",
+    status: "started",
+    results: [{ id: cleanupReceipt.results[0].id, status: "deleting", targetPath: trashedPath }]
+  }, null, 2)}\n`);
+  rmSync(trashedPath, { recursive: true, force: true });
+
+  const result = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+
+  assert.equal(result.results[0].status, "purged");
+  assert.equal(JSON.parse(readFileSync(receiptPath, "utf8")).executedAt, "2026-06-03T02:00:30Z");
+  assert.equal(readLedger(ledger).find((entry) => entry.id === cleanupReceipt.results[0].id)?.status, "resolved");
+});
+
+test("trash purge reconciles started receipts with prior purged evidence", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const cleanupPlan = JSON.parse(shelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const cleanupReceipt = JSON.parse(shelf(["cleanup", "--execute", "--plan-id", cleanupPlan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const trashedPath = cleanupReceipt.results[0].target;
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+  const receiptPath = join(dirname(ledger), "purge-receipts", `${purgePlan.purgePlanId}.json`);
+
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({
+    purgePlanId: purgePlan.purgePlanId,
+    executedAt: "2026-06-03T02:00:30Z",
+    status: "started",
+    results: [{ id: cleanupReceipt.results[0].id, status: "purged", targetPath: trashedPath }]
+  }, null, 2)}\n`);
+  rmSync(trashedPath, { recursive: true, force: true });
+
+  const result = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+
+  assert.equal(result.results[0].status, "purged");
+  assert.equal(JSON.parse(readFileSync(receiptPath, "utf8")).completedAt, "2026-06-03T02:01:00Z");
+  assert.equal(readLedger(ledger).find((entry) => entry.id === cleanupReceipt.results[0].id)?.status, "resolved");
+});
+
+test("trash purge execute skips targets that resolve outside ledger trash", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const ledgerDir = dirname(ledger);
+  const externalTrash = join(fixture, "external-trash");
+  const cleanupPlanId = "plan_symlink";
+  const realTarget = join(externalTrash, cleanupPlanId, "artifact.txt");
+  const apparentTarget = join(ledgerDir, "trash", cleanupPlanId, "artifact.txt");
+
+  mkdirSync(dirname(realTarget), { recursive: true });
+  mkdirSync(ledgerDir, { recursive: true });
+  writeFileSync(realTarget, "do not delete");
+  symlinkSync(externalTrash, join(ledgerDir, "trash"));
+  writeFileSync(ledger, `${JSON.stringify({
+    id: "shf_symlink",
+    path: join(fixture, "original.txt"),
+    kind: "run-artifact",
+    reason: "symlink trash root",
+    createdAt: "2026-06-01T00:00:00Z",
+    retention: { mode: "ttl", ttl: "1d" },
+    cleanup: "trash",
+    status: "trashed",
+    targetPath: apparentTarget,
+    cleanedAt: "2026-06-01T00:00:00Z",
+    receiptPath: join(ledgerDir, "receipts", "receipt.json"),
+    cleanupPlanId
+  })}\n`);
+
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+  const result = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+  assert.equal(result.results[0].status, "skipped");
+  assert.equal(result.results[0].reason, "target resolves outside Shelf trash");
+  assert.equal(existsSync(realTarget), true);
+});
+
+test("trash purge unlinks dangling symlink artifacts inside ledger trash", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const ledgerDir = dirname(ledger);
+  const cleanupPlanId = "plan_broken_symlink_artifact";
+  const externalTarget = join(fixture, "missing-outside.txt");
+  const apparentTarget = join(ledgerDir, "trash", cleanupPlanId, "artifact-link");
+
+  mkdirSync(dirname(apparentTarget), { recursive: true });
+  symlinkSync(externalTarget, apparentTarget);
+  writeFileSync(ledger, `${JSON.stringify({
+    id: "shf_broken_symlink_artifact",
+    path: join(fixture, "original-link"),
+    kind: "run-artifact",
+    reason: "broken symlink artifact",
+    createdAt: "2026-06-01T00:00:00Z",
+    retention: { mode: "ttl", ttl: "1d" },
+    cleanup: "trash",
+    status: "trashed",
+    targetPath: apparentTarget,
+    cleanedAt: "2026-06-01T00:00:00Z",
+    receiptPath: join(ledgerDir, "receipts", "receipt.json"),
+    cleanupPlanId
+  })}\n`);
+
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+  const result = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+
+  assert.equal(result.results[0].status, "purged");
+  assert.equal(existsSync(apparentTarget), false);
+});
+
+test("trash purge unlinks quarantined symlink artifacts inside ledger trash", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const ledgerDir = dirname(ledger);
+  const cleanupPlanId = "plan_symlink_artifact";
+  const externalTarget = join(fixture, "outside.txt");
+  const apparentTarget = join(ledgerDir, "trash", cleanupPlanId, "artifact-link");
+
+  mkdirSync(dirname(apparentTarget), { recursive: true });
+  writeFileSync(externalTarget, "do not delete");
+  symlinkSync(externalTarget, apparentTarget);
+  writeFileSync(ledger, `${JSON.stringify({
+    id: "shf_symlink_artifact",
+    path: join(fixture, "original-link"),
+    kind: "run-artifact",
+    reason: "symlink artifact",
+    createdAt: "2026-06-01T00:00:00Z",
+    retention: { mode: "ttl", ttl: "1d" },
+    cleanup: "trash",
+    status: "trashed",
+    targetPath: apparentTarget,
+    cleanedAt: "2026-06-01T00:00:00Z",
+    receiptPath: join(ledgerDir, "receipts", "receipt.json"),
+    cleanupPlanId
+  })}\n`);
+
+  const purgePlan = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T02:00:00Z").stdout).plan;
+  const result = JSON.parse(shelf(["trash", "purge", "--execute", "--plan-id", purgePlan.purgePlanId, "--ledger", ledger, "--json"], "2026-06-03T02:01:00Z").stdout).receipt;
+
+  assert.equal(result.results[0].status, "purged");
+  assert.equal(existsSync(apparentTarget), false);
+  assert.equal(existsSync(externalTarget), true);
+});
+
+test("trash purge dry-run reports not-created when no trashed entries match", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  shelf(["put", artifact, "--reason", "not due yet", "--ttl", "7d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const dryRun = JSON.parse(shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger, "--json"], "2026-06-01T00:05:00Z").stdout);
+  assert.equal(dryRun.plan.purgePlanId, "not-created");
+  assert.equal(dryRun.plan.entries.length, 0);
+  assert.equal(dryRun.plan.skipped.length, 0);
+  assert.equal(dryRun.plan.planPath, null);
+  const human = shelf(["trash", "purge", "--older-than", "1h", "--dry-run", "--ledger", ledger], "2026-06-01T00:05:00Z");
+  assert.equal(human.status, 0);
+  assert.match(human.stdout, /no matching trashed records/);
+  assert.equal(existsSync(join(fixture, ".shelf", "purge-plans")), false);
 });
 
 test("list filters by status after cleanup state changes", () => {

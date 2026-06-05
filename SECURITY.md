@@ -18,6 +18,7 @@ Include:
 - reproduction steps
 - expected impact
 
-Shelf v1 refuses physical delete operations, but reports involving unsafe file
-movement, path handling, ledger tampering, or cleanup plan execution are still
-important.
+Shelf v1 refuses `cleanup=delete`, while reviewed trash purge can physically
+remove quarantined trash. Reports involving unsafe file movement, purge path
+handling, ledger tampering, cleanup plan execution, or trash purge execution are
+still important.

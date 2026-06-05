@@ -36,9 +36,17 @@
   due, manual-review, missing-path, executable, skipped counts, and plan ids) and
   human output adds a triage line plus the next safe action. Review stays
   read-only and never writes cleanup plans.
-- Reorganized the README and docs quickstart to lead with the three core
-  workflows — register a temp artifact, review everything safely, and approve
-  cleanup safely — keeping reference material available below the lead.
+- Added approval-first `shelf trash list` and `shelf trash purge` commands for
+  reviewing quarantined trash and physically deleting it only from a reviewed,
+  ledger-scoped purge plan.
+- Changed ledger validation to require cleanup metadata on trashed records and
+  warn when a trashed target path is missing.
+- Hardened trash purge execution with ledger-local path checks, durable failure
+  receipts, interrupted-run resume, and refusal of completed purge receipts.
+- Reorganized the README and docs quickstart to lead with the approval-first
+  workflows — register a temp artifact, review everything safely, approve
+  cleanup safely, and purge old trash explicitly — keeping reference material
+  available below the lead.
 - Tightened the portable agent skill description so the completion-gate trigger
   is visible before final responses, status updates, handoffs, and done reports.
 

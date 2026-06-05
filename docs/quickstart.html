@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Shelf Quickstart</title>
-    <meta name="description" content="The three core Shelf workflows: register a temp artifact, review everything safely, and approve cleanup safely.">
+    <meta name="description" content="The approval-first Shelf workflows: register a temp artifact, review everything safely, approve cleanup safely, and purge old trash explicitly.">
     <link rel="stylesheet" href="site.css">
     <script src="theme.js" defer></script>
   </head>
@@ -39,12 +39,13 @@
             <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Quickstart</span></nav>
             <div class="hero">
               <div>
-                <p class="eyebrow">Three core workflows</p>
+                <p class="eyebrow">Approval-first workflows</p>
                 <h1>Register, review, approve — safely.</h1>
                 <p class="lede">
-                  Shelf centers on three workflows: register a temp artifact when it is created,
-                  review everything safely before anything moves, and approve cleanup safely from a
-                  reviewed plan. Start with explicit ledger and registry paths when testing.
+                  Shelf centers on four workflows: register a temp artifact when it is created,
+                  review everything safely before anything moves, approve cleanup safely from a
+                  reviewed plan, and purge old trash only from a separate reviewed plan. Start with
+                  explicit ledger and registry paths when testing.
                 </p>
               </div>
               <div class="terminal">
@@ -55,7 +56,7 @@ $ shelf put /tmp/shelf-demo \
   --reason "quickstart artifact" \
   --ttl 1d \
   --kind scratch \
-  --cleanup review \
+  --cleanup trash \
   --ledger /tmp/shelf-ledger.jsonl \
   --registry /tmp/shelf-registry.json</code></pre>
               </div>
@@ -75,7 +76,7 @@ shelf put /tmp/shelf-demo \
   --reason "quickstart artifact" \
   --ttl 1d \
   --kind scratch \
-  --cleanup review \
+  --cleanup trash \
   --owner manual \
   --label quickstart \
   --ledger /tmp/shelf-ledger.jsonl \
@@ -112,6 +113,25 @@ shelf cleanup --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
                 Shelf also records generated plans and receipts in the ledger as Shelf-owned
                 artifacts.
               </div>
+            </section>
+
+            <section>
+              <h2>4. Purge old trashed records explicitly</h2>
+              <p>
+                After cleanup execution, trashed files are quarantined under the ledger's
+                <code>.shelf/trash</code> folder. Before physical deletion, run an explicit
+                reviewed trash purge plan:
+              </p>
+              <pre><code>shelf trash list --ledger /tmp/shelf-ledger.jsonl
+shelf trash purge --older-than 7d --dry-run --ledger /tmp/shelf-ledger.jsonl --json</code></pre>
+              <p>
+                A fresh quickstart record will usually be newer than the <code>7d</code>
+                purge cutoff and report <code>not-created</code>; for real old trash, execute
+                only if the dry-run produced entries and the plan id was explicitly reviewed:
+              </p>
+              <pre><code>shelf trash purge --execute \
+  --plan-id purge_20260601_120000_ab12 \
+  --ledger /tmp/shelf-ledger.jsonl</code></pre>
             </section>
           </article>
         </main>

@@ -115,6 +115,7 @@ shelf review --all --json
 shelf status --all --json
 shelf due --all --json
 shelf find --all --owner <agent-or-runtime> --json
+shelf trash list --all --json
 ```
 
 `shelf review --all --json` returns an aggregate triage summary (affected
@@ -142,10 +143,13 @@ Shelf cleanup attention:
 1. Register artifacts early during work, or state why an eligible artifact was
    skipped.
 2. Review state with read-only commands first:
-   `shelf ledgers list --json` and `shelf review --all --json`.
+   `shelf ledgers list --json`, `shelf review --all --json`, and
+   `shelf trash list --all --json`; for old trash on a selected ledger, run
+   `shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json`.
 3. Present a decision packet instead of raw counts. Include registry health,
    affected ledgers, due/manual-review/missing-path counts, executable entries,
-   skipped entries, refused entries, and the next safe action.
+   skipped entries, refused entries, trashed record counts and ages, purge
+   dry-run plan ids/skipped entries, and the next safe action.
 4. Classify each candidate:
    - `trash-safe`: disposable after the reviewed plan moves it into Shelf trash.
    - `needs-human-review`: `cleanup=review`, evidence, backups, reports, or
@@ -156,18 +160,29 @@ Shelf cleanup attention:
      before touching artifacts.
 5. If cleanup execution is appropriate, generate or reuse a dry-run plan, then
    ask for explicit approval naming the ledger path and reviewed plan id.
-6. After approved execute or resolve, verify quiet with
-   `shelf review --all --json` or explain what remains.
+6. For trashed records, require a separate reviewed purge plan before physical
+   deletion:
+
+```bash
+shelf trash list --ledger <ledger-path>
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
+shelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
+```
+
+7. After approved cleanup execute, trash purge, or resolve, verify quiet with
+   `shelf review --all --json`, plus `shelf trash list --ledger <ledger-path> --json`
+   and purge receipt evidence after purge, or explain what remains.
 
 Approval wording should be exact:
 
 ```text
 approve shelf cleanup ledger <ledger-path> plan <plan-id>
+approve shelf trash purge ledger <ledger-path> plan <purge-plan-id>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and
 execute it in the same step. `trash` moves artifacts into Shelf trash; physical
-delete is refused in v1.
+delete requires a separate reviewed trash purge plan.
 
 ## Reasons
 
@@ -238,12 +253,28 @@ shelf cleanup --execute --plan-id <id>
 
 Approval should name the plan id. Do not generate a fresh plan and execute it in
 the same breath. Review the dry-run first, then execute the reviewed plan id.
+After cleanup execution, agents may inspect trash and create a purge dry-run for
+review:
+
+```bash
+shelf trash list --ledger <ledger-path> --json
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
+```
+
+Trash purge execution is separately approval-only and must name the ledger and
+reviewed purge plan id:
+
+```bash
+shelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
+```
+
 No-op dry-runs report `not-created` and do not write plan files. When dry-run or
 execute creates plan or receipt artifacts, Shelf records those artifacts in the
 ledger as `owner=shelf`.
 
-V1 refuses physical `delete`; execution records `cleanup-refused` instead of
-silently deleting files.
+`cleanup=delete` stays refused; execution records `cleanup-refused` instead
+of silently deleting files. Physical deletion requires a separate reviewed trash
+purge plan.
 
 Execution writes a receipt and updates touched ledger records to `trashed`,
 `review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
@@ -282,27 +313,34 @@ shelf doctor --json
 shelf status --all --json
 ```
 
-Scheduled cleanup dry-run may write plan files for later review when cleanup
-entries exist, but must not move or delete files:
+Scheduled cleanup and trash purge dry-runs may write plan files for later review
+when entries exist, but must not move or delete files:
 
 ```bash
 shelf cleanup --dry-run --json
+shelf trash list --ledger <ledger-path> --json
+shelf trash list --all --json
+shelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
 
 The scheduled job should report the ledger path, due/manual-review/missing-path
 counts, cleanup dry-run plan id, executable entries, skipped entries, and refused
-entries. It should be quiet when nothing needs attention unless the user asked
-for a regular summary.
+entries. When reporting trash, `shelf trash list --all --json` may discover trashed
+records across registered ledgers. Include trashed record counts and target ages;
+run purge dry-runs only for an explicit ledger and report any plan id, matching
+entries, and skipped entries. It should be
+quiet when nothing needs attention unless the user asked for a regular summary.
 
 Use explicit ledger paths when scheduling checks for a known project or user
 ledger. Do not scan arbitrary filesystem locations looking for ledgers unless
 the user has opted into that discovery scope.
 
-Scheduled jobs must not run cleanup execution. They may only dry-run and
-report plans for later human review:
+Scheduled jobs must not run cleanup execution or trash purge execution. They
+may only dry-run and report plans for later human review:
 
 ```bash
 shelf cleanup --execute --plan-id <id>
+shelf trash purge --execute --plan-id <id>
 ```
 
 Any later execution requires a human to review the dry-run output and approve

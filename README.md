@@ -8,10 +8,11 @@ created in `tmp/`, repo folders, or backup locations and then forgotten. Shelf
 records why an artifact exists at creation time, then makes later cleanup
 visible and reviewable.
 
-Shelf centers on three core workflows: **register a temp artifact** the moment it
-is created, **review everything safely** before anything moves, and **approve
-cleanup safely** from a reviewed plan. The reference sections further down stay
-out of the way until you need them.
+Shelf centers on four approval-first workflows: **register a temp artifact** the
+moment it is created, **review everything safely** before anything moves,
+**approve cleanup safely** from a reviewed plan, and **purge old trash
+explicitly** from a separate reviewed plan. The reference sections further down
+stay out of the way until you need them.
 
 ## Status
 
@@ -43,15 +44,15 @@ npm unlink -g shelf
 
 ## Core Workflows
 
-Shelf is built around three core workflows. Start here; the reference sections
-below are there when you need them, not before.
+Shelf is built around four approval-first workflows. Start here; the reference
+sections below are there when you need them, not before.
 
 ### 1. Register a temp artifact
 
 Record an artifact the moment it is created, while the reason is still fresh:
 
 ```bash
-shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
+shelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch --cleanup trash
 ```
 
 Shelf returns an id. Capture it anywhere future cleanup context matters.
@@ -81,6 +82,20 @@ shelf cleanup --execute --plan-id plan_20260601_120000_ab12
 
 There is no auto-execute, no global execute, and no fresh-plan-then-execute
 shortcut. Execution writes a receipt and updates the touched ledger records.
+
+### 4. Purge old trash explicitly
+
+Cleanup execution with `cleanup=trash` moves artifacts into Shelf's local trash
+folder. Those trashed records remain discoverable (`shelf trash list`) for review
+and should only be physically removed through a separately reviewed trash purge
+plan:
+
+```bash
+shelf trash purge --older-than 30d --dry-run --json
+shelf trash purge --execute --plan-id purge_20260601_120000_ab12
+```
+
+This adds a separate approval boundary between quarantine and destructive deletion.
 
 ## Explicit Ledgers
 
@@ -114,6 +129,7 @@ Use `--all` for one read-only discovery entry point across registered ledgers:
 shelf review --all --json
 shelf status --all --json
 shelf due --all --json
+shelf trash list --all --json
 shelf find --all --owner <agent-or-runtime> --json
 ```
 
@@ -139,16 +155,18 @@ plan id and refresh its timestamp instead of creating duplicate plan files.
 - Dry-run before mutation.
 - Execute only from a reviewed plan id.
 - No daemon or auto-execute path.
-- No global execute; `--all` is dry-run only.
+- No global execute; cleanup execute and trash purge refuse `--all`.
+  `--all` is read-only or dry-run reporting only.
 - No fresh-plan-then-execute shortcut.
 - Trash/review by default, not delete.
-- No silent deletion; v1 refuses physical `delete`.
+- No silent deletion; `cleanup=delete` stays refused, and trash purge needs its own reviewed plan.
 - Agent-friendly JSON output from every command.
 - Small enough to actually use.
 
 V1 only moves `cleanup=trash` entries into Shelf's local trash folder. Entries
-marked `cleanup=review` become `review-required`, and physical `delete` is
-refused as `cleanup-refused`.
+marked `cleanup=review` become `review-required`, and `cleanup=delete` is
+refused as `cleanup-refused`; physical deletion only happens through a separate
+reviewed `shelf trash purge --execute` plan.
 
 Dry-run cleanup writes a plan only when there are executable cleanup entries.
 No-op dry-runs report `not-created` and avoid writing plan files. When Shelf does
@@ -185,6 +203,9 @@ shelf status --all
 shelf cleanup --dry-run
 shelf cleanup --dry-run --all
 shelf cleanup --execute --plan-id <id>
+shelf trash list [--all] [--ledger <path>] [--json]
+shelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
+shelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
 shelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```
 
@@ -201,9 +222,11 @@ The package includes an agent-facing skill at `skills/shelf/SKILL.md`. Agents
 that support local skills can copy or reference this file to learn when to call
 `shelf put`, how to report Shelf ids in handoffs and issue comments, why
 `shelf find` / `shelf get` are the read-only idempotency lookup surface, why
-`cleanup --execute` requires explicit approval for a reviewed plan id, and when
-`shelf resolve <id> --status resolved --reason <text>` may mark confirmed
-handled, missing, or no-longer-needed records without moving or deleting files.
+`cleanup --execute` requires explicit approval for a reviewed plan id, how to
+review trashed records with `shelf trash list` before a separately approved trash
+purge, and when `shelf resolve <id> --status resolved --reason <text>` may mark
+confirmed handled, missing, or no-longer-needed records without moving or
+deleting files.
 
 From a source checkout, use `skills/shelf/SKILL.md` directly. Agents should ask
 where the user wants Shelf cloned before installing or linking it. Package-manager

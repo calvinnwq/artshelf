@@ -29,13 +29,17 @@ declare module "node:crypto" {
 
 declare module "node:fs" {
   export const constants: any;
+  export function chmodSync(path: string, mode: number): void;
   export function existsSync(path: string): boolean;
+  export function lstatSync(path: string): any;
   export function mkdirSync(path: string, options?: any): void;
   export function readdirSync(path: string): string[];
   export function readFileSync(path: string, encoding: string): string;
+  export function realpathSync(path: string): string;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: any): void;
   export function statSync(path: string): any;
+  export function symlinkSync(target: string, path: string): void;
   export function writeFileSync(path: string, data: string): void;
   export function mkdtempSync(prefix: string): string;
 }
@@ -50,6 +54,7 @@ declare module "node:path" {
   export function dirname(path: string): string;
   export function isAbsolute(path: string): boolean;
   export function join(...parts: string[]): string;
+  export function relative(from: string, to: string): string;
   export function resolve(...parts: string[]): string;
 }
 

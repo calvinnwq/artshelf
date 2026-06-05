@@ -86,7 +86,7 @@ $ shelf cleanup --dry-run --json
                 time, while the reason is still fresh.
               </p>
               <div class="summary-grid">
-                <div class="stat"><strong>12</strong><span>small v1 commands</span></div>
+                <div class="stat"><strong>13</strong><span>small v1 commands</span></div>
                 <div class="stat"><strong>0</strong><span>runtime dependencies</span></div>
                 <div class="stat"><strong>JSONL</strong><span>plain ledger storage</span></div>
                 <div class="stat"><strong>dry-run</strong><span>before mutation</span></div>
@@ -108,6 +108,10 @@ $ shelf cleanup --dry-run --json
                   <h3>Approve cleanup safely</h3>
                   <p>Cleanup execution uses a human-approved plan id, writes a receipt, and updates ledger state.</p>
                 </div>
+                <div class="card">
+                  <h3>Purge old trash explicitly</h3>
+                  <p>Trash purge physically removes only quarantined trash from a separately reviewed purge plan.</p>
+                </div>
               </div>
             </section>
 
@@ -120,7 +124,7 @@ $ shelf cleanup --dry-run --json
                 </a>
                 <a class="doc-card" href="quickstart.html">
                   <strong>Try the workflow</strong>
-                  <span>Register a temp artifact, review everything safely, and approve cleanup safely.</span>
+                  <span>Register a temp artifact, review safely, approve cleanup, and purge old trash explicitly.</span>
                 </a>
                 <a class="doc-card" href="agent-usage.html">
                   <strong>Wire up agents</strong>
@@ -147,10 +151,10 @@ $ shelf cleanup --dry-run --json
                 <li>Ledger-first. Shelf only cleans entries that were registered intentionally.</li>
                 <li>Dry-run before mutation. Plans are written before execution.</li>
                 <li>No daemon or auto-execute path. Only a human-run command can mutate files.</li>
-                <li>No global execute. <code>--all</code> is dry-run only.</li>
+                <li>No global execute. <code>--all</code> is read-only or dry-run reporting only; trash purge refuses it.</li>
                 <li>No fresh-plan-then-execute shortcut. Execute only a reviewed plan id.</li>
                 <li>Handled records stop appearing in future due and cleanup dry-run output.</li>
-                <li>V1 refuses physical delete. `cleanup=review` becomes `review-required`.</li>
+                <li>Cleanup refuses delete actions; physical trash purge needs its own reviewed plan.</li>
               </ul>
               <div class="note">
                 Shelf is an early v1 MVP. Source install and live dogfooding come before npm publishing.
