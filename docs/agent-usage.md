@@ -110,15 +110,19 @@ returns no entries, call `put` and record the new id.
 
 ## Ledger Registry
 
-Artshelf keeps a user-level registry at `~/.shelf/ledgers.json` so one CLI can
+Artshelf keeps a user-level registry at `~/.artshelf/ledgers.json` so one CLI can
 review all known ledgers without moving project records into one global file.
 `put` registers the ledger it writes to. Register existing ledgers explicitly
 when adopting Artshelf for an existing project:
 
 ```bash
-artshelf ledgers add --ledger <repo>/.shelf/ledger.jsonl --name <project> --scope repo
+artshelf ledgers add --ledger <repo>/.artshelf/ledger.jsonl --name <project> --scope repo
 artshelf ledgers list --json
 ```
+
+Renamed installs before `0.5.0` used `.shelf` paths. For migration, copy the old
+ledger directories into `.artshelf`, rewrite registry entries, validate the new
+registry, and keep the `.shelf` copies until rollback is no longer needed.
 
 `artshelf ledgers list --json` validates each registered ledger and reports
 ok/missing/invalid status with entry and warning/error counts, so agents can

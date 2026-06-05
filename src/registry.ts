@@ -26,7 +26,7 @@ export type RegisterLedgerInput = {
 };
 
 export function defaultRegistryPath(): string {
-  return process.env.ARTSHELF_REGISTRY ?? process.env.SHELF_REGISTRY ?? join(homedir(), ".shelf", "ledgers.json");
+  return process.env.ARTSHELF_REGISTRY ?? process.env.SHELF_REGISTRY ?? join(homedir(), ".artshelf", "ledgers.json");
 }
 
 export function normalizeRegistryPath(path?: string): string {
@@ -144,15 +144,15 @@ function normalizeName(name: string | undefined): string | undefined {
 
 function inferLedgerName(ledgerPath: string): string {
   const normalized = resolve(ledgerPath);
-  if (normalized === join(homedir(), ".shelf", "ledger.jsonl")) return "global";
-  if (basename(dirname(normalized)) === ".shelf") return basename(dirname(dirname(normalized))) || "repo";
+  if (normalized === join(homedir(), ".artshelf", "ledger.jsonl")) return "global";
+  if (basename(dirname(normalized)) === ".artshelf") return basename(dirname(dirname(normalized))) || "repo";
   return basename(dirname(normalized)) || "ledger";
 }
 
 function inferLedgerScope(ledgerPath: string): LedgerScope {
   const normalized = resolve(ledgerPath);
-  if (normalized.startsWith(join(homedir(), ".shelf"))) return "user";
-  if (basename(dirname(normalized)) === ".shelf") return "repo";
+  if (normalized.startsWith(join(homedir(), ".artshelf"))) return "user";
+  if (basename(dirname(normalized)) === ".artshelf") return "repo";
   return "other";
 }
 

@@ -76,8 +76,8 @@ export type TrashedRecord = {
 
 export function defaultLedgerPath(cwd = process.cwd()): string {
   const repoRoot = findGitRoot(cwd);
-  if (repoRoot) return join(repoRoot, ".shelf", "ledger.jsonl");
-  return join(homedir(), ".shelf", "ledger.jsonl");
+  if (repoRoot) return join(repoRoot, ".artshelf", "ledger.jsonl");
+  return join(homedir(), ".artshelf", "ledger.jsonl");
 }
 
 export function normalizeLedgerPath(path?: string): string {

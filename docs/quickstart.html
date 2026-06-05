@@ -94,7 +94,7 @@ artshelf validate --ledger /tmp/artshelf-ledger.jsonl --json
 artshelf due --ledger /tmp/artshelf-ledger.jsonl --json
 artshelf cleanup --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
               <p>
-                Dry-run writes a plan under the ledger's `.shelf` directory only when
+                Dry-run writes a plan under the ledger's `.artshelf` directory only when
                 cleanup entries exist. If there is nothing to clean up, it reports
                 <code>not-created</code> and writes no plan file. Review any generated
                 plan id before an execute step.
@@ -119,7 +119,7 @@ artshelf cleanup --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pr
               <h2>4. Purge old trashed records explicitly</h2>
               <p>
                 After cleanup execution, trashed files are quarantined under the ledger's
-                <code>.shelf/trash</code> folder. Before physical deletion, run an explicit
+                <code>.artshelf/trash</code> folder. Before physical deletion, run an explicit
                 reviewed trash purge plan:
               </p>
               <pre><code>artshelf trash list --ledger /tmp/artshelf-ledger.jsonl

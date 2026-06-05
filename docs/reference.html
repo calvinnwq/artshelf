@@ -138,18 +138,24 @@ artshelf get &lt;id&gt; --all --json</code></pre>
             <section>
               <h2>Storage</h2>
               <p>
-                Inside a git repo, Artshelf defaults to `.shelf/ledger.jsonl`. Outside a repo, it
-                defaults to `~/.shelf/ledger.jsonl`. Pass `--ledger &lt;path&gt;` for tests, demos,
+                Inside a git repo, Artshelf defaults to `.artshelf/ledger.jsonl`. Outside a repo, it
+                defaults to `~/.artshelf/ledger.jsonl`. Pass `--ledger &lt;path&gt;` for tests, demos,
                 and controlled smoke runs.
               </p>
               <p>
-                Artshelf also keeps a user-level registry at `~/.shelf/ledgers.json`. Override it
+                Artshelf also keeps a user-level registry at `~/.artshelf/ledgers.json`. Override it
                 with <code>--registry &lt;path&gt;</code> or <code>ARTSHELF_REGISTRY</code>; legacy
                 <code>SHELF_REGISTRY</code> is used only when <code>ARTSHELF_REGISTRY</code> is unset.
                 The registry is a discovery index for supported `--all` review, status, cleanup
                 dry-run, and trash-list commands; project records stay in their own repo-local ledgers.
               </p>
-              <pre><code>artshelf ledgers add --ledger &lt;repo&gt;/.shelf/ledger.jsonl --name &lt;project&gt; --scope repo
+              <p>
+                Renamed installs before <code>0.5.0</code> used <code>.shelf</code> paths. Copy those
+                ledgers into <code>.artshelf</code>, rewrite registry paths, validate with
+                <code>artshelf ledgers list --json</code>, and keep the old directories until rollback
+                is no longer needed.
+              </p>
+              <pre><code>artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;project&gt; --scope repo
 artshelf review --all --json
 artshelf status --all --json
 artshelf cleanup --dry-run --all --json

@@ -121,7 +121,7 @@ next safe action.
 them explicitly:
 
 ```bash
-artshelf ledgers add --ledger <repo>/.shelf/ledger.jsonl --name <project> --scope repo --json
+artshelf ledgers add --ledger <repo>/.artshelf/ledger.jsonl --name <project> --scope repo --json
 ```
 
 `--all` is for discovery and review. Do not use it as permission to mutate

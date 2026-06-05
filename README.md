@@ -116,8 +116,8 @@ This adds a separate approval boundary between quarantine and destructive deleti
 
 ## Explicit Ledgers
 
-By default, Artshelf writes repo-local `.shelf/ledger.jsonl` inside a git repo and
-`~/.shelf/ledger.jsonl` outside one. Use `--ledger <path>` and an isolated
+By default, Artshelf writes repo-local `.artshelf/ledger.jsonl` inside a git repo and
+`~/.artshelf/ledger.jsonl` outside one. Use `--ledger <path>` and an isolated
 `--registry <path>` for tests, demos, and unusual workflows:
 
 ```bash
@@ -126,15 +126,20 @@ artshelf list --ledger /tmp/artshelf-ledger.jsonl
 ```
 
 Artshelf also keeps a small global registry of known ledgers at
-`~/.shelf/ledgers.json`. Override it with `--registry <path>` or
+`~/.artshelf/ledgers.json`. Override it with `--registry <path>` or
 `ARTSHELF_REGISTRY`; renamed installs still honor legacy `SHELF_REGISTRY` when
 `ARTSHELF_REGISTRY` is unset. `put` registers its ledger automatically, and you
 can register an existing ledger explicitly:
 
 ```bash
 artshelf ledgers list
-artshelf ledgers add --ledger /path/to/repo/.shelf/ledger.jsonl --name my-repo
+artshelf ledgers add --ledger /path/to/repo/.artshelf/ledger.jsonl --name my-repo
 ```
+
+Renamed installs before `0.5.0` used `.shelf` storage paths. Migrate by copying
+each ledger directory to `.artshelf`, rewriting registry paths to the copied
+ledgers, validating with `artshelf ledgers list --json`, and keeping the old
+`.shelf` directories until rollback is no longer needed.
 
 `artshelf ledgers list` validates each registered ledger by default — reporting
 ok/missing/invalid status with entry counts, and exiting non-zero when the

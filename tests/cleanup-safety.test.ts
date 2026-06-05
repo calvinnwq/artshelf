@@ -53,7 +53,7 @@ test("cleanup --execute requires a reviewed plan id and never computes a fresh l
 
   // The due artifact is untouched: execute moved or deleted nothing.
   assert.equal(existsSync(artifact), true);
-  assert.equal(existsSync(join(fixture, ".shelf", "trash")), false);
+  assert.equal(existsSync(join(fixture, ".artshelf", "trash")), false);
 });
 
 test("cleanup --execute refuses physical delete so there is no silent deletion path", () => {
@@ -86,7 +86,7 @@ test("read-only status, review, and doctor never execute cleanup", () => {
     artshelf([command, "--execute", "--ledger", ledger, "--registry", registry], "2026-06-03T00:00:00Z");
   }
 
-  const shelfDir = join(fixture, ".shelf");
+  const shelfDir = join(fixture, ".artshelf");
   assert.equal(existsSync(artifact), true);
   assert.equal(existsSync(join(shelfDir, "plans")), false, "read-only commands must not write plans");
   assert.equal(existsSync(join(shelfDir, "receipts")), false, "read-only commands must not write receipts");
@@ -125,5 +125,5 @@ function fixtureDir(): string {
 }
 
 function ledgerPath(fixture: string): string {
-  return join(fixture, ".shelf", "ledger.jsonl");
+  return join(fixture, ".artshelf", "ledger.jsonl");
 }
