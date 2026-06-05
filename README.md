@@ -265,6 +265,13 @@ pnpm docs:serve
 
 Then open <http://127.0.0.1:8080/>.
 
+Release Please owns version bumps, changelog updates, tags, and GitHub releases.
+When a Release Please PR is merged and a release is created, the release workflow
+validates the package with `pnpm check` and publishes `artshelf` to npm through
+npm Trusted Publishing. The npm package must have this repository's release
+workflow configured as a trusted publisher; no long-lived npm token is expected
+in GitHub secrets.
+
 During tests or one-off runs, pass both `--ledger <path>` and `--registry <path>`
 to keep entries and registry updates out of default Artshelf storage.
 
