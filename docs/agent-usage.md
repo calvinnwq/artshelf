@@ -115,6 +115,7 @@ shelf review --all --json
 shelf status --all --json
 shelf due --all --json
 shelf find --all --owner <agent-or-runtime> --json
+shelf trash list --all --json
 ```
 
 `shelf review --all --json` returns an aggregate triage summary (affected

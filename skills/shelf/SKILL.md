@@ -92,6 +92,7 @@ shelf ledgers list --json
 shelf review --all --json
 shelf status --all --json
 shelf find --all --owner <agent-or-runtime> --json
+shelf trash list --all --json
 ```
 
 `shelf ledgers list --json` reports per-ledger validation status

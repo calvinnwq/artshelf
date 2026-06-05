@@ -1146,8 +1146,9 @@ dry-run purge to generate a reviewed plan id for age-based deletion. Purge
 requires either --dry-run or --execute. Execute requires a reviewed plan id, and
 trash purge is always scoped to one --ledger; --all is not supported for purge
 (only for trash list).
-Trash receipt artifacts are registered when purge executes. Purged records are
-resolved and no longer reappear as trashed.
+Trash receipt artifacts are registered when purge executes. Completed receipts are
+refused on repeat execute; started receipts from interrupted purges may be resumed
+and reconciled. Purged records are resolved and no longer reappear as trashed.
 `);
     return;
   }
