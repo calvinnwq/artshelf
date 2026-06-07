@@ -1,0 +1,116 @@
+{
+  "schemaVersion": 1,
+  "scope": {
+    "registryPath": "~/.artshelf/ledgers.json",
+    "ledgerCount": 3,
+    "health": "attention",
+    "registryHealth": "ok",
+    "affectedLedgers": [
+      {
+        "name": "example-project",
+        "ledgerPath": "/path/to/example-project/.artshelf/ledger.jsonl",
+        "validationStatus": "ok"
+      }
+    ]
+  },
+  "plans": [
+    {
+      "type": "cleanup",
+      "ledgerPath": "/path/to/example-project/.artshelf/ledger.jsonl",
+      "planId": "plan_20260606_120000_ab12",
+      "planPath": "/path/to/example-project/.artshelf/plans/plan_20260606_120000_ab12.json",
+      "approvalTarget": "approve artshelf cleanup ledger /path/to/example-project/.artshelf/ledger.jsonl plan plan_20260606_120000_ab12"
+    }
+  ],
+  "summary": {
+    "executable": 1,
+    "skipped": 2,
+    "refused": 0,
+    "manualReview": 1,
+    "missingPath": 1,
+    "trashed": 0
+  },
+  "decisionSummary": {
+    "readyForApproval": 2,
+    "needsReviewFirst": 1,
+    "blocked": 0
+  },
+  "decisionGroups": {
+    "readyForApproval": [
+      {
+        "label": "Clean up temp debug output",
+        "itemIds": ["shf_20260606_120000_ab12"],
+        "actionType": "cleanup",
+        "approvalTarget": "approve artshelf cleanup ledger /path/to/example-project/.artshelf/ledger.jsonl plan plan_20260606_120000_ab12",
+        "reason": "Disposable temp artifact has a reviewed cleanup plan.",
+        "nextStep": "Approve the exact cleanup plan to move the artifact into Artshelf trash."
+      },
+      {
+        "label": "Resolve missing report record",
+        "itemIds": ["shf_20260606_120500_cd34"],
+        "actionType": "resolve-missing",
+        "approvalTarget": "approve artshelf resolve missing ledger /path/to/example-project/.artshelf/ledger.jsonl ids shf_20260606_120500_cd34",
+        "reason": "The report path is already missing.",
+        "nextStep": "Approve the ledger-only resolve command after confirming the report is no longer needed."
+      }
+    ],
+    "needsReviewFirst": [
+      {
+        "label": "Inspect lifecycle smoke report",
+        "itemIds": ["shf_20260606_121000_ef56"],
+        "actionType": "inspect",
+        "approvalTarget": null,
+        "reason": "cleanup=review means the artifact should be inspected before closing.",
+        "nextStep": "Inspect the path, then choose keep, change retention, resolve, or clean up later."
+      }
+    ],
+    "blocked": []
+  },
+  "recommendation": "Approve the reviewed cleanup plan for the disposable temp directory, then resolve the missing record after confirming it is no longer needed.",
+  "items": [
+    {
+      "id": "shf_20260606_120000_ab12",
+      "path": "/tmp/example-debug-output",
+      "classification": "trash-safe",
+      "proposedAction": "execute reviewed cleanup plan",
+      "dueStatus": "due",
+      "reason": "temporary debug output retained for 3 days",
+      "note": "The path exists, cleanup=trash, and the dry-run plan moves it into Artshelf trash."
+    },
+    {
+      "id": "shf_20260606_120500_cd34",
+      "path": "/tmp/missing-report.json",
+      "classification": "resolve-candidate",
+      "proposedAction": "resolve ledger-only after confirmation",
+      "dueStatus": "missing-path",
+      "reason": "report path is already missing",
+      "note": "Resolution updates only the ledger and does not move or delete files."
+    },
+    {
+      "id": "shf_20260606_121000_ef56",
+      "path": "/tmp/lifecycle-smoke-report.json",
+      "classification": "needs-human-review",
+      "proposedAction": "inspect before choosing cleanup or retention",
+      "dueStatus": "manual-review",
+      "reason": "cleanup=review artifact retained for manual inspection",
+      "note": "No approval target is shown until the review decision is known."
+    }
+  ],
+  "alternatives": [
+    "keep the artifact and change retention",
+    "inspect the path before approving cleanup",
+    "regenerate the plan after edits",
+    "resolve missing records ledger-only"
+  ],
+  "safety": {
+    "dryRunOnly": true,
+    "executeAllRefused": true,
+    "noExecuteRan": true,
+    "noResolveRan": true,
+    "noDeleteRan": true
+  },
+  "verification": {
+    "command": "artshelf review --all --json",
+    "successCondition": "no due, manual-review, missing-path, executable, or refused entries remain unless explicitly reported"
+  }
+}

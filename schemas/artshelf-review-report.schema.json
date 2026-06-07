@@ -1,0 +1,315 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://calvinnwq.github.io/artshelf/schemas/artshelf-review-report.schema.json",
+  "title": "ArtshelfReviewReport",
+  "description": "Machine-readable decision packet for rendering an Artshelf review report.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schemaVersion",
+    "scope",
+    "decisionSummary",
+    "decisionGroups",
+    "summary",
+    "recommendation",
+    "items",
+    "alternatives",
+    "safety",
+    "verification"
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["registryPath", "ledgerCount", "health", "registryHealth"],
+      "properties": {
+        "registryPath": { "type": "string" },
+        "ledgerCount": { "type": "integer", "minimum": 0 },
+        "health": { "type": "string", "enum": ["ok", "attention"] },
+        "registryHealth": { "type": "string", "enum": ["ok", "attention"] },
+        "affectedLedgers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ledgerPath"],
+            "properties": {
+              "name": { "type": "string" },
+              "ledgerPath": { "type": "string" },
+              "validationStatus": {
+                "type": "string",
+                "enum": ["ok", "missing", "invalid"]
+              }
+            }
+          }
+        }
+      }
+    },
+    "plans": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/plan" },
+      "default": []
+    },
+    "decisionSummary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readyForApproval", "needsReviewFirst", "blocked"],
+      "properties": {
+        "readyForApproval": { "type": "integer", "minimum": 0 },
+        "needsReviewFirst": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "decisionGroups": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["readyForApproval", "needsReviewFirst", "blocked"],
+      "properties": {
+        "readyForApproval": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/approvalDecision" }
+        },
+        "needsReviewFirst": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonApprovalDecision" }
+        },
+        "blocked": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/nonApprovalDecision" }
+        }
+      }
+    },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "executable",
+        "skipped",
+        "refused",
+        "manualReview",
+        "missingPath",
+        "trashed"
+      ],
+      "properties": {
+        "executable": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "refused": { "type": "integer", "minimum": 0 },
+        "manualReview": { "type": "integer", "minimum": 0 },
+        "missingPath": { "type": "integer", "minimum": 0 },
+        "trashed": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "recommendation": { "type": "string", "minLength": 1 },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    },
+    "alternatives": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "safety": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "dryRunOnly",
+        "executeAllRefused",
+        "noExecuteRan",
+        "noResolveRan",
+        "noDeleteRan"
+      ],
+      "properties": {
+        "dryRunOnly": { "type": "boolean" },
+        "executeAllRefused": { "type": "boolean" },
+        "noExecuteRan": { "type": "boolean" },
+        "noResolveRan": { "type": "boolean" },
+        "noDeleteRan": { "type": "boolean" }
+      }
+    },
+    "verification": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["command", "successCondition"],
+      "properties": {
+        "command": { "type": "string", "minLength": 1 },
+        "successCondition": { "type": "string", "minLength": 1 }
+      }
+    }
+  },
+  "$defs": {
+    "plan": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "ledgerPath", "planId", "approvalTarget"],
+      "properties": {
+        "type": { "type": "string", "enum": ["cleanup", "trash-purge"] },
+        "ledgerPath": { "type": "string" },
+        "planId": { "type": "string" },
+        "planPath": { "type": ["string", "null"] },
+        "approvalTarget": { "type": "string" }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "cleanup" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf cleanup ledger .+ plan .+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "trash-purge" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf trash purge ledger .+ plan .+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "classification",
+        "proposedAction",
+        "dueStatus",
+        "reason",
+        "note"
+      ],
+      "properties": {
+        "id": { "type": "string" },
+        "path": { "type": "string" },
+        "classification": {
+          "type": "string",
+          "enum": [
+            "trash-safe",
+            "needs-human-review",
+            "resolve-candidate",
+            "registry-problem"
+          ]
+        },
+        "proposedAction": { "type": "string", "minLength": 1 },
+        "dueStatus": {
+          "type": "string",
+          "enum": ["kept", "due", "manual-review", "missing-path", "trashed"]
+        },
+        "reason": { "type": "string", "minLength": 1 },
+        "note": { "type": "string", "minLength": 1 }
+      },
+      "anyOf": [
+        { "required": ["id"] },
+        { "required": ["path"] }
+      ]
+    },
+    "decision": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label", "actionType", "reason", "nextStep"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1 },
+        "itemIds": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "default": []
+        },
+        "actionType": {
+          "type": "string",
+          "enum": [
+            "cleanup",
+            "trash-purge",
+            "resolve-missing",
+            "inspect",
+            "fix-registry",
+            "keep-or-snooze",
+            "change-retention"
+          ]
+        },
+        "approvalTarget": { "type": ["string", "null"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "nextStep": { "type": "string", "minLength": 1 }
+      }
+    },
+    "approvalDecision": {
+      "allOf": [
+        { "$ref": "#/$defs/decision" },
+        {
+          "required": ["approvalTarget"],
+          "properties": {
+            "actionType": {
+              "enum": ["cleanup", "trash-purge", "resolve-missing"]
+            },
+            "approvalTarget": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "if": {
+            "properties": { "actionType": { "const": "cleanup" } },
+            "required": ["actionType"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf cleanup ledger .+ plan .+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "actionType": { "const": "trash-purge" } },
+            "required": ["actionType"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf trash purge ledger .+ plan .+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "actionType": { "const": "resolve-missing" } },
+            "required": ["actionType"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf resolve missing ledger .+ ids .+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nonApprovalDecision": {
+      "allOf": [
+        { "$ref": "#/$defs/decision" },
+        {
+          "properties": {
+            "actionType": {
+              "enum": ["inspect", "fix-registry", "keep-or-snooze", "change-retention"]
+            },
+            "approvalTarget": { "type": "null" }
+          }
+        }
+      ]
+    }
+  }
+}

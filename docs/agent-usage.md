@@ -92,6 +92,13 @@ Useful defaults for agents:
   repo, PR, issue, workflow id, or run id.
 
 Use `--json` when another tool needs to capture the Artshelf entry id.
+When `artshelf put --json` succeeds, include a deterministic Artshelf footnote in
+the same handoff, status, final response, or run summary that mentions the
+artifact:
+
+```text
+Artshelf footnote: registered <artifact-path> as <artshelf-id>; reason: <short reason>; due: <YYYY-MM-DD|manual-review>; cleanup=<cleanup-mode>.
+```
 
 ## Idempotent Lookup
 
@@ -194,11 +201,79 @@ artshelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> 
    `artshelf review --all --json`, plus `artshelf trash list --ledger <ledger-path> --json`
    and purge receipt evidence after purge, or explain what remains.
 
+### Review Plan Report Schema
+
+When a dry-run creates or reuses a cleanup or trash purge plan, surface the plan
+in a compact human-readable report. The report should let the user approve, ask
+for changes, or request alternatives without opening the plan file.
+
+For deterministic agent integrations, construct an `ArtshelfReviewReport` JSON
+object first, then render it to text. Use
+[`schemas/artshelf-review-report.schema.json`](schemas/artshelf-review-report.schema.json)
+for the packet shape and
+[`examples/artshelf-review-report.json`](examples/artshelf-review-report.json)
+as the canonical example. The schema locks report structure; the CLI output and
+approval rules still define cleanup safety.
+
+Render the JSON packet as a compact decision card using `decisionSummary` and
+`decisionGroups`. Lead with counts, then show exactly what is ready for approval
+and what needs review first. Emojis are encouraged when the host renders them
+well because they make the groups scannable; omit them only for plain-text or
+accessibility-constrained surfaces.
+
+```text
+Artshelf daily review
+Status: <ok|attention needed>; registry <ok|attention>
+
+✅ Ready for approval: <n>
+👀 Needs review first: <n>
+⚠️ Blocked: <n>
+
+Recommendation
+<one short sentence with the next safest action>.
+
+Ready for approval
+1. <short item label>
+   Why: <short reason>
+   Action: <what approval will do>
+   approve artshelf cleanup ledger <ledger-path> plan <plan-id>
+
+2. <short item label>
+   Why: <short reason>
+   Action: <ledger-only update, no file changes>
+   approve artshelf resolve missing ledger <ledger-path> ids <id...>
+
+Needs review first
+1. <short item label>
+   Why: <short reason>
+   Suggested next step: inspect path, then choose keep, change retention, resolve, or clean up later
+   Path: <path>
+
+Blocked
+<none, or the registry/refused/missing-path blocker and next repair step>
+
+Safety
+Dry-run only. No execute, resolve, or delete ran.
+```
+
+Keep the full `ArtshelfReviewReport` JSON as the audit packet and include it as
+an attachment, linked file, or expandable detail when the host supports that.
+Do not paste the whole packet into chat unless the user asks for it. For long
+plans, show only the first 3 to 5 decisions under each visible group, then state
+the hidden count by group and classification. Do not hide refused,
+registry-problem, or missing-path items.
+
+If the host supports buttons, menus, or other interactive controls, they should
+emit exact text commands such as the approval targets below. Always include the
+exact approval target in the message body as a fallback for clients where those
+controls do not render.
+
 Approval wording should be exact:
 
 ```text
 approve artshelf cleanup ledger <ledger-path> plan <plan-id>
 approve artshelf trash purge ledger <ledger-path> plan <purge-plan-id>
+approve artshelf resolve missing ledger <ledger-path> ids <id...>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and
@@ -309,8 +384,17 @@ artshelf resolve <id> --status resolved --reason <text>
 ```
 
 Use a specific reason. `resolve` only updates the ledger; it does not move or
-delete files. Resolved records stop reappearing in future due and dry-run
-cleanup output while remaining visible in `artshelf list --status resolved`.
+delete files. For batches of missing-path records, ask for approval that names
+the exact ledger and ids:
+
+```text
+approve artshelf resolve missing ledger <ledger-path> ids <id...>
+```
+
+After resolution, verify with `artshelf review --all --json` and report whether
+the review is quiet or what remains. Resolved records stop reappearing in future
+due and dry-run cleanup output while remaining visible in
+`artshelf list --status resolved`.
 
 ## Scheduled Review
 

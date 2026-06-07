@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -144,10 +144,11 @@ test("default storage paths use Artshelf names", () => {
   });
   assert.equal(result.status, 0, result.stderr);
   const body = JSON.parse(result.stdout);
-  assert.equal(body.ledger.path, join(repo, ".artshelf", "ledger.jsonl"));
+  const expectedLedgerPath = join(realpathSync(repo), ".artshelf", "ledger.jsonl");
+  assert.equal(body.ledger.path, expectedLedgerPath);
   const registryPath = join(home, ".artshelf", "ledgers.json");
   const registry = JSON.parse(readFileSync(registryPath, "utf8"));
-  assert.equal(registry.ledgers[0].path, join(repo, ".artshelf", "ledger.jsonl"));
+  assert.equal(registry.ledgers[0].path, expectedLedgerPath);
 });
 
 test("find and get provide read-only idempotency queries", () => {

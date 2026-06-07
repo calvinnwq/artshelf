@@ -243,15 +243,18 @@ quickstart, agent usage, and CLI reference. The source repo also keeps the
 
 The package includes an agent-facing skill at `skills/artshelf/SKILL.md`. Agents
 that support local skills can copy or reference this file to learn when to call
-`artshelf put`, how to report Artshelf ids in handoffs and issue comments, why
-`artshelf find` / `artshelf get` are the read-only idempotency lookup surface, why
-`cleanup --execute` requires explicit approval for a reviewed plan id, how to
-review trashed records with `artshelf trash list` before a separately approved trash
-purge, and when `artshelf resolve <id> --status resolved --reason <text>` may mark
-confirmed handled, missing, or no-longer-needed records without moving or
-deleting files.
+`artshelf put`, how to report deterministic Artshelf footnotes after JSON
+registration, why `artshelf find` / `artshelf get` are the read-only idempotency
+lookup surface, why `cleanup --execute` requires explicit approval for a
+reviewed plan id, how to render dry-run cleanup and trash purge plans as
+review-report decision packets, how to review trashed records with
+`artshelf trash list` before a separately approved trash purge, and when
+`artshelf resolve <id> --status resolved --reason <text>` may mark confirmed
+handled, missing, or no-longer-needed records without moving or deleting files.
 
-The same skill ships in the npm package. From a source checkout, use
+The same skill ships in the npm package alongside
+`schemas/artshelf-review-report.schema.json` and the canonical
+`examples/artshelf-review-report.json` packet. From a source checkout, use
 `skills/artshelf/SKILL.md` directly. Agents should ask where the user wants
 Artshelf cloned before installing or linking it.
 

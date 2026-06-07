@@ -597,10 +597,25 @@ Agents may run `artshelf find` and `artshelf get` before `put` to avoid duplicat
 registrations. `find`/`get` are read-only ledger queries; they must not be used
 as permission to clean up or resolve a record.
 
+When `artshelf put --json` succeeds, agents should include a deterministic
+Artshelf footnote in the same handoff, status, final response, or run summary
+that mentions the artifact:
+
+```text
+Artshelf footnote: registered <artifact-path> as <artshelf-id>; reason: <short reason>; due: <YYYY-MM-DD|manual-review>; cleanup=<cleanup-mode>.
+```
+
 Agents may run `artshelf resolve <id> --status resolved --reason <text>` only
 after explicit confirmation that the record has been handled, is missing, or is
 no longer needed. The reason must be specific; resolve does not move or delete
 files.
+
+For batches of missing-path records, agents should ask for exact approval before
+resolving:
+
+```text
+approve artshelf resolve missing ledger <ledger-path> ids <id...>
+```
 
 Scheduled jobs may run:
 
@@ -625,6 +640,15 @@ Scheduled trash reports may use `artshelf trash list --all --json` for
 registered-ledger discovery and should include trashed record counts and target
 ages. Purge dry-runs stay scoped to one explicit ledger and should report any
 plan id, matching entries, and skipped entries.
+
+When a scheduled review or dry-run produces cleanup or trash purge plans,
+deterministic integrations should build an `ArtshelfReviewReport` packet first,
+then render a compact decision report from it. The packet schema is
+`schemas/artshelf-review-report.schema.json`, the canonical example is
+`examples/artshelf-review-report.json`, and packaged docs/skills carry matching
+copies for browsable docs and portable agent installs. The report groups
+decisions into ready-for-approval, needs-review-first, and blocked sections, and
+must still include exact approval targets in the message body.
 
 Scheduled jobs must never run `artshelf cleanup --execute` or
 `artshelf trash purge --execute`; they may only dry-run and report plans for later
@@ -666,6 +690,8 @@ human review.
 - CLI can list trashed records (single ledger or `--all`) and purge them through
   an approval-first, ledger-scoped dry-run/execute boundary that writes a purge
   receipt; purge refuses `--all` and never deletes without a reviewed plan id.
+- Package includes the deterministic `ArtshelfReviewReport` schema and canonical
+  example for agent-rendered review reports.
 - All core commands support `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,

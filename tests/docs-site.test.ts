@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { test } from "node:test";
 
 const DOC_PAGES = [
@@ -52,6 +53,8 @@ test("docs site contains long code blocks inside the content column", () => {
 });
 
 test("docs site local links resolve inside docs", () => {
+  const docsRoot = resolve("docs");
+
   for (const page of DOC_PAGES) {
     const html = read(page);
     const links = [...html.matchAll(/\b(?:href|src)="([^"]+)"/g)]
@@ -59,7 +62,13 @@ test("docs site local links resolve inside docs", () => {
       .filter((link): link is string => Boolean(link));
     for (const link of links) {
       if (link.startsWith("http") || link.startsWith("mailto:") || link.startsWith("#")) continue;
-      const target = `docs/${link}`;
+      const target = resolve(dirname(page), link.split("#")[0] ?? link);
+      const docsRelativePath = relative(docsRoot, target);
+      assert.equal(
+        !docsRelativePath.startsWith("..") && !isAbsolute(docsRelativePath),
+        true,
+        `${page} references local asset outside docs ${link}`
+      );
       assert.equal(existsSync(target), true, `${page} references missing local asset ${link}`);
     }
   }
@@ -174,9 +183,164 @@ test("agent docs turn daily reviews into decision packets", () => {
     assert.match(text, /resolve-candidate/);
     assert.match(text, /registry-problem/);
     assert.match(text, /approve artshelf cleanup ledger/);
+    assert.match(text, /Review Plan Report Schema/);
+    assert.match(text, /ArtshelfReviewReport/);
+    assert.match(text, /schemas\/artshelf-review-report\.schema\.json/);
+    assert.match(text, /examples\/artshelf-review-report\.json/);
+    assert.match(text, /compact decision card/);
+    assert.match(text, /decisionSummary/);
+    assert.match(text, /decisionGroups/);
+    assert.match(text, /Emojis\s+are encouraged/);
+    assert.match(text, /Artshelf daily review/);
+    assert.match(text, /Ready for approval/);
+    assert.match(text, /Needs review first/);
+    assert.match(text, /Blocked/);
+    assert.match(text, /Why:/);
+    assert.match(text, /Action:/);
+    assert.match(text, /Suggested next step:/);
+    assert.match(text, /Dry-run only\. No execute, resolve, or delete ran/);
+    assert.match(text, /Do not paste the whole packet into chat unless the user\s+asks for it/);
+    assert.match(text, /exact approval target in the message body as a fallback/);
+    assert.match(text, /approve artshelf resolve missing ledger/);
     assert.match(text, /read-only preview id/);
     assert.match(text, /verify quiet|verify with `artshelf review --all --json`/);
   }
+});
+
+test("review report schema and example define the deterministic packet", () => {
+  const packageJson = JSON.parse(read("package.json"));
+  const schema = JSON.parse(read("schemas/artshelf-review-report.schema.json"));
+  const example = JSON.parse(read("examples/artshelf-review-report.json"));
+
+  assert.equal(
+    read("docs/schemas/artshelf-review-report.schema.json"),
+    read("schemas/artshelf-review-report.schema.json")
+  );
+  assert.equal(
+    read("docs/examples/artshelf-review-report.json"),
+    read("examples/artshelf-review-report.json")
+  );
+  assert.equal(
+    read("skills/artshelf/schemas/artshelf-review-report.schema.json"),
+    read("schemas/artshelf-review-report.schema.json")
+  );
+  assert.equal(
+    read("skills/artshelf/examples/artshelf-review-report.json"),
+    read("examples/artshelf-review-report.json")
+  );
+  assert.equal(packageJson.files.includes("schemas"), true);
+  assert.equal(packageJson.files.includes("examples"), true);
+  assert.equal(packageJson.files.includes("skills"), true);
+
+  assert.equal(schema.title, "ArtshelfReviewReport");
+  assert.equal(schema.properties.schemaVersion.const, 1);
+  assert.deepEqual(schema.required, [
+    "schemaVersion",
+    "scope",
+    "decisionSummary",
+    "decisionGroups",
+    "summary",
+    "recommendation",
+    "items",
+    "alternatives",
+    "safety",
+    "verification"
+  ]);
+  assert.deepEqual(schema.properties.decisionSummary.required, [
+    "readyForApproval",
+    "needsReviewFirst",
+    "blocked"
+  ]);
+  assert.deepEqual(schema.properties.scope.required, [
+    "registryPath",
+    "ledgerCount",
+    "health",
+    "registryHealth"
+  ]);
+  assert.deepEqual(schema.properties.decisionGroups.required, [
+    "readyForApproval",
+    "needsReviewFirst",
+    "blocked"
+  ]);
+  assert.deepEqual(schema.properties.decisionGroups.properties.readyForApproval.items, {
+    "$ref": "#/$defs/approvalDecision"
+  });
+  assert.deepEqual(schema.properties.decisionGroups.properties.needsReviewFirst.items, {
+    "$ref": "#/$defs/nonApprovalDecision"
+  });
+  assert.deepEqual(schema.properties.decisionGroups.properties.blocked.items, {
+    "$ref": "#/$defs/nonApprovalDecision"
+  });
+  assert.deepEqual(schema.properties.plans.items, { "$ref": "#/$defs/plan" });
+  assert.deepEqual(schema.properties.items.items, { "$ref": "#/$defs/item" });
+  assert.deepEqual(schema.$defs.approvalDecision.allOf[1].properties.actionType.enum, [
+    "cleanup",
+    "trash-purge",
+    "resolve-missing"
+  ]);
+  assert.deepEqual(schema.$defs.nonApprovalDecision.allOf[1].properties.actionType.enum, [
+    "inspect",
+    "fix-registry",
+    "keep-or-snooze",
+    "change-retention"
+  ]);
+  assert.equal(schema.$defs.nonApprovalDecision.allOf[1].properties.approvalTarget.type, "null");
+  assert.match(
+    schema.$defs.approvalDecision.allOf[2].then.properties.approvalTarget.pattern,
+    /approve artshelf cleanup ledger/
+  );
+  assert.match(
+    schema.$defs.approvalDecision.allOf[3].then.properties.approvalTarget.pattern,
+    /approve artshelf trash purge ledger/
+  );
+  assert.match(
+    schema.$defs.approvalDecision.allOf[4].then.properties.approvalTarget.pattern,
+    /approve artshelf resolve missing ledger/
+  );
+  assert.deepEqual(schema.$defs.decision.properties.actionType.enum, [
+    "cleanup",
+    "trash-purge",
+    "resolve-missing",
+    "inspect",
+    "fix-registry",
+    "keep-or-snooze",
+    "change-retention"
+  ]);
+  assert.deepEqual(schema.$defs.item.properties.classification.enum, [
+    "trash-safe",
+    "needs-human-review",
+    "resolve-candidate",
+    "registry-problem"
+  ]);
+  assert.deepEqual(schema.properties.safety.required, [
+    "dryRunOnly",
+    "executeAllRefused",
+    "noExecuteRan",
+    "noResolveRan",
+    "noDeleteRan"
+  ]);
+
+  assert.equal(example.schemaVersion, 1);
+  assert.equal(example.scope.health, "attention");
+  assert.equal(example.scope.registryHealth, "ok");
+  assert.equal(example.decisionSummary.readyForApproval, 2);
+  assert.equal(example.decisionSummary.needsReviewFirst, 1);
+  assert.equal(example.decisionSummary.blocked, 0);
+  assert.equal(example.decisionGroups.readyForApproval.length, 2);
+  assert.equal(example.decisionGroups.needsReviewFirst.length, 1);
+  assert.equal(example.decisionGroups.blocked.length, 0);
+  assert.equal(example.decisionGroups.readyForApproval[0].actionType, "cleanup");
+  assert.equal(example.decisionGroups.readyForApproval[1].actionType, "resolve-missing");
+  assert.equal(example.decisionGroups.needsReviewFirst[0].approvalTarget, null);
+  assert.match(example.plans[0].approvalTarget, /approve artshelf cleanup ledger .* plan plan_/);
+  assert.match(example.decisionGroups.readyForApproval[1].approvalTarget, /approve artshelf resolve missing ledger .* ids shf_/);
+  assert.equal(example.summary.missingPath, 1);
+  assert.equal(example.items[0].classification, "trash-safe");
+  assert.equal(example.items[1].classification, "resolve-candidate");
+  assert.equal(example.items[2].classification, "needs-human-review");
+  assert.equal(example.safety.dryRunOnly, true);
+  assert.equal(example.safety.noDeleteRan, true);
+  assert.match(example.verification.command, /artshelf review --all --json/);
 });
 
 test("agent docs define registration triggers and completion checks", () => {
@@ -192,6 +356,9 @@ test("agent docs define registration triggers and completion checks", () => {
     assert.match(text, /eligible artifact/);
     assert.match(text, /skip reason|state why|record a clear skip reason/);
     assert.match(text, /Do not call work done|Before finalizing|Completion Checklist/);
+    assert.match(text, /artshelf put --json/);
+    assert.match(text, /deterministic Artshelf\s+footnote/);
+    assert.match(text, /Artshelf footnote: registered <artifact-path> as <artshelf-id>|Artshelf footnote: registered &lt;artifact-path&gt; as &lt;artshelf-id&gt;/);
   }
 });
 
