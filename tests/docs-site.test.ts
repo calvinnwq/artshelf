@@ -220,8 +220,17 @@ test("review report schema and example define the deterministic packet", () => {
     read("docs/examples/artshelf-review-report.json"),
     read("examples/artshelf-review-report.json")
   );
+  assert.equal(
+    read("skills/artshelf/schemas/artshelf-review-report.schema.json"),
+    read("schemas/artshelf-review-report.schema.json")
+  );
+  assert.equal(
+    read("skills/artshelf/examples/artshelf-review-report.json"),
+    read("examples/artshelf-review-report.json")
+  );
   assert.equal(packageJson.files.includes("schemas"), true);
   assert.equal(packageJson.files.includes("examples"), true);
+  assert.equal(packageJson.files.includes("skills"), true);
 
   assert.equal(schema.title, "ArtshelfReviewReport");
   assert.equal(schema.properties.schemaVersion.const, 1);
