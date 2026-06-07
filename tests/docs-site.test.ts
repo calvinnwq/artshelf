@@ -254,10 +254,40 @@ test("review report schema and example define the deterministic packet", () => {
     "blocked"
   ]);
   assert.deepEqual(schema.properties.decisionGroups.properties.readyForApproval.items, {
-    "$ref": "#/$defs/decision"
+    "$ref": "#/$defs/approvalDecision"
+  });
+  assert.deepEqual(schema.properties.decisionGroups.properties.needsReviewFirst.items, {
+    "$ref": "#/$defs/nonApprovalDecision"
+  });
+  assert.deepEqual(schema.properties.decisionGroups.properties.blocked.items, {
+    "$ref": "#/$defs/nonApprovalDecision"
   });
   assert.deepEqual(schema.properties.plans.items, { "$ref": "#/$defs/plan" });
   assert.deepEqual(schema.properties.items.items, { "$ref": "#/$defs/item" });
+  assert.deepEqual(schema.$defs.approvalDecision.allOf[1].properties.actionType.enum, [
+    "cleanup",
+    "trash-purge",
+    "resolve-missing"
+  ]);
+  assert.deepEqual(schema.$defs.nonApprovalDecision.allOf[1].properties.actionType.enum, [
+    "inspect",
+    "fix-registry",
+    "keep-or-snooze",
+    "change-retention"
+  ]);
+  assert.equal(schema.$defs.nonApprovalDecision.allOf[1].properties.approvalTarget.type, "null");
+  assert.match(
+    schema.$defs.approvalDecision.allOf[2].then.properties.approvalTarget.pattern,
+    /approve artshelf cleanup ledger/
+  );
+  assert.match(
+    schema.$defs.approvalDecision.allOf[3].then.properties.approvalTarget.pattern,
+    /approve artshelf trash purge ledger/
+  );
+  assert.match(
+    schema.$defs.approvalDecision.allOf[4].then.properties.approvalTarget.pattern,
+    /approve artshelf resolve missing ledger/
+  );
   assert.deepEqual(schema.$defs.decision.properties.actionType.enum, [
     "cleanup",
     "trash-purge",

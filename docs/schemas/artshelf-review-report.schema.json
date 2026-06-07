@@ -71,15 +71,15 @@
       "properties": {
         "readyForApproval": {
           "type": "array",
-          "items": { "$ref": "#/$defs/decision" }
+          "items": { "$ref": "#/$defs/approvalDecision" }
         },
         "needsReviewFirst": {
           "type": "array",
-          "items": { "$ref": "#/$defs/decision" }
+          "items": { "$ref": "#/$defs/nonApprovalDecision" }
         },
         "blocked": {
           "type": "array",
-          "items": { "$ref": "#/$defs/decision" }
+          "items": { "$ref": "#/$defs/nonApprovalDecision" }
         }
       }
     },
@@ -152,7 +152,35 @@
         "planId": { "type": "string" },
         "planPath": { "type": ["string", "null"] },
         "approvalTarget": { "type": "string" }
-      }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": { "type": { "const": "cleanup" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf cleanup ledger .+ plan .+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "type": { "const": "trash-purge" } },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf trash purge ledger .+ plan .+$"
+              }
+            }
+          }
+        }
+      ]
     },
     "item": {
       "type": "object",
@@ -216,6 +244,72 @@
         "reason": { "type": "string", "minLength": 1 },
         "nextStep": { "type": "string", "minLength": 1 }
       }
+    },
+    "approvalDecision": {
+      "allOf": [
+        { "$ref": "#/$defs/decision" },
+        {
+          "required": ["approvalTarget"],
+          "properties": {
+            "actionType": {
+              "enum": ["cleanup", "trash-purge", "resolve-missing"]
+            },
+            "approvalTarget": { "type": "string", "minLength": 1 }
+          }
+        },
+        {
+          "if": {
+            "properties": { "actionType": { "const": "cleanup" } },
+            "required": ["actionType"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf cleanup ledger .+ plan .+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "actionType": { "const": "trash-purge" } },
+            "required": ["actionType"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf trash purge ledger .+ plan .+$"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": { "actionType": { "const": "resolve-missing" } },
+            "required": ["actionType"]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf resolve missing ledger .+ ids .+$"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "nonApprovalDecision": {
+      "allOf": [
+        { "$ref": "#/$defs/decision" },
+        {
+          "properties": {
+            "actionType": {
+              "enum": ["inspect", "fix-registry", "keep-or-snooze", "change-retention"]
+            },
+            "approvalTarget": { "type": "null" }
+          }
+        }
+      ]
     }
   }
 }
