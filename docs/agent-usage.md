@@ -209,9 +209,9 @@ for changes, or request alternatives without opening the plan file.
 
 For deterministic agent integrations, construct an `ArtshelfReviewReport` JSON
 object first, then render it to text. Use
-[`schemas/artshelf-review-report.schema.json`](../schemas/artshelf-review-report.schema.json)
+[`schemas/artshelf-review-report.schema.json`](schemas/artshelf-review-report.schema.json)
 for the packet shape and
-[`examples/artshelf-review-report.json`](../examples/artshelf-review-report.json)
+[`examples/artshelf-review-report.json`](examples/artshelf-review-report.json)
 as the canonical example. The schema locks report structure; the CLI output and
 approval rules still define cleanup safety.
 

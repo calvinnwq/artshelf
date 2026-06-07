@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
+import { dirname, isAbsolute, relative, resolve } from "node:path";
 import { test } from "node:test";
 
 const DOC_PAGES = [
@@ -52,6 +53,8 @@ test("docs site contains long code blocks inside the content column", () => {
 });
 
 test("docs site local links resolve inside docs", () => {
+  const docsRoot = resolve("docs");
+
   for (const page of DOC_PAGES) {
     const html = read(page);
     const links = [...html.matchAll(/\b(?:href|src)="([^"]+)"/g)]
@@ -59,7 +62,13 @@ test("docs site local links resolve inside docs", () => {
       .filter((link): link is string => Boolean(link));
     for (const link of links) {
       if (link.startsWith("http") || link.startsWith("mailto:") || link.startsWith("#")) continue;
-      const target = `docs/${link}`;
+      const target = resolve(dirname(page), link.split("#")[0] ?? link);
+      const docsRelativePath = relative(docsRoot, target);
+      assert.equal(
+        !docsRelativePath.startsWith("..") && !isAbsolute(docsRelativePath),
+        true,
+        `${page} references local asset outside docs ${link}`
+      );
       assert.equal(existsSync(target), true, `${page} references missing local asset ${link}`);
     }
   }
@@ -199,8 +208,20 @@ test("agent docs turn daily reviews into decision packets", () => {
 });
 
 test("review report schema and example define the deterministic packet", () => {
+  const packageJson = JSON.parse(read("package.json"));
   const schema = JSON.parse(read("schemas/artshelf-review-report.schema.json"));
   const example = JSON.parse(read("examples/artshelf-review-report.json"));
+
+  assert.equal(
+    read("docs/schemas/artshelf-review-report.schema.json"),
+    read("schemas/artshelf-review-report.schema.json")
+  );
+  assert.equal(
+    read("docs/examples/artshelf-review-report.json"),
+    read("examples/artshelf-review-report.json")
+  );
+  assert.equal(packageJson.files.includes("schemas"), true);
+  assert.equal(packageJson.files.includes("examples"), true);
 
   assert.equal(schema.title, "ArtshelfReviewReport");
   assert.equal(schema.properties.schemaVersion.const, 1);
