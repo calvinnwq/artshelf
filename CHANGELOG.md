@@ -55,6 +55,18 @@
   deterministic agent review reports, plus deterministic footnote guidance for
   `artshelf put --json` registrations.
 
+## [0.6.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.5.0...artshelf-v0.6.0) (2026-06-07)
+
+
+### Features
+
+* **artshelf:** add public review report assets ([6bc89ae](https://github.com/calvinnwq/artshelf/commit/6bc89ae78150bbb161a387f844f32c7ac23f30da))
+
+
+### Bug Fixes
+
+* **docs:** constrain review approval targets ([eccc16d](https://github.com/calvinnwq/artshelf/commit/eccc16d019f1245a9ab052db51137654a2c3363b))
+
 ## [0.5.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.4.1...artshelf-v0.5.0) (2026-06-05)
 
 
