@@ -5,6 +5,11 @@ import { pathToFileURL } from "node:url";
 
 const APPROVAL_ACTIONS = new Set(["cleanup", "trash-purge", "resolve-missing"]);
 const NON_APPROVAL_ACTIONS = new Set(["inspect", "fix-registry", "keep-or-snooze", "change-retention"]);
+const APPROVAL_TARGET_PATTERNS = {
+  cleanup: /^approve artshelf cleanup ledger .+ plan .+$/,
+  "trash-purge": /^approve artshelf trash purge ledger .+ plan .+$/,
+  "resolve-missing": /^approve artshelf resolve missing ledger .+ ids .+$/
+};
 
 function readInput() {
   const path = process.argv[2];
@@ -89,7 +94,10 @@ function validateDecision(decision, path, allowedActions) {
 function validateApprovalDecision(decision, index) {
   const path = `decisionGroups.readyForApproval.${index}`;
   validateDecision(decision, path, APPROVAL_ACTIONS);
-  requireString(decision.approvalTarget, `${path}.approvalTarget`);
+  const approvalTarget = requireString(decision.approvalTarget, `${path}.approvalTarget`);
+  if (!APPROVAL_TARGET_PATTERNS[decision.actionType].test(approvalTarget)) {
+    throw new Error(`invalid approvalTarget ${path}.approvalTarget`);
+  }
   return decision;
 }
 

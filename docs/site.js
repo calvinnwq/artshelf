@@ -238,9 +238,11 @@
   /* ---------- search palette ---------- */
 
   var INDEX = null;
+  var INDEX_PROMISE = null;
 
   function buildIndex() {
     if (INDEX) return Promise.resolve(INDEX);
+    if (INDEX_PROMISE) return INDEX_PROMISE;
     var cached = getStorageItem("sessionStorage", INDEX_KEY);
     if (cached) {
       try {
@@ -249,7 +251,7 @@
       } catch (_) {}
     }
     var parser = new DOMParser();
-    return Promise.all(ORDER.map(function (p) {
+    INDEX_PROMISE = Promise.all(ORDER.map(function (p) {
       return fetch(p.h).then(function (r) { return r.text(); }).then(function (html) {
         var doc = parser.parseFromString(html, "text/html");
         var entries = [{ t: p.t, h: p.h, where: p.t }];
@@ -263,7 +265,10 @@
       INDEX = lists.flat();
       setStorageItem("sessionStorage", INDEX_KEY, JSON.stringify(INDEX));
       return INDEX;
+    }).finally(function () {
+      INDEX_PROMISE = null;
     });
+    return INDEX_PROMISE;
   }
 
   var palette, paletteInput, paletteResults, backdrop, selIdx = 0;
@@ -322,9 +327,11 @@
   }
 
   function renderResults(q) {
+    var capturedQuery = q;
     selIdx = 0;
     buildIndex().then(function (index) {
-      var query = q.trim().toLowerCase();
+      if (paletteInput && paletteInput.value !== capturedQuery) return;
+      var query = capturedQuery.trim().toLowerCase();
       var hits = !query
         ? index.filter(function (e) { return !e.h.includes("#"); })
         : index.filter(function (e) { return e.t.toLowerCase().includes(query); }).slice(0, 12);

@@ -137,9 +137,12 @@ test("docs search cache uses guarded session storage", () => {
   const js = read("docs/site.js");
 
   assert.match(js, /var INDEX_KEY = "artshelf-docs-index-v1"/);
+  assert.match(js, /var INDEX = null;\s*var INDEX_PROMISE = null;/);
+  assert.match(js, /if \(INDEX_PROMISE\) return INDEX_PROMISE/);
   assert.match(js, /getStorageItem\("sessionStorage", INDEX_KEY\)/);
   assert.match(js, /try \{\s*INDEX = JSON\.parse\(cached\);/);
   assert.match(js, /setStorageItem\("sessionStorage", INDEX_KEY, JSON\.stringify\(INDEX\)\)/);
+  assert.match(js, /if \(paletteInput && paletteInput\.value !== capturedQuery\) return/);
   assert.doesNotMatch(js, /sessionStorage\.getItem/);
 });
 
@@ -432,6 +435,29 @@ test("review report renderer rejects malformed approval decisions", () => {
 
     assert.equal(renderResult.status, 1, `${field} should be required`);
     assert.match(renderResult.stderr, message);
+  }
+});
+
+test("review report renderer rejects mismatched approval targets", () => {
+  const example = JSON.parse(read("examples/artshelf-review-report.json"));
+  const cases = [
+    ["cleanup", "approve artshelf resolve missing ledger /tmp/ledger.jsonl ids shf_123"],
+    ["trash-purge", "approve artshelf cleanup ledger /tmp/ledger.jsonl plan plan_123"],
+    ["resolve-missing", "approve artshelf trash purge ledger /tmp/ledger.jsonl plan purge_123"]
+  ] as const;
+
+  for (const [actionType, approvalTarget] of cases) {
+    const malformed = structuredClone(example);
+    malformed.decisionGroups.readyForApproval[0].actionType = actionType;
+    malformed.decisionGroups.readyForApproval[0].approvalTarget = approvalTarget;
+    const renderResult = spawnSync(
+      process.execPath,
+      ["skills/artshelf/scripts/render-review-report.mjs", "-"],
+      { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(malformed) }
+    );
+
+    assert.equal(renderResult.status, 1, `${actionType} should require a matching approval target`);
+    assert.match(renderResult.stderr, /invalid approvalTarget decisionGroups\.readyForApproval\.0\.approvalTarget/);
   }
 });
 
