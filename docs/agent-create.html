@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Create · Agent usage · Artshelf</title>
+    <meta name="description" content="How agents create Artshelf records while artifact intent is fresh.">
+    <script>(function(){var stored=null;try{stored=localStorage.getItem("artshelf-docs-theme");}catch(e){}var dark=false;try{dark=matchMedia("(prefers-color-scheme: dark)").matches;}catch(e){}document.documentElement.dataset.theme=stored||(dark?"dark":"light");})();</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450..680;1,9..144,450..680&family=Newsreader:ital,opsz,wght@0,6..72,400..650;1,6..72,400..650&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="site.css">
+    <script src="site.js" defer></script>
+  </head>
+  <body data-page="agent-create.html">
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <button class="menu-btn" type="button" data-menu aria-label="Toggle navigation" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5h14M1 8h14M1 12.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <a class="brand" href="index.html">Artshelf<span class="brand-tag">docs</span></a>
+        <button class="search-btn" type="button" data-search-open><span>Search docs</span><kbd>/</kbd></button>
+        <div class="masthead-tools">
+          <a class="gh" href="https://github.com/calvinnwq/artshelf">GitHub</a>
+          <button class="theme-btn" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">
+            <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M14.6 12.1A6.5 6.5 0 0 1 7.4 2.7a6.5 6.5 0 1 0 7.2 9.4z" fill="currentColor"/></svg>
+            <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="14.4" y1="14.4" x2="15.8" y2="15.8"/><line x1="4.2" y1="15.8" x2="5.6" y2="14.4"/><line x1="14.4" y1="5.6" x2="15.8" y2="4.2"/></g></svg>
+          </button>
+        </div>
+      </div>
+    </header>
+
+    <div class="frame">
+      <nav id="sidebar" class="sidebar" aria-label="Documentation"></nav>
+
+      <main id="content" class="article-col">
+        <article>
+          <p class="kicker"><span class="n">4.1</span>Agents · Create</p>
+          <h1>Register artifacts while intent is fresh.</h1>
+          <p class="lede">
+            Create is one question: should this non-source artifact outlive the turn?
+            If yes, put it on the shelf while the reason is still obvious.
+          </p>
+
+          <section>
+            <h2>Completion gate</h2>
+            <p>
+              Before any final, status, handoff, or done report, check for files the agent
+              created, copied, exported, quarantined, backed up, or preserved.
+            </p>
+            <ul>
+              <li><strong>Register eligible artifact paths.</strong> Anything non-source that may outlive the command needs a record.</li>
+              <li><strong>State every skip reason.</strong> Source, cache, regeneratable, secret-bearing, or owned elsewhere.</li>
+            </ul>
+            <div class="callout" data-kind="boundary">
+              <span class="callout-label">Hard boundary</span>
+              <p>Do not call work done while known eligible artifacts are neither registered nor explicitly skipped.</p>
+              <p>Do not invent Artshelf entries after the fact just to make a handoff look tidy.</p>
+            </div>
+          </section>
+
+          <section>
+            <h2>Register these</h2>
+            <dl class="def-rows">
+              <div><dt>backup</dt><dd>rollback copy or snapshot</dd></div>
+              <div><dt>evidence</dt><dd>report, log, smoke output</dd></div>
+              <div><dt>quarantine</dt><dd>copied aside for review</dd></div>
+              <div><dt>run</dt><dd>artifact needed to resume a long task</dd></div>
+            </dl>
+          </section>
+
+          <section>
+            <h2>Lookup before put</h2>
+            <pre><code><span class="c"># is this path already on the shelf?</span>
+artshelf find --path &lt;path&gt; --owner &lt;agent-or-runtime&gt; --label &lt;task-or-run-id&gt; --json
+
+<span class="c"># inspect one record by its Artshelf id</span>
+artshelf get &lt;id&gt; --json</code></pre>
+            <p>
+              If <code>find</code> returns a record, reuse that Artshelf id. If it returns
+              no entries, call <code>artshelf put --json</code> and report the new id.
+            </p>
+          </section>
+
+          <section>
+            <h2>Report the id</h2>
+            <p>Use a deterministic Artshelf footnote wherever restart or cleanup context will be read.</p>
+            <pre><code>Artshelf footnote: registered &lt;artifact-path&gt; as &lt;artshelf-id&gt;; reason: &lt;short reason&gt;; due: &lt;YYYY-MM-DD|manual-review&gt;; cleanup=&lt;cleanup-mode&gt;.</code></pre>
+          </section>
+        </article>
+        <footer class="pager" id="pager"></footer>
+      </main>
+
+      <aside class="toc-col"><p class="toc-title">On this page</p><nav id="toc" aria-label="On this page"></nav></aside>
+    </div>
+
+    <footer class="colophon"><div class="colophon-inner"><span>Artshelf docs</span><span>MIT</span><a href="https://github.com/calvinnwq/artshelf">GitHub</a></div></footer>
+  </body>
+</html>

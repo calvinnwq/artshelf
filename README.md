@@ -3,10 +3,11 @@
 Artshelf is a tiny CLI for putting temporary artifacts, backups, and run outputs
 somewhere accountable, with an expiry tag and a cleanup plan.
 
-It is built for agent-heavy workflows where files and directories are often
-created in `tmp/`, repo folders, or backup locations and then forgotten. Artshelf
-records why an artifact exists at creation time, then makes later cleanup
-visible and reviewable.
+It is built for agents first. Coding agents, workflow runners, and review bots
+create files in `tmp/`, repo folders, or backup locations and then lose context.
+Artshelf gives them a small, auditable contract: record why an artifact exists
+when it is created, monitor the ledgers later, present a review packet, and clean
+only from explicit approvals.
 
 Artshelf centers on four approval-first workflows: **register a temp artifact** the
 moment it is created, **review everything safely** before anything moves,
@@ -21,6 +22,11 @@ Artshelf is an early v1 MVP. The CLI is distributed under the unscoped
 as a fallback.
 
 ## Install
+
+The intended install path is agent-led: ask your agent to install Artshelf,
+verify it, install or reference the portable skill, and offer to schedule a
+read-only review job in the host runtime. Humans can still run the commands
+below directly.
 
 Install the npm package:
 
@@ -59,6 +65,17 @@ npm uninstall -g artshelf
 npm unlink -g artshelf
 ```
 
+For agent setup, the agent should prompt before optional integration steps:
+
+- install CLI from npm, or use a source checkout
+- install/copy/reference the whole `skills/artshelf` directory
+- register existing project ledgers
+- schedule a read-only review job in the host runtime
+- choose where review packets should be delivered
+
+Agents should drive the selected setup steps explicitly and verify with
+`artshelf doctor`.
+
 ## Core Workflows
 
 Artshelf is built around four approval-first workflows. Start here; the reference
@@ -72,7 +89,7 @@ Record an artifact the moment it is created, while the reason is still fresh:
 artshelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch --cleanup trash
 ```
 
-Artshelf returns an id. Capture it anywhere future cleanup context matters.
+Artshelf returns an id. Capture it anywhere restart or cleanup context matters.
 
 ### 2. Review everything safely
 
@@ -114,6 +131,22 @@ artshelf trash purge --execute --plan-id purge_20260601_120000_ab12
 
 This adds a separate approval boundary between quarantine and destructive deletion.
 
+## Ideal Agent Loop
+
+Agents should use Artshelf as a small lifecycle around their own work:
+
+1. **Create**: when a durable temp artifact, backup, debug output, report, or
+   quarantine folder is created, run lookup-before-put, then `artshelf put`, and
+   include the Artshelf id in the task summary or handoff.
+2. **Monitor**: run scheduled read-only checks such as `artshelf status --all --json`,
+   `artshelf review --all --json`, and `artshelf trash list --all --json`.
+3. **Review**: turn attention into a compact `ArtshelfReviewReport` decision
+   packet with registry health, affected ledgers, grouped candidates, exact
+   approval targets, and a clear safety line.
+4. **Clean**: after explicit approval for the reviewed ledger and plan id, run
+   cleanup or resolve, then verify the next review is quiet or explain what
+   remains.
+
 ## Explicit Ledgers
 
 By default, Artshelf writes repo-local `.artshelf/ledger.jsonl` inside a git repo and
@@ -127,19 +160,13 @@ artshelf list --ledger /tmp/artshelf-ledger.jsonl
 
 Artshelf also keeps a small global registry of known ledgers at
 `~/.artshelf/ledgers.json`. Override it with `--registry <path>` or
-`ARTSHELF_REGISTRY`; renamed installs still honor legacy `SHELF_REGISTRY` when
-`ARTSHELF_REGISTRY` is unset. `put` registers its ledger automatically, and you
-can register an existing ledger explicitly:
+`ARTSHELF_REGISTRY`. `put` registers its ledger automatically, and you can
+register an existing ledger explicitly:
 
 ```bash
 artshelf ledgers list
 artshelf ledgers add --ledger /path/to/repo/.artshelf/ledger.jsonl --name my-repo
 ```
-
-Renamed installs before `0.5.0` used `.shelf` storage paths. Migrate by copying
-each ledger directory to `.artshelf`, rewriting registry paths to the copied
-ledgers, validating with `artshelf ledgers list --json`, and keeping the old
-`.shelf` directories until rollback is no longer needed.
 
 `artshelf ledgers list` validates each registered ledger by default — reporting
 ok/missing/invalid status with entry counts, and exiting non-zero when the
@@ -197,7 +224,7 @@ write a plan, it also records that plan in the ledger as an Artshelf-owned artif
 
 After `cleanup --execute`, Artshelf writes a receipt, records the receipt as a
 Artshelf-owned artifact, and updates touched ledger records. Handled records stop
-appearing in `due` and future dry-run cleanup plans, while `artshelf list` still
+appearing in `due` and later dry-run cleanup plans, while `artshelf list` still
 keeps the audit trail visible.
 
 ## Commands
@@ -241,8 +268,8 @@ quickstart, agent usage, and CLI reference. The source repo also keeps the
 
 ## Agent Skill
 
-The package includes an agent-facing skill at `skills/artshelf/SKILL.md`. Agents
-that support local skills can copy or reference this file to learn when to call
+The package includes an agent-facing skill at `skills/artshelf`. Agents
+that support local skills can copy or reference this directory to learn when to call
 `artshelf put`, how to report deterministic Artshelf footnotes after JSON
 registration, why `artshelf find` / `artshelf get` are the read-only idempotency
 lookup surface, why `cleanup --execute` requires explicit approval for a
@@ -253,10 +280,11 @@ review-report decision packets, how to review trashed records with
 handled, missing, or no-longer-needed records without moving or deleting files.
 
 The same skill ships in the npm package alongside
-`schemas/artshelf-review-report.schema.json` and the canonical
-`examples/artshelf-review-report.json` packet. From a source checkout, use
-`skills/artshelf/SKILL.md` directly. Agents should ask where the user wants
-Artshelf cloned before installing or linking it.
+`scripts/render-review-report.mjs`,
+`schemas/artshelf-review-report.schema.json`, and the canonical
+`examples/artshelf-review-report.json` packet. From a source checkout, use the
+whole `skills/artshelf` directory directly. Agents should ask where the user
+wants Artshelf cloned before installing or linking it.
 
 ## Development
 

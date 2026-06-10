@@ -3,131 +3,209 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Install Artshelf</title>
-    <meta name="description" content="Install Artshelf from npm or a local source checkout.">
+    <title>Install · Artshelf</title>
+    <meta name="description" content="Install Artshelf from npm or source, then verify with doctor.">
+    <script>(function(){var stored=null;try{stored=localStorage.getItem("artshelf-docs-theme");}catch(e){}var dark=false;try{dark=matchMedia("(prefers-color-scheme: dark)").matches;}catch(e){}document.documentElement.dataset.theme=stored||(dark?"dark":"light");})();</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450..680;1,9..144,450..680&family=Newsreader:ital,opsz,wght@0,6..72,400..650;1,6..72,400..650&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="site.css">
-    <script src="theme.js" defer></script>
+    <script src="site.js" defer></script>
   </head>
-  <body>
-    <div class="docs-shell">
-      <nav class="global-nav" aria-label="Documentation">
-        <a class="site-mark" href="index.html"><strong>Artshelf</strong><span>Artifact retention CLI</span></a>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
-        <div class="nav-scroll" aria-label="Documentation sections">
-        <div class="nav-section">
-          <p class="nav-section-title">Start</p>
-          <a href="index.html">Overview</a>
-          <a href="install.html" aria-current="page">Install</a>
-          <a href="quickstart.html">Quickstart</a>
+  <body data-page="install.html">
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <button class="menu-btn" type="button" data-menu aria-label="Toggle navigation" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5h14M1 8h14M1 12.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <a class="brand" href="index.html">Artshelf<span class="brand-tag">docs</span></a>
+        <button class="search-btn" type="button" data-search-open><span>Search docs</span><kbd>/</kbd></button>
+        <div class="masthead-tools">
+          <a class="gh" href="https://github.com/calvinnwq/artshelf">GitHub</a>
+          <button class="theme-btn" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">
+            <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M14.6 12.1A6.5 6.5 0 0 1 7.4 2.7a6.5 6.5 0 1 0 7.2 9.4z" fill="currentColor"/></svg>
+            <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="14.4" y1="14.4" x2="15.8" y2="15.8"/><line x1="4.2" y1="15.8" x2="5.6" y2="14.4"/><line x1="14.4" y1="5.6" x2="15.8" y2="4.2"/></g></svg>
+          </button>
         </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Agents</p>
-          <a href="agent-usage.html">Agent usage</a>
-          <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">Agent skill</a>
-        </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Reference</p>
-          <a href="reference.html">CLI reference</a>
-          <a href="https://github.com/calvinnwq/artshelf">GitHub</a>
-        </div>
-        </div>
-      </nav>
+      </div>
+    </header>
 
-      <div class="docs-content">
-        <header class="page-top">
-          <div class="wrap">
-            <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Install</span></nav>
-            <div class="hero">
-              <div>
-                <p class="eyebrow">Install</p>
-                <h1>Install Artshelf.</h1>
-                <p class="lede">
-                  Artshelf is distributed under the unscoped `artshelf` package name.
-                  Source install remains the fallback path.
-                </p>
-              </div>
-              <div class="terminal">
-                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>install</span></div>
-                <pre><code>$ npm install -g artshelf
-$ artshelf --version
-$ artshelf doctor</code></pre>
-              </div>
-            </div>
-          </div>
-        </header>
+    <div class="frame">
+      <nav id="sidebar" class="sidebar" aria-label="Documentation"></nav>
 
-        <main class="wrap">
-          <article>
-            <section>
-              <h2>Requirements</h2>
-              <div class="grid">
-                <div class="card"><h3>Node.js 22+</h3><p>The package declares `node &gt;=22` and CI runs on Node 24.</p></div>
-                <div class="card"><h3>npm or pnpm</h3><p>Install the global package with your preferred Node package manager.</p></div>
-                <div class="card"><h3>Source tooling</h3><p>Corepack and Git are only needed when cloning, building, and linking from source.</p></div>
-              </div>
-            </section>
+      <main id="content" class="article-col">
+        <article>
+          <p class="kicker"><span class="n">02</span>Start · Install</p>
+          <h1>Install the CLI, then run doctor.</h1>
+          <p class="lede">
+            Install globally from npm, verify the command works, then hand the setup
+            prompt to your coding agent.
+          </p>
 
-            <section>
-              <h2>Install From npm</h2>
-              <pre><code>npm install -g artshelf
-artshelf --version
-artshelf doctor</code></pre>
-              <pre><code>pnpm add -g artshelf
-artshelf --version
-artshelf doctor</code></pre>
-              <pre><code>npm uninstall -g artshelf</code></pre>
-            </section>
+          <section>
+            <h2>Requirements</h2>
+            <dl class="def-rows">
+              <div><dt>Node.js 22+</dt><dd>the package declares <code>node &gt;=22</code>; CI runs on Node 24</dd></div>
+              <div><dt>npm or pnpm</dt><dd>any Node package manager can install the global package</dd></div>
+              <div><dt>Git + Corepack</dt><dd>only needed for the source install below</dd></div>
+            </dl>
+          </section>
 
-            <section>
-              <h2>Install From Source</h2>
-              <pre><code>git clone https://github.com/calvinnwq/artshelf.git
+          <section>
+            <h2>Installation</h2>
+            <p>Pick one method. All three end with the same global <code>artshelf</code> command.</p>
+            <pre><code><span class="c"># npm</span>
+npm install -g artshelf
+
+<span class="c"># pnpm</span>
+pnpm add -g artshelf
+
+<span class="c"># from source (needs git + corepack)</span>
+git clone https://github.com/calvinnwq/artshelf.git
 cd artshelf
 corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
 npm link
+
+<span class="c"># verify whichever you picked</span>
 artshelf --version
 artshelf doctor</code></pre>
-              <p>
-                `npm link` connects the local checkout to your global npm bin, so future rebuilds update the `artshelf`
-                command.
-              </p>
-              <pre><code>npm unlink -g artshelf</code></pre>
-            </section>
+            <p>
+              <code>npm link</code> connects the local checkout to your global npm bin, so
+              later rebuilds update the <code>artshelf</code> command. To remove an npm
+              install, run <code>npm uninstall -g artshelf</code>; for a source install,
+              run <code>npm unlink -g artshelf</code>.
+            </p>
+          </section>
 
-            <section>
-              <h2>Update A Source Install</h2>
-              <pre><code>cd artshelf
+          <section>
+            <h2>Updating a source install</h2>
+            <pre><code><span class="c"># pull the latest changes and rebuild</span>
+cd artshelf
 git pull
+pnpm install --frozen-lockfile
+pnpm run build
+npm link</code></pre>
+          </section>
+
+          <section>
+            <h2>Recommended agent setup</h2>
+            <p>
+              Artshelf is agent-operated, so let your agent finish the job. The repo
+              ships <a href="https://github.com/calvinnwq/artshelf/blob/main/INSTALL.md">INSTALL.md</a>
+              with the full agent setup steps: install the portable skill together
+              with its bundled report renderer script, register existing ledgers, and
+              ask you first before creating any scheduled review job. Scheduled jobs
+              stay read-only; cleanup and purge execution always come back to you.
+            </p>
+            <p>Copy this one line into your coding agent:</p>
+            <pre><code>Follow the instructions in https://github.com/calvinnwq/artshelf/blob/main/INSTALL.md to set up Artshelf in this workspace.</code></pre>
+            <p>What the agent will follow, in full:</p>
+            <pre><code># Artshelf agent setup
+
+These instructions are written for a coding agent. If you are a human, paste
+this one line into your agent and let it do the rest:
+
+&gt; Follow the instructions in
+&gt; https://github.com/calvinnwq/artshelf/blob/main/INSTALL.md
+&gt; to set up Artshelf in this workspace.
+
+## 1. Install the CLI
+
+Check whether it is already installed before changing anything:
+
+```bash
+artshelf --version
+artshelf doctor
+```
+
+If the command is missing, install it from npm and verify again:
+
+```bash
+npm install -g artshelf      # or: pnpm add -g artshelf
+artshelf --version
+artshelf doctor
+```
+
+Only use a source install when the user asks for one, and ask the user where
+to clone the repo first instead of assuming a repo path:
+
+```bash
+git clone https://github.com/calvinnwq/artshelf.git "$ARTSHELF_REPO"
+cd "$ARTSHELF_REPO"
+corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
 npm link
 artshelf --version
-artshelf doctor</code></pre>
-            </section>
+artshelf doctor
+```
 
-            <section>
-              <h2>Agent Setup</h2>
-              <p>
-                Agents should prefer the npm install when available. If using a source install,
-                ask the user where to clone it before linking the command.
-              </p>
-              <pre><code>docs/agent-usage.md</code></pre>
-              <div class="note">Verify `artshelf --version` and `artshelf doctor` after either install method.</div>
-            </section>
+## 2. Install the portable skill, including its script
 
-            <section>
-              <h2>Preview Docs Locally</h2>
-              <pre><code>pnpm docs:serve</code></pre>
-              <p>
-                This serves the static docs directory at
-                <a href="http://127.0.0.1:8080/">127.0.0.1:8080</a>.
-              </p>
-            </section>
-          </article>
-        </main>
-        <footer class="site-footer"><div class="wrap">Artshelf docs · <a href="quickstart.html">Next: quickstart</a></div></footer>
-      </div>
+Install, copy, or reference the portable skill so you register temporary
+artifacts when you create them and check the shelf before handoffs. Copy the
+whole `skills/artshelf` directory, not just SKILL.md: the skill ships with
+`scripts/render-review-report.mjs` (the deterministic review report renderer)
+plus its `schemas/` and `examples/`, and those must travel together.
+
+```bash
+# from the installed npm package
+rm -rf &lt;your-skills-dir&gt;/artshelf
+cp -R "$(npm root -g)/artshelf/skills/artshelf" &lt;your-skills-dir&gt;/
+
+# or from a source checkout
+rm -rf &lt;your-skills-dir&gt;/artshelf
+cp -R "$ARTSHELF_REPO/skills/artshelf" &lt;your-skills-dir&gt;/
+```
+
+Re-run the replacement copy after upgrading the package so the skill and
+script stay in sync with the CLI.
+
+## 3. Register existing ledgers
+
+`artshelf put` registers its ledger automatically. Register any existing
+project ledgers so `--all` commands can see them:
+
+```bash
+artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;project&gt; --scope repo --json
+artshelf ledgers list --json
+```
+
+## 4. Scheduled review (ask the user first)
+
+Ask the user whether they want a scheduled review job before creating one.
+If they approve, schedule a read-only review job (daily works well) in your
+host runtime that runs:
+
+```bash
+artshelf review --all --json
+```
+
+and reports what needs attention. Scheduled jobs are review and report only:
+never schedule `artshelf cleanup --execute` or `artshelf trash purge
+--execute`.
+
+## 5. Verify and report
+
+Finish by showing the user the output of:
+
+```bash
+artshelf doctor
+artshelf ledgers list --json
+```</code></pre>
+            <div class="callout" data-kind="note">
+              <span class="callout-label">Verify</span>
+              <p>However setup happens, finish with <code>artshelf --version</code> and <code>artshelf doctor</code>.</p>
+            </div>
+          </section>
+        </article>
+        <footer class="pager" id="pager"></footer>
+      </main>
+
+      <aside class="toc-col"><p class="toc-title">On this page</p><nav id="toc" aria-label="On this page"></nav></aside>
     </div>
+
+    <footer class="colophon"><div class="colophon-inner"><span>Artshelf docs</span><span>MIT</span><a href="https://github.com/calvinnwq/artshelf">GitHub</a></div></footer>
   </body>
 </html>

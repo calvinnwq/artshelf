@@ -6,35 +6,30 @@ description: "Use before any final response, status update, handoff, or done rep
 # Artshelf
 
 Artshelf is a tiny CLI for accountable temporary artifact retention. Use this
-skill when an agent creates or reviews files that should survive the current
-command but should not be kept forever.
+skill when work creates or reviews non-source files that should survive the
+current command but should not be kept forever.
 
-Core rule: register artifacts at creation time, while the reason is still
-fresh. Do not infer intent later from filesystem age or path names.
+Core rule: register artifacts at creation time, while the reason is still fresh.
+Humans approve dangerous mutations; agents install, register, monitor, produce
+review packets, and verify results.
 
 ## Contract
 
-- Mandatory trigger: before final response, handoff, status, or "done"
-  reporting, check whether the task created, copied, exported, quarantined,
-  backed up, or preserved any non-source file or directory that may outlive the
-  current command.
-- Use `artshelf put` for meaningful temporary artifacts, backups, run outputs, and
-  debug evidence immediately after the path exists.
-- If an eligible artifact is not registered, record a clear skip reason.
-- Include a clear reason, retention rule, cleanup mode, owner, and useful
-  labels.
-- Capture the Artshelf id in handoffs, PRs, issue comments, memory, or run
-  summaries when the artifact matters for restart or review.
-- When `artshelf put --json` succeeds, report a deterministic Artshelf footnote
-  in the same handoff, status, final response, or run summary that mentions the
-  artifact. Include the path, Artshelf id, short reason, due date or
-  `manual-review`, and cleanup mode.
-- Cleanup execution is approval-only. Read-only review is fine; mutation needs
-  a reviewed plan id and explicit human approval.
+- Before final/status/handoff/done, check whether the task created, copied,
+  exported, quarantined, backed up, or preserved any non-source file or
+  directory that may outlive this command.
+- Register meaningful eligible artifacts with `artshelf put --json`; otherwise
+  record a clear skip reason.
+- Include reason, TTL or manual-review, cleanup mode, owner, and labels.
+- Report the Artshelf id anywhere restart or cleanup context matters.
+- Use read-only commands freely; execute cleanup, trash purge, or resolve only
+  after exact human approval.
+- Do not call work done while known eligible artifacts are neither registered
+  nor explicitly skipped.
 
-## Register
+## Setup
 
-Check the installed CLI first:
+Check for the CLI first:
 
 ```bash
 artshelf --version
@@ -42,27 +37,15 @@ artshelf doctor
 artshelf help put
 ```
 
-If Artshelf is not installed, prefer the package-manager install when available,
-then verify `artshelf --version` and `artshelf doctor`.
+If missing, install from npm when appropriate:
 
 ```bash
 npm install -g artshelf
-artshelf --version
 artshelf doctor
 ```
 
-With pnpm:
-
-```bash
-pnpm add -g artshelf
-artshelf --version
-artshelf doctor
-```
-
-For source installs, ask the user where to clone the repo before making changes.
-Do not hard-code a personal repo path. Clone the repo, build it, run `npm link`,
-then verify `artshelf --version` and `artshelf doctor`. Do not create a custom
-shim.
+For source installs, ask where to clone the repo. Do not hard-code a personal
+repo path or create a custom shim.
 
 ```bash
 git clone https://github.com/calvinnwq/artshelf.git "$ARTSHELF_REPO"
@@ -71,353 +54,83 @@ corepack enable
 pnpm install --frozen-lockfile
 pnpm run build
 npm link
-artshelf --version
 artshelf doctor
 ```
 
-Common registration:
+Install, copy, or reference this portable skill only after the user chooses the
+integration path. Offer to schedule read-only review job delivery in the host
+runtime.
 
-```bash
-artshelf put <path> \
-  --reason "<why this exists>" \
-  --ttl 3d \
-  --kind run-artifact \
-  --cleanup review \
-  --owner agent \
-  --label <project-or-task> \
-  --json
-```
+## Create
 
-Use `--json` when another tool or handoff needs the entry id.
-
-## Lookup
-
-Use read-only lookup before `put` when a workflow needs idempotent artifact
-registration:
+Use lookup-before-put for idempotent registration:
 
 ```bash
 artshelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id> --json
+artshelf put <path> --reason "<why this exists>" --ttl 3d --kind run-artifact --cleanup review --owner agent --label <project-or-task> --json
 artshelf get <id> --json
 ```
 
-`find` requires at least one selector: `--path`, `--owner`, `--label`, or
-`--status`. Multiple labels must all match. If a matching record already
-exists, reuse its Artshelf id instead of creating a duplicate record.
+Register backups, quarantine folders, debug output, generated reports, long-run
+evidence, and copied files kept for review. Skip source files, cheap regenerated
+build output, dependency caches, secrets, credential dumps, and artifacts already
+owned by another durable ledger.
 
-Use the ledger registry when reviewing all known Artshelf state from one entry
-point:
+Defaults: `kind=scratch` for temp dirs, `backup` for rollback copies,
+`run-artifact` for logs/reports/evidence, `quarantine` for isolated questionable
+files. Use `cleanup=review` when judgment is needed and `cleanup=trash` only when
+later disposal is clearly safe.
 
-```bash
-artshelf ledgers list --json
-artshelf review --all --json
-artshelf status --all --json
-artshelf find --all --owner <agent-or-runtime> --json
-artshelf trash list --all --json
-```
-
-`artshelf ledgers list --json` reports per-ledger validation status
-(ok/missing/invalid) with entry and warning/error counts, so you can detect
-stale registry entries without a separate validate pass; `--plain` skips
-validation. `artshelf review --all --json` adds an aggregate triage summary and the
-next safe action.
-
-`put` registers its ledger automatically. For existing project ledgers, register
-them explicitly:
-
-```bash
-artshelf ledgers add --ledger <repo>/.artshelf/ledger.jsonl --name <project> --scope repo --json
-```
-
-`--all` is for discovery and review. Do not use it as permission to mutate
-files.
-
-## Daily Review Workflow
-
-Use this flow when a scheduled review, recurring task, or user request asks for
-Artshelf cleanup attention:
-
-1. Register artifacts early during work, or state why an eligible artifact was
-   skipped.
-2. Review state with read-only commands first:
-   `artshelf ledgers list --json`, `artshelf review --all --json`, and
-   `artshelf trash list --all --json`; for old trash on a selected ledger, run
-   `artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json`.
-3. Present a decision packet instead of raw counts. Include registry health,
-   affected ledgers, due/manual-review/missing-path counts, executable entries,
-   skipped entries, refused entries, trashed record counts and ages, purge
-   dry-run plan ids/skipped entries, and the next safe action.
-4. Classify each candidate:
-   - `trash-safe`: disposable after the reviewed plan moves it into Artshelf trash.
-   - `needs-human-review`: `cleanup=review`, evidence, backups, reports, or
-     anything that should be inspected before closing.
-   - `resolve-candidate`: already handled, missing, or no longer needed; use
-     `artshelf resolve` only after confirmation.
-   - `registry-problem`: stale, missing, or invalid ledger; fix registry health
-     before touching artifacts.
-5. If cleanup execution is appropriate, generate or reuse a dry-run plan, then
-   ask for explicit approval naming the ledger path and reviewed plan id.
-6. For any `trash-safe` candidates moved by `cleanup=trash`, run `artshelf trash list`
-   and then require a separate reviewed purge plan before physical deletion:
-
-```bash
-artshelf trash list --ledger <ledger-path>
-artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
-artshelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
-```
-
-7. After approved cleanup execute, trash purge, or resolve, verify quiet with
-   `artshelf review --all --json`, plus `artshelf trash list --ledger <ledger-path> --json`
-   and purge receipt evidence after purge, or explain what remains.
-
-### Review Plan Report Schema
-
-When a dry-run creates or reuses a cleanup or trash purge plan, surface the plan
-in a compact human-readable report. The report should let the user approve, ask
-for changes, or request alternatives without opening the plan file.
-
-For deterministic agent integrations, construct an `ArtshelfReviewReport` JSON
-object first, then render it to text. Use
-`schemas/artshelf-review-report.schema.json` for the packet shape and
-`examples/artshelf-review-report.json` as the canonical example. The schema
-locks report structure; the CLI output and approval rules still define cleanup
-safety.
-
-Render the JSON packet as a compact decision card using `decisionSummary` and
-`decisionGroups`. Lead with counts, then show exactly what is ready for approval
-and what needs review first. Emojis are encouraged when the host renders them
-well because they make the groups scannable; omit them only for plain-text or
-accessibility-constrained surfaces.
-
-```text
-Artshelf daily review
-Status: <ok|attention needed>; registry <ok|attention>
-
-✅ Ready for approval: <n>
-👀 Needs review first: <n>
-⚠️ Blocked: <n>
-
-Recommended action
-<one short sentence with the next safest action>.
-
-Ready for approval
-1. <short item label>
-   Why: <short reason>
-   Action: <what approval will do>
-   approve artshelf cleanup ledger <ledger-path> plan <plan-id>
-
-2. <short item label>
-   Why: <short reason>
-   Action: <ledger-only update, no file changes>
-   approve artshelf resolve missing ledger <ledger-path> ids <id...>
-
-Needs review first
-1. <short item label>
-   Why: <short reason>
-   Suggested next step: inspect path, then choose keep, change retention, resolve, or clean up later
-   Path: <path>
-
-Blocked
-<none, or the registry/refused/missing-path blocker and next repair step>
-
-Safety
-Dry-run only. No execute, resolve, or delete ran.
-```
-
-Keep the full `ArtshelfReviewReport` JSON as the audit packet and include it as
-an attachment, linked file, or expandable detail when the host supports that.
-Do not paste the whole packet into chat unless the user asks for it. For long
-plans, show only the first 3 to 5 decisions under each visible group, then state
-the hidden count by group and classification. Do not hide refused,
-registry-problem, or missing-path items.
-
-If the host supports buttons, menus, or other interactive controls, they should
-emit exact text commands such as the approval targets below. Always include the
-exact approval target in the message body as a fallback for clients where those
-controls do not render.
-
-Approval wording should be exact:
-
-```text
-approve artshelf cleanup ledger <ledger-path> plan <plan-id>
-approve artshelf trash purge ledger <ledger-path> plan <purge-plan-id>
-approve artshelf resolve missing ledger <ledger-path> ids <id...>
-```
-
-Never execute from a read-only preview id. Never generate a fresh plan and
-execute it in the same step. `trash` moves artifacts into Artshelf trash; physical
-deletion requires a separate reviewed trash purge plan.
-
-## What To Register
-
-Register:
-
-- config backups and rollback copies
-- quarantine folders
-- debug output directories
-- generated evidence or reports
-- long-running workflow run artifacts
-- copied files kept for review
-
-Skip:
-
-- source files that belong in git
-- cheap regenerated build outputs
-- dependency caches
-- artifacts already owned by a durable workflow ledger
-- secrets or credential dumps
-
-If you skip an otherwise eligible artifact, report the reason briefly. Examples:
-source-controlled, regeneratable, secret-bearing, already tracked by another
-durable ledger, or user asked not to retain it.
-
-## Defaults
-
-- `kind=scratch` for temporary working directories.
-- `kind=backup` for rollback copies.
-- `kind=run-artifact` for logs, reports, and generated evidence.
-- `kind=quarantine` for isolated questionable files.
-- `cleanup=review` when judgment is needed later.
-- `cleanup=trash` only when disposal after the retention window is clearly safe.
-- `owner=<agent-or-runtime>` should name the agent, tool, CI job, or human
-  process that created the artifact.
-
-## Report
-
-After registration, include the Artshelf id where the future reader will look:
-
-```text
-Artshelf artifact: shf_20260601_182800_ab12, /tmp/parser-output, retain until
-2026-06-04, cleanup=review.
-```
-
-When a machine-readable registration succeeds, use the same deterministic
-footnote shape:
+When JSON registration succeeds, include this deterministic Artshelf footnote:
 
 ```text
 Artshelf footnote: registered <artifact-path> as <artshelf-id>; reason: <short reason>; due: <YYYY-MM-DD|manual-review>; cleanup=<cleanup-mode>.
 ```
 
-## Completion Check
+## Monitor
 
-Before finalizing a task, review your own file actions:
+Use the ledger registry for whole-machine review:
 
-1. Did you create, copy, export, quarantine, back up, or preserve any non-source
-   file or directory?
-2. Will any of those paths outlive this command?
-3. If yes, did you register them with Artshelf or state why Artshelf is not
-   appropriate?
+```bash
+artshelf ledgers list --json
+artshelf status --all --json
+artshelf review --all --json
+artshelf trash list --all --json
+```
 
-Do not call work done while known eligible artifacts are neither registered nor
-explicitly skipped.
+`artshelf ledgers list --json` reports per-ledger validation status. `--plain`
+skips validation. `--all` is for discovery and review, not mutation permission.
 
-## Cleanup
+Register existing project ledgers explicitly:
 
-Allowed without extra approval because they do not move or delete files:
+```bash
+artshelf ledgers add --ledger <repo>/.artshelf/ledger.jsonl --name <project> --scope repo --json
+```
+
+### Scheduled Review
+
+Scheduled jobs are review/report only. Reports should name the ledger path and
+plan id when attention exists. They may run:
 
 ```bash
 artshelf validate --json
-artshelf validate --all --json
 artshelf due --json
-artshelf due --all --json
 artshelf review --all --json
-```
-
-Cleanup dry-run is safe to run. It writes plan files for later review only when
-there are executable cleanup entries:
-
-```bash
 artshelf cleanup --dry-run --json
 artshelf cleanup --dry-run --all --json
-```
-
-Cleanup execution requires explicit approval that names the reviewed plan id:
-
-```bash
-artshelf cleanup --execute --plan-id <id>
-```
-
-After cleanup execution, trash list and purge dry-run are safe review steps, but
-trash purge execution requires separate human approval naming the ledger and
-reviewed purge plan id:
-
-```bash
-artshelf trash list --ledger <ledger-path>
-artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
-artshelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
-```
-
-No-op dry-runs report `not-created` and do not write plan files.
-Never generate a fresh plan and execute it in the same step.
-Execution writes a receipt and updates touched ledger records to `trashed`,
-`review-required`, or `cleanup-refused`, so handled artifacts stop reappearing in
-future due and dry-run cleanup output.
-Artshelf records generated plans and receipts as `owner=artshelf` artifacts.
-
-You may mark a record manually resolved when the user confirms the artifact was
-inspected, is already missing, or is no longer needed:
-
-```bash
-artshelf resolve <id> --status resolved --reason <text>
-```
-
-Use a specific reason. `resolve` only updates the ledger; it does not move or
-delete files. For batches of missing-path records, ask for approval that names
-the exact ledger and ids:
-
-```text
-approve artshelf resolve missing ledger <ledger-path> ids <id...>
-```
-
-After resolution, verify with `artshelf review --all --json` and report whether
-the review is quiet or what remains. Resolved records stop reappearing in future
-due and dry-run cleanup output while remaining visible in
-`artshelf list --status resolved`.
-
-## Scheduled Review
-
-Agents may schedule routine Artshelf checks for stale artifacts through their host
-runtime, such as an agent cron, CI job, or recurring task. Scheduled jobs are
-review/report only.
-
-Allowed in scheduled jobs:
-
-```bash
-artshelf validate --json
-artshelf due --json
-artshelf review --all --json
-artshelf cleanup --dry-run --json
-artshelf trash list --ledger <ledger-path> --json
 artshelf trash list --all --json
-artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
-```
-
-Read-only health and dashboard checks are also safe to schedule. Run
-`artshelf review --all --json` for aggregate triage (`summary` and `nextAction`),
-`artshelf doctor --json` to catch a broken or stale registry before relying on
-cleanup planning, and `artshelf status --all --json` for a compact cron summary:
-
-```bash
 artshelf doctor --json
 artshelf status --all --json
 ```
 
-The report should include the ledger path, due/manual-review/missing-path counts,
-cleanup dry-run plan id, executable entries, skipped entries, and refused
-entries. When reporting trash, `artshelf trash list --all --json` may discover trashed
-records across registered ledgers. Include trashed record counts and target ages;
-run purge dry-runs only for an explicit ledger and report any plan id, matching
-entries, and skipped entries. Stay quiet when
-nothing needs attention unless a regular summary was requested.
+For old-trash review, dry-run purge only for an explicit ledger:
 
-Repeated dry-runs with the same executable cleanup entries reuse the existing
-plan id and refresh that plan file's timestamp instead of creating duplicate
-plans.
+```bash
+artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
+```
 
-Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
-locations for ledgers unless the user opted into that discovery scope.
-
-Never schedule cleanup execution or trash purge execution. Scheduled jobs may
-only dry-run and report plans for later human review:
+Do not scan arbitrary filesystem locations for ledgers unless the user opted
+into that discovery scope. Never schedule cleanup or purge execution:
 
 ```bash
 artshelf cleanup --execute --plan-id <id>
@@ -426,35 +139,119 @@ artshelf trash purge --execute --plan-id <id>
 
 ## Review
 
-When asked to review Artshelf state:
+Daily Review Workflow: turn raw Artshelf output into a decision packet, not a
+count dump.
 
-1. Run `artshelf validate --json`.
-2. Run `artshelf due --json`.
-3. Run `artshelf trash list --json` to surface quarantined artifacts.
-4. If cleanup is requested, run `artshelf cleanup --dry-run --json`.
-5. If old-trash purge review is requested, run
-   `artshelf trash purge --older-than <ttl> --dry-run --json` for the explicit
-   ledger.
-6. Report plan id, executable entries, skipped entries, refused entries, trashed
-   records, and any purge plan id.
-7. Stop before `cleanup --execute` or `trash purge --execute` unless the user
-   explicitly approves that reviewed plan id.
+1. Run read-only review first: `artshelf ledgers list --json`,
+   `artshelf review --all --json`, and `artshelf trash list --all --json`.
+2. If cleanup attention exists, run `artshelf cleanup --dry-run --all --json`.
+3. Classify candidates as `trash-safe`, `needs-human-review`,
+   `resolve-candidate`, or `registry-problem`.
+4. Use `ArtshelfReviewReport` from
+   `schemas/artshelf-review-report.schema.json`; use
+   `examples/artshelf-review-report.json` as the canonical packet.
+5. Render the compact decision card with `scripts/render-review-report.mjs`;
+   keep `decisionSummary` in audit, while `decisionGroups` drive counts.
+   Emojis are encouraged only in host-specific wrappers, not the renderer.
+6. Always include the exact approval target in the message body as a fallback.
+   Do not paste the whole packet into chat unless the user asks for it.
 
-For a whole-machine Artshelf review, prefer:
+### Review Plan Report Schema
+
+Deterministic renderer:
 
 ```bash
-artshelf review --all --json
+cd /path/to/skills/artshelf
+node scripts/render-review-report.mjs examples/artshelf-review-report.json
 ```
 
-If the user asks for cleanup candidates across projects, run
-`artshelf cleanup --dry-run --all --json` and report each ledger's plan id. Execute
-only a specific reviewed plan against its specific ledger.
+Expected card shape:
+
+```text
+Artshelf daily review
+Status: <ok|attention needed>; registry <ok|attention>
+
+Ready for approval: <n>
+Needs review first: <n>
+Blocked: <n>
+
+Recommended action
+<one short sentence>.
+
+Ready for approval
+1. <label>
+   Why: <reason>
+   Action: <next step>
+   <approval target>
+
+Needs review first
+1. <label>
+   Why: <reason>
+   Suggested next step: <next step>
+
+Blocked
+<none, or blocker and repair step>
+
+Safety
+Dry-run only. No execute, resolve, or delete ran.
+```
+
+Approval wording:
+
+```text
+approve artshelf cleanup ledger <ledger-path> plan <plan-id>
+approve artshelf trash purge ledger <ledger-path> plan <purge-plan-id>
+approve artshelf resolve missing ledger <ledger-path> ids <id...>
+```
+
+Never execute from a read-only preview id. Never generate a fresh plan and
+execute it in the same step. After any approved action, verify with `artshelf review --all --json` and report whether the review is quiet.
+
+## Clean
+
+Read-only and dry-run commands are safe:
+
+```bash
+artshelf validate --json
+artshelf validate --all --json
+artshelf due --json
+artshelf due --all --json
+artshelf cleanup --dry-run --json
+artshelf cleanup --dry-run --all --json
+```
+
+Cleanup execution requires approval naming the reviewed ledger and plan id:
+
+```bash
+artshelf cleanup --execute --plan-id <id> --ledger <ledger-path> --json
+```
+
+Trash purge is separate from cleanup and needs its own reviewed purge plan:
+
+```bash
+artshelf trash list --ledger <ledger-path> --json
+artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
+artshelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
+```
+
+Resolve only after confirmation; it updates the ledger and does not move or
+delete files:
+
+```bash
+artshelf resolve <id> --status resolved --reason "<specific reason>" --ledger <ledger-path> --json
+```
+
+For batches, ask for exact approval:
+
+```text
+approve artshelf resolve missing ledger <ledger-path> ids <id...>
+```
 
 ## Safety
 
 - Do not register secrets or credential dumps.
-- Do not use Artshelf as a replacement for git, workflow ledgers, or backups.
+- Do not use Artshelf as a replacement for git, durable workflow ledgers, or
+  backups.
 - Do not silently delete files.
-- Do not treat `cleanup=delete` as permission to delete. Cleanup execution
-  records `cleanup-refused` with `delete is disabled in v1`; physical deletion
-  requires a separate reviewed trash purge plan.
+- Do not treat `cleanup=delete` as permission to delete. Cleanup records a
+  refusal; physical deletion requires a separate reviewed trash purge plan.
