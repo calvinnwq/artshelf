@@ -240,14 +240,28 @@
   var INDEX = null;
   var INDEX_PROMISE = null;
 
+  function isSearchEntry(entry) {
+    return entry &&
+      typeof entry.t === "string" &&
+      typeof entry.h === "string" &&
+      typeof entry.where === "string";
+  }
+
+  function isSearchIndex(value) {
+    return Array.isArray(value) && value.every(isSearchEntry);
+  }
+
   function buildIndex() {
     if (INDEX) return Promise.resolve(INDEX);
     if (INDEX_PROMISE) return INDEX_PROMISE;
     var cached = getStorageItem("sessionStorage", INDEX_KEY);
     if (cached) {
       try {
-        INDEX = JSON.parse(cached);
-        return Promise.resolve(INDEX);
+        var parsed = JSON.parse(cached);
+        if (isSearchIndex(parsed)) {
+          INDEX = parsed;
+          return Promise.resolve(INDEX);
+        }
       } catch (_) {}
     }
     var parser = new DOMParser();

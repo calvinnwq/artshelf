@@ -65,8 +65,8 @@ artshelf put /tmp/artshelf-demo \
           <section>
             <h2>2. Review without moving files</h2>
             <div class="callout" data-kind="readonly">
-              <span class="callout-label">Read-only</span>
-              <p>These commands are safe for agents and cron jobs. They never mutate files.</p>
+              <span class="callout-label">Non-destructive</span>
+              <p>These commands are safe for agents and cron jobs. They never move artifacts or trash entries; cleanup <code>--dry-run</code> may register a review plan.</p>
             </div>
             <pre><code><span class="c"># everything on the shelf</span>
 artshelf list --ledger /tmp/artshelf-ledger.jsonl

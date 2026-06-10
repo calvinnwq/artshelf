@@ -140,7 +140,8 @@ test("docs search cache uses guarded session storage", () => {
   assert.match(js, /var INDEX = null;\s*var INDEX_PROMISE = null;/);
   assert.match(js, /if \(INDEX_PROMISE\) return INDEX_PROMISE/);
   assert.match(js, /getStorageItem\("sessionStorage", INDEX_KEY\)/);
-  assert.match(js, /try \{\s*INDEX = JSON\.parse\(cached\);/);
+  assert.match(js, /function isSearchIndex\(value\) \{\s*return Array\.isArray\(value\) && value\.every\(isSearchEntry\);/);
+  assert.match(js, /var parsed = JSON\.parse\(cached\);\s*if \(isSearchIndex\(parsed\)\) \{\s*INDEX = parsed;/);
   assert.match(js, /setStorageItem\("sessionStorage", INDEX_KEY, JSON\.stringify\(INDEX\)\)/);
   assert.match(js, /if \(paletteInput && paletteInput\.value !== capturedQuery\) return/);
   assert.doesNotMatch(js, /sessionStorage\.getItem/);
@@ -898,6 +899,8 @@ test("README and quickstart lead with the core workflow", () => {
   assert.match(quickstart, /--ttl 0m/);
   assert.match(quickstart, /--older-than 0m/);
   assert.match(quickstart, /immediately due/);
+  assert.match(quickstart, /cleanup <code>--dry-run<\/code> may register a review plan/);
+  assert.doesNotMatch(quickstart, /They never mutate files/);
 });
 
 function read(path: string): string {
