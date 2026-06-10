@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 
 import { readFileSync } from "node:fs";
+import { pathToFileURL } from "node:url";
+
+const APPROVAL_ACTIONS = new Set(["cleanup", "trash-purge", "resolve-missing"]);
+const NON_APPROVAL_ACTIONS = new Set(["inspect", "fix-registry", "keep-or-snooze", "change-retention"]);
 
 function readInput() {
   const path = process.argv[2];
@@ -18,11 +22,9 @@ function formatApprovalDecision(decision, index) {
   const lines = [
     `${index + 1}. ${decision.label}`,
     `   Why: ${decision.reason}`,
-    `   Action: ${decision.nextStep}`
+    `   Action: ${decision.nextStep}`,
+    `   ${decision.approvalTarget}`
   ];
-  if (decision.approvalTarget) {
-    lines.push(`   ${decision.approvalTarget}`);
-  }
   return lines.join("\n");
 }
 
@@ -58,6 +60,43 @@ function requireArray(report, path) {
   return value;
 }
 
+function requireString(value, path) {
+  if (typeof value !== "string" || value.length === 0) {
+    throw new Error(`missing string ${path}`);
+  }
+  return value;
+}
+
+function requireActionType(value, allowed, path) {
+  const actionType = requireString(value, path);
+  if (!allowed.has(actionType)) {
+    throw new Error(`unsupported actionType ${path}`);
+  }
+  return actionType;
+}
+
+function validateDecision(decision, path, allowedActions) {
+  if (!decision || typeof decision !== "object" || Array.isArray(decision)) {
+    throw new Error(`missing object ${path}`);
+  }
+  requireString(decision.label, `${path}.label`);
+  requireActionType(decision.actionType, allowedActions, `${path}.actionType`);
+  requireString(decision.reason, `${path}.reason`);
+  requireString(decision.nextStep, `${path}.nextStep`);
+  return decision;
+}
+
+function validateApprovalDecision(decision, index) {
+  const path = `decisionGroups.readyForApproval.${index}`;
+  validateDecision(decision, path, APPROVAL_ACTIONS);
+  requireString(decision.approvalTarget, `${path}.approvalTarget`);
+  return decision;
+}
+
+function validateNonApprovalDecision(group, decision, index) {
+  return validateDecision(decision, `decisionGroups.${group}.${index}`, NON_APPROVAL_ACTIONS);
+}
+
 export function renderReviewReport(report) {
   if (report?.schemaVersion !== 1) {
     throw new Error("unsupported ArtshelfReviewReport schemaVersion");
@@ -65,9 +104,11 @@ export function renderReviewReport(report) {
 
   const scope = report.scope ?? {};
   const summary = report.decisionSummary ?? {};
-  const ready = requireArray(report, ["decisionGroups", "readyForApproval"]);
-  const needsReview = requireArray(report, ["decisionGroups", "needsReviewFirst"]);
-  const blocked = requireArray(report, ["decisionGroups", "blocked"]);
+  const ready = requireArray(report, ["decisionGroups", "readyForApproval"]).map(validateApprovalDecision);
+  const needsReview = requireArray(report, ["decisionGroups", "needsReviewFirst"])
+    .map((decision, index) => validateNonApprovalDecision("needsReviewFirst", decision, index));
+  const blocked = requireArray(report, ["decisionGroups", "blocked"])
+    .map((decision, index) => validateNonApprovalDecision("blocked", decision, index));
 
   const dryRunOnly = requireBoolean(report, ["safety", "dryRunOnly"]);
   const noExecuteRan = requireBoolean(report, ["safety", "noExecuteRan"]);
@@ -99,10 +140,12 @@ export function renderReviewReport(report) {
   ].join("\n");
 }
 
-try {
-  const report = JSON.parse(readInput());
-  process.stdout.write(`${renderReviewReport(report)}\n`);
-} catch (error) {
-  process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
-  process.exitCode = 1;
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  try {
+    const report = JSON.parse(readInput());
+    process.stdout.write(`${renderReviewReport(report)}\n`);
+  } catch (error) {
+    process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
+    process.exitCode = 1;
+  }
 }

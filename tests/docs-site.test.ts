@@ -27,6 +27,8 @@ test("docs site pages share the expected chrome", () => {
     assert.match(html, /href="site\.css"/, page);
     assert.match(html, /src="site\.js" defer/, page);
     assert.match(html, /artshelf-docs-theme/, page);
+    assert.match(html, /try\{stored=localStorage\.getItem\("artshelf-docs-theme"\);/, page);
+    assert.doesNotMatch(html, /dataset\.theme=localStorage\.getItem/, page);
     assert.match(html, new RegExp(`<body data-page="${name.replace(".", "\\.")}"`), page);
     assert.match(html, /<nav id="sidebar" class="sidebar" aria-label="Documentation">/, page);
     assert.match(html, /<nav id="toc" aria-label="On this page">/, page);
@@ -129,6 +131,16 @@ test("docs chrome renders when web storage is unavailable", () => {
     }
   });
   assert.equal(document.documentElement.dataset.theme, "light");
+});
+
+test("docs search cache uses guarded session storage", () => {
+  const js = read("docs/site.js");
+
+  assert.match(js, /var INDEX_KEY = "artshelf-docs-index-v1"/);
+  assert.match(js, /getStorageItem\("sessionStorage", INDEX_KEY\)/);
+  assert.match(js, /try \{\s*INDEX = JSON\.parse\(cached\);/);
+  assert.match(js, /setStorageItem\("sessionStorage", INDEX_KEY, JSON\.stringify\(INDEX\)\)/);
+  assert.doesNotMatch(js, /sessionStorage\.getItem/);
 });
 
 test("agent workflow navigation is a visible child hierarchy", () => {
@@ -397,6 +409,45 @@ test("review report renderer rejects malformed decision groups", () => {
     assert.equal(renderResult.status, 1, `${key} should be required as an array`);
     assert.match(renderResult.stderr, new RegExp(`missing array decisionGroups\\.${key}`));
   }
+});
+
+test("review report renderer rejects malformed approval decisions", () => {
+  const example = JSON.parse(read("examples/artshelf-review-report.json"));
+  const cases = [
+    ["label", /missing string decisionGroups\.readyForApproval\.0\.label/],
+    ["reason", /missing string decisionGroups\.readyForApproval\.0\.reason/],
+    ["nextStep", /missing string decisionGroups\.readyForApproval\.0\.nextStep/],
+    ["actionType", /missing string decisionGroups\.readyForApproval\.0\.actionType/],
+    ["approvalTarget", /missing string decisionGroups\.readyForApproval\.0\.approvalTarget/]
+  ] as const;
+
+  for (const [field, message] of cases) {
+    const malformed = structuredClone(example);
+    delete malformed.decisionGroups.readyForApproval[0][field];
+    const renderResult = spawnSync(
+      process.execPath,
+      ["skills/artshelf/scripts/render-review-report.mjs", "-"],
+      { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(malformed) }
+    );
+
+    assert.equal(renderResult.status, 1, `${field} should be required`);
+    assert.match(renderResult.stderr, message);
+  }
+});
+
+test("review report renderer can be imported without running the CLI", () => {
+  const importResult = spawnSync(
+    process.execPath,
+    [
+      "--input-type=module",
+      "-e",
+      "import { renderReviewReport } from './skills/artshelf/scripts/render-review-report.mjs'; console.log(typeof renderReviewReport);"
+    ],
+    { cwd: process.cwd(), encoding: "utf8" }
+  );
+
+  assert.equal(importResult.status, 0, importResult.stderr);
+  assert.equal(importResult.stdout.trim(), "function");
 });
 
 test("review report schema and example define the deterministic packet", () => {

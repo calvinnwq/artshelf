@@ -50,17 +50,27 @@
   /* ---------- theme ---------- */
 
   var THEME_KEY = "artshelf-docs-theme";
-  function getStoredTheme() {
+  var INDEX_KEY = "artshelf-docs-index-v1";
+
+  function getStorageItem(storageName, key) {
     try {
-      return window.localStorage.getItem(THEME_KEY);
+      return window[storageName].getItem(key);
     } catch (_) {
       return null;
     }
   }
-  function setStoredTheme(t) {
+
+  function setStorageItem(storageName, key, value) {
     try {
-      window.localStorage.setItem(THEME_KEY, t);
+      window[storageName].setItem(key, value);
     } catch (_) {}
+  }
+
+  function getStoredTheme() {
+    return getStorageItem("localStorage", THEME_KEY);
+  }
+  function setStoredTheme(t) {
+    setStorageItem("localStorage", THEME_KEY, t);
   }
   function preferredTheme() {
     return getStoredTheme() ||
@@ -231,8 +241,13 @@
 
   function buildIndex() {
     if (INDEX) return Promise.resolve(INDEX);
-    var cached = sessionStorage.getItem("artshelf-docs-index-v1");
-    if (cached) { INDEX = JSON.parse(cached); return Promise.resolve(INDEX); }
+    var cached = getStorageItem("sessionStorage", INDEX_KEY);
+    if (cached) {
+      try {
+        INDEX = JSON.parse(cached);
+        return Promise.resolve(INDEX);
+      } catch (_) {}
+    }
     var parser = new DOMParser();
     return Promise.all(ORDER.map(function (p) {
       return fetch(p.h).then(function (r) { return r.text(); }).then(function (html) {
@@ -246,7 +261,7 @@
       }).catch(function () { return [{ t: p.t, h: p.h, where: p.t }]; });
     })).then(function (lists) {
       INDEX = lists.flat();
-      try { sessionStorage.setItem("artshelf-docs-index-v1", JSON.stringify(INDEX)); } catch (e) {}
+      setStorageItem("sessionStorage", INDEX_KEY, JSON.stringify(INDEX));
       return INDEX;
     });
   }
