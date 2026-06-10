@@ -57,6 +57,13 @@
 - Split the agent docs into Create, Monitor, Review, and Clean workflow pages
   backed by shared docs-site chrome, search, and navigation.
 
+## [0.7.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.6.0...artshelf-v0.7.0) (2026-06-10)
+
+
+### Features
+
+* **docs:** adopt Ledger redesign for docs site ([#32](https://github.com/calvinnwq/artshelf/issues/32)) ([155aaab](https://github.com/calvinnwq/artshelf/commit/155aaab8c44d1e1a2f373cd47e704dde301fc308))
+
 ## [0.6.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.5.0...artshelf-v0.6.0) (2026-06-07)
 
 
