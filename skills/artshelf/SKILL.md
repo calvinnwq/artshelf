@@ -205,7 +205,7 @@ approve artshelf resolve missing ledger <ledger-path> ids <id...>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and
-execute it in the same step. After any approved action, verify with `artshelf review --all --json` and report whether the review is quiet.
+execute it in the same step. After cleanup or resolve approval, verify with `artshelf review --all --json`; after trash purge approval, also run `artshelf trash list --all --json`.
 
 ## Clean
 
@@ -226,13 +226,8 @@ Cleanup execution requires approval naming the reviewed ledger and plan id:
 artshelf cleanup --execute --plan-id <id> --ledger <ledger-path> --json
 ```
 
-Trash purge is separate from cleanup and needs its own reviewed purge plan:
-
-```bash
-artshelf trash list --ledger <ledger-path> --json
-artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
-artshelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json
-```
+Cleanup with `cleanup=trash` quarantines files into Artshelf trash. Physical
+deletion belongs to the separate Purge stage.
 
 Resolve only after confirmation; it updates the ledger and does not move or
 delete files:
@@ -246,6 +241,13 @@ For batches, ask for exact approval:
 ```text
 approve artshelf resolve missing ledger <ledger-path> ids <id...>
 ```
+
+## Purge
+
+Trash purge is separate from cleanup and needs its own reviewed purge plan. List
+trash and dry-run purge freely; execute `artshelf trash purge --execute --plan-id <purge-plan-id> --ledger <ledger-path> --json` only after exact approval:
+`approve artshelf trash purge ledger <ledger-path> plan <purge-plan-id>`. After
+purge execute, verify quiet with `artshelf trash list --all --json` and `artshelf review --all --json`.
 
 ## Safety
 
