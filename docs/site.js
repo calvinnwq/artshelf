@@ -50,6 +50,22 @@
   /* ---------- theme ---------- */
 
   var THEME_KEY = "artshelf-docs-theme";
+  function getStoredTheme() {
+    try {
+      return window.localStorage.getItem(THEME_KEY);
+    } catch (_) {
+      return null;
+    }
+  }
+  function setStoredTheme(t) {
+    try {
+      window.localStorage.setItem(THEME_KEY, t);
+    } catch (_) {}
+  }
+  function preferredTheme() {
+    return getStoredTheme() ||
+      (window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
+  }
   function applyTheme(t) {
     document.documentElement.dataset.theme = t;
     document.querySelectorAll("[data-theme-toggle]").forEach(function (b) {
@@ -59,7 +75,7 @@
   document.addEventListener("click", function (e) {
     if (!e.target.closest("[data-theme-toggle]")) return;
     var next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
-    localStorage.setItem(THEME_KEY, next);
+    setStoredTheme(next);
     applyTheme(next);
   });
 
@@ -337,8 +353,7 @@
 
   /* ---------- boot ---------- */
 
-  applyTheme(localStorage.getItem(THEME_KEY) ||
-    (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light"));
+  applyTheme(preferredTheme());
   renderSidebar();
   renderPager();
   renderToc();

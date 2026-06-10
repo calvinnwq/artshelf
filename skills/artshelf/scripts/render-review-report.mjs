@@ -10,10 +10,6 @@ function readInput() {
   return readFileSync(0, "utf8");
 }
 
-function asArray(value) {
-  return Array.isArray(value) ? value : [];
-}
-
 function lineForEmpty(value) {
   return value.length === 0 ? "<none>" : null;
 }
@@ -54,6 +50,14 @@ function requireBoolean(report, path) {
   return value;
 }
 
+function requireArray(report, path) {
+  const value = path.reduce((current, key) => current?.[key], report);
+  if (!Array.isArray(value)) {
+    throw new Error(`missing array ${path.join(".")}`);
+  }
+  return value;
+}
+
 export function renderReviewReport(report) {
   if (report?.schemaVersion !== 1) {
     throw new Error("unsupported ArtshelfReviewReport schemaVersion");
@@ -61,10 +65,9 @@ export function renderReviewReport(report) {
 
   const scope = report.scope ?? {};
   const summary = report.decisionSummary ?? {};
-  const groups = report.decisionGroups ?? {};
-  const ready = asArray(groups.readyForApproval);
-  const needsReview = asArray(groups.needsReviewFirst);
-  const blocked = asArray(groups.blocked);
+  const ready = requireArray(report, ["decisionGroups", "readyForApproval"]);
+  const needsReview = requireArray(report, ["decisionGroups", "needsReviewFirst"]);
+  const blocked = requireArray(report, ["decisionGroups", "blocked"]);
 
   const dryRunOnly = requireBoolean(report, ["safety", "dryRunOnly"]);
   const noExecuteRan = requireBoolean(report, ["safety", "noExecuteRan"]);

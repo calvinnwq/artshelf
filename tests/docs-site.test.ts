@@ -52,6 +52,85 @@ test("navigation manifest covers every page in numbered reading order", () => {
   assert.doesNotMatch(js, /redesign/i);
 });
 
+test("docs chrome renders when web storage is unavailable", () => {
+  const clickHandlers: Array<(event: { target: { closest: (selector: string) => unknown } }) => void> = [];
+  const makeElement = (tagName = "div"): any => {
+    const el: any = {
+      tagName: tagName.toUpperCase(),
+      childNodes: [{ textContent: "" }],
+      children: [],
+      classList: {
+        add() {},
+        remove() {},
+        contains() { return false; },
+        toggle() { return true; }
+      },
+      addEventListener() {},
+      appendChild(child: unknown) {
+        this.children.push(child);
+        return child;
+      },
+      setAttribute() {}
+    };
+    return el;
+  };
+  const sidebar = makeElement("nav");
+  const pager = makeElement("footer");
+  const document: any = {
+    body: {
+      dataset: { page: "index.html" },
+      classList: { remove() {}, contains() { return false; }, toggle() { return true; } },
+      appendChild() {}
+    },
+    documentElement: { dataset: {}, scrollHeight: 1000 },
+    addEventListener(type: string, handler: (event: { target: { closest: (selector: string) => unknown } }) => void) {
+      if (type === "click") clickHandlers.push(handler);
+    },
+    createElement: makeElement,
+    createTextNode(textContent: string) {
+      return { textContent };
+    },
+    getElementById(id: string) {
+      return id === "sidebar" ? sidebar : id === "pager" ? pager : null;
+    },
+    querySelectorAll() {
+      return [];
+    }
+  };
+  const window = {
+    localStorage: {
+      getItem() { throw new Error("blocked"); },
+      setItem() { throw new Error("blocked"); }
+    },
+    matchMedia() {
+      return { matches: true };
+    },
+    addEventListener() {},
+    innerHeight: 800,
+    scrollY: 0
+  };
+
+  assert.doesNotThrow(() => {
+    const runSite = new Function("document", "window", "navigator", "setTimeout", read("docs/site.js"));
+    runSite(document, window, {}, setTimeout);
+  });
+  assert.equal(document.documentElement.dataset.theme, "dark");
+  assert.ok(sidebar.children.length > 0, "sidebar should render without storage");
+
+  assert.doesNotThrow(() => {
+    for (const handler of clickHandlers) {
+      handler({
+        target: {
+          closest(selector: string) {
+            return selector === "[data-theme-toggle]" ? {} : null;
+          }
+        }
+      });
+    }
+  });
+  assert.equal(document.documentElement.dataset.theme, "light");
+});
+
 test("agent workflow navigation is a visible child hierarchy", () => {
   const js = read("docs/site.js");
   const css = read("docs/site.css");
@@ -301,6 +380,23 @@ test("portable skill stays concise and delegates deterministic review rendering"
   assert.match(rendered, /approve artshelf resolve missing ledger .* ids shf_/);
   assert.match(rendered, /Suggested next step: Inspect the path/);
   assert.match(rendered, /Dry-run only\. No execute, resolve, or delete ran\./);
+});
+
+test("review report renderer rejects malformed decision groups", () => {
+  const example = JSON.parse(read("examples/artshelf-review-report.json"));
+
+  for (const key of ["readyForApproval", "needsReviewFirst", "blocked"]) {
+    const malformed = structuredClone(example);
+    malformed.decisionGroups[key] = {};
+    const renderResult = spawnSync(
+      process.execPath,
+      ["skills/artshelf/scripts/render-review-report.mjs", "-"],
+      { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(malformed) }
+    );
+
+    assert.equal(renderResult.status, 1, `${key} should be required as an array`);
+    assert.match(renderResult.stderr, new RegExp(`missing array decisionGroups\\.${key}`));
+  }
 });
 
 test("review report schema and example define the deterministic packet", () => {
