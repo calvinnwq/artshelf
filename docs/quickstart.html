@@ -3,75 +3,52 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Artshelf Quickstart</title>
-    <meta name="description" content="The approval-first Artshelf workflows: register a temp artifact, review everything safely, approve cleanup safely, and purge old trash explicitly.">
+    <title>Quickstart · Artshelf</title>
+    <meta name="description" content="One artifact through the whole Artshelf lifecycle: register, review, dry-run, approve, verify.">
+    <script>document.documentElement.dataset.theme=localStorage.getItem("artshelf-docs-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450..680;1,9..144,450..680&family=Newsreader:ital,opsz,wght@0,6..72,400..650;1,6..72,400..650&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="site.css">
-    <script src="theme.js" defer></script>
+    <script src="site.js" defer></script>
   </head>
-  <body>
-    <div class="docs-shell">
-      <nav class="global-nav" aria-label="Documentation">
-        <a class="site-mark" href="index.html"><strong>Artshelf</strong><span>Artifact retention CLI</span></a>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
-        <div class="nav-scroll" aria-label="Documentation sections">
-        <div class="nav-section">
-          <p class="nav-section-title">Start</p>
-          <a href="index.html">Overview</a>
-          <a href="install.html">Install</a>
-          <a href="quickstart.html" aria-current="page">Quickstart</a>
+  <body data-page="quickstart.html">
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <button class="menu-btn" type="button" data-menu aria-label="Toggle navigation" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5h14M1 8h14M1 12.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <a class="brand" href="index.html">Artshelf<span class="brand-tag">docs</span></a>
+        <button class="search-btn" type="button" data-search-open><span>Search docs</span><kbd>/</kbd></button>
+        <div class="masthead-tools">
+          <a class="gh" href="https://github.com/calvinnwq/artshelf">GitHub</a>
+          <button class="theme-btn" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">
+            <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M14.6 12.1A6.5 6.5 0 0 1 7.4 2.7a6.5 6.5 0 1 0 7.2 9.4z" fill="currentColor"/></svg>
+            <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="14.4" y1="14.4" x2="15.8" y2="15.8"/><line x1="4.2" y1="15.8" x2="5.6" y2="14.4"/><line x1="14.4" y1="5.6" x2="15.8" y2="4.2"/></g></svg>
+          </button>
         </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Agents</p>
-          <a href="agent-usage.html">Agent usage</a>
-          <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">Agent skill</a>
-        </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Reference</p>
-          <a href="reference.html">CLI reference</a>
-          <a href="https://github.com/calvinnwq/artshelf">GitHub</a>
-        </div>
-        </div>
-      </nav>
+      </div>
+    </header>
 
-      <div class="docs-content">
-        <header class="page-top">
-          <div class="wrap">
-            <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Quickstart</span></nav>
-            <div class="hero">
-              <div>
-                <p class="eyebrow">Approval-first workflows</p>
-                <h1>Register, review, approve — safely.</h1>
-                <p class="lede">
-                  Artshelf centers on four workflows: register a temp artifact when it is created,
-                  review everything safely before anything moves, approve cleanup safely from a
-                  reviewed plan, and purge old trash only from a separate reviewed plan. Start with
-                  explicit ledger and registry paths when testing.
-                </p>
-              </div>
-              <div class="terminal">
-                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>quickstart</span></div>
-                <pre><code>$ mkdir -p /tmp/artshelf-demo
-$ echo "debug output" &gt; /tmp/artshelf-demo/output.txt
-$ artshelf put /tmp/artshelf-demo \
-  --reason "quickstart artifact" \
-  --ttl 1d \
-  --kind scratch \
-  --cleanup trash \
-  --ledger /tmp/artshelf-ledger.jsonl \
-  --registry /tmp/artshelf-registry.json</code></pre>
-              </div>
-            </div>
-          </div>
-        </header>
+    <div class="frame">
+      <nav id="sidebar" class="sidebar" aria-label="Documentation"></nav>
 
-        <main class="wrap">
-          <article>
-            <section>
-              <h2>1. Register a temp artifact</h2>
-              <p>Create something worth tracking, then put it on the artshelf the moment it exists:</p>
-              <pre><code>mkdir -p /tmp/artshelf-demo
+      <main id="content" class="article-col">
+        <article>
+          <p class="kicker"><span class="n">03</span>Start · Quickstart</p>
+          <h1>Put one artifact on the shelf.</h1>
+          <p class="lede">
+            The whole loop in five minutes, using throwaway paths under <code>/tmp</code>.
+            You will register one artifact, review it, dry-run the cleanup, execute the
+            approved plan, and verify. Trash gets purged separately at the end.
+          </p>
+
+          <section>
+            <h2>1. Create something temporary</h2>
+            <pre><code><span class="c"># make a scratch artifact to practice on</span>
+mkdir -p /tmp/artshelf-demo
 echo "debug output" &gt; /tmp/artshelf-demo/output.txt
 
+<span class="c"># put it on the shelf: keep for 1 day, then trash on approval</span>
 artshelf put /tmp/artshelf-demo \
   --reason "quickstart artifact" \
   --ttl 1d \
@@ -82,61 +59,83 @@ artshelf put /tmp/artshelf-demo \
   --ledger /tmp/artshelf-ledger.jsonl \
   --registry /tmp/artshelf-registry.json \
   --json</code></pre>
-              <p>Capture the returned `id` anywhere future cleanup context matters.</p>
-            </section>
+            <p>Note the <code>id</code> the command returns. You will quote it in handoffs and cleanup reports.</p>
+          </section>
 
-            <section>
-              <h2>2. Review everything safely</h2>
-              <p>Inspect the ledger and preview cleanup. None of these commands move or delete files.</p>
-              <pre><code>artshelf list --ledger /tmp/artshelf-ledger.jsonl
+          <section>
+            <h2>2. Review without moving files</h2>
+            <div class="callout" data-kind="readonly">
+              <span class="callout-label">Read-only</span>
+              <p>These commands are safe for agents and cron jobs. They never mutate files.</p>
+            </div>
+            <pre><code><span class="c"># everything on the shelf</span>
+artshelf list --ledger /tmp/artshelf-ledger.jsonl
+
+<span class="c"># quick counts: active, due, trashed</span>
 artshelf status --ledger /tmp/artshelf-ledger.jsonl
-artshelf validate --ledger /tmp/artshelf-ledger.jsonl --json
-artshelf due --ledger /tmp/artshelf-ledger.jsonl --json
-artshelf cleanup --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
-              <p>
-                Dry-run writes a plan under the ledger's `.artshelf` directory only when
-                cleanup entries exist. If there is nothing to clean up, it reports
-                <code>not-created</code> and writes no plan file. Review any generated
-                plan id before an execute step.
-              </p>
-            </section>
 
-            <section>
-              <h2>3. Approve cleanup safely</h2>
-              <pre><code>artshelf cleanup --execute \
+<span class="c"># check the ledger file itself is healthy</span>
+artshelf validate --ledger /tmp/artshelf-ledger.jsonl --json
+
+<span class="c"># which records are due, kept, or missing</span>
+artshelf due --ledger /tmp/artshelf-ledger.jsonl --json
+
+<span class="c"># preview cleanup and get a plan id (still moves nothing)</span>
+artshelf cleanup --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
+            <p>
+              When nothing is ready, the dry-run reports <code>not-created</code>.
+              Otherwise it writes a plan and prints the <code>planId</code> a human
+              can approve.
+            </p>
+          </section>
+
+          <section>
+            <h2>3. Execute only an approved plan</h2>
+            <p>Copy the <code>planId</code> from the dry-run output in step 2.</p>
+            <pre><code><span class="c"># run only the plan that was reviewed</span>
+artshelf cleanup --execute \
   --plan-id plan_20260601_120000_ab12 \
   --ledger /tmp/artshelf-ledger.jsonl</code></pre>
-              <div class="note">
-                Execute is intentionally separate. Agents must not run it unless a human explicitly
-                approves the reviewed plan id and ledger that produced it. After execution, Artshelf writes
-                a receipt and updates touched records so handled artifacts stop appearing in future due checks.
-                Artshelf also records generated plans and receipts in the ledger as Artshelf-owned
-                artifacts.
-              </div>
-            </section>
+            <div class="callout" data-kind="boundary">
+              <span class="callout-label">Hard boundary</span>
+              <p>
+                Execute is intentionally separate. Approval names the exact ledger path and
+                reviewed plan id. No global execute path exists.
+              </p>
+            </div>
+          </section>
 
-            <section>
-              <h2>4. Purge old trashed records explicitly</h2>
-              <p>
-                After cleanup execution, trashed files are quarantined under the ledger's
-                <code>.artshelf/trash</code> folder. Before physical deletion, run an explicit
-                reviewed trash purge plan:
-              </p>
-              <pre><code>artshelf trash list --ledger /tmp/artshelf-ledger.jsonl
+          <section>
+            <h2>4. Verify quiet</h2>
+            <p>After cleanup, run another read-only review.</p>
+            <pre><code><span class="c"># confirm nothing still needs attention</span>
+artshelf review --ledger /tmp/artshelf-ledger.jsonl --json
+
+<span class="c"># see what cleanup moved into trash</span>
+artshelf trash list --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
+          </section>
+
+          <section>
+            <h2>5. Purge trash separately</h2>
+            <p>
+              Cleanup with <code>cleanup=trash</code> moves files into Artshelf trash.
+              Physical deletion needs a separate reviewed purge plan.
+            </p>
+            <pre><code><span class="c"># preview which trashed files are old enough to purge</span>
 artshelf trash purge --older-than 7d --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
-              <p>
-                A fresh quickstart record will usually be newer than the <code>7d</code>
-                purge cutoff and report <code>not-created</code>; for real old trash, execute
-                only if the dry-run produced entries and the plan id was explicitly reviewed:
-              </p>
-              <pre><code>artshelf trash purge --execute \
+            <p>Then execute with the purge <code>planId</code> the dry-run reported.</p>
+            <pre><code><span class="c"># delete for real, but only with the reviewed purge plan id</span>
+artshelf trash purge --execute \
   --plan-id purge_20260601_120000_ab12 \
   --ledger /tmp/artshelf-ledger.jsonl</code></pre>
-            </section>
-          </article>
-        </main>
-        <footer class="site-footer"><div class="wrap">Artshelf docs · <a href="agent-usage.html">Next: agent usage</a></div></footer>
-      </div>
+          </section>
+        </article>
+        <footer class="pager" id="pager"></footer>
+      </main>
+
+      <aside class="toc-col"><p class="toc-title">On this page</p><nav id="toc" aria-label="On this page"></nav></aside>
     </div>
+
+    <footer class="colophon"><div class="colophon-inner"><span>Artshelf docs</span><span>MIT</span><a href="https://github.com/calvinnwq/artshelf">GitHub</a></div></footer>
   </body>
 </html>

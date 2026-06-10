@@ -3,178 +3,222 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Artshelf CLI Reference</title>
+    <title>CLI reference · Artshelf</title>
     <meta name="description" content="Artshelf v1 command reference.">
+    <script>document.documentElement.dataset.theme=localStorage.getItem("artshelf-docs-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450..680;1,9..144,450..680&family=Newsreader:ital,opsz,wght@0,6..72,400..650;1,6..72,400..650&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="site.css">
-    <script src="theme.js" defer></script>
+    <script src="site.js" defer></script>
   </head>
-  <body>
-    <div class="docs-shell">
-      <nav class="global-nav" aria-label="Documentation">
-        <a class="site-mark" href="index.html"><strong>Artshelf</strong><span>Artifact retention CLI</span></a>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
-        <div class="nav-scroll" aria-label="Documentation sections">
-        <div class="nav-section">
-          <p class="nav-section-title">Start</p>
-          <a href="index.html">Overview</a>
-          <a href="install.html">Install</a>
-          <a href="quickstart.html">Quickstart</a>
+  <body data-page="reference.html">
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <button class="menu-btn" type="button" data-menu aria-label="Toggle navigation" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5h14M1 8h14M1 12.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <a class="brand" href="index.html">Artshelf<span class="brand-tag">docs</span></a>
+        <button class="search-btn" type="button" data-search-open><span>Search docs</span><kbd>/</kbd></button>
+        <div class="masthead-tools">
+          <a class="gh" href="https://github.com/calvinnwq/artshelf">GitHub</a>
+          <button class="theme-btn" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">
+            <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M14.6 12.1A6.5 6.5 0 0 1 7.4 2.7a6.5 6.5 0 1 0 7.2 9.4z" fill="currentColor"/></svg>
+            <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="14.4" y1="14.4" x2="15.8" y2="15.8"/><line x1="4.2" y1="15.8" x2="5.6" y2="14.4"/><line x1="14.4" y1="5.6" x2="15.8" y2="4.2"/></g></svg>
+          </button>
         </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Agents</p>
-          <a href="agent-usage.html">Agent usage</a>
-          <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">Agent skill</a>
-        </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Reference</p>
-          <a href="reference.html" aria-current="page">CLI reference</a>
-          <a href="https://github.com/calvinnwq/artshelf">GitHub</a>
-        </div>
-        </div>
-      </nav>
-
-      <div class="docs-content">
-        <header class="page-top">
-          <div class="wrap">
-            <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Reference</span></nav>
-            <div class="hero">
-              <div>
-                <p class="eyebrow">V1 command surface</p>
-                <h1>Small commands, explicit cleanup.</h1>
-                <p class="lede">
-                  Artshelf v1 keeps the API narrow: put entries in a ledger, query existing records, write a
-                  cleanup plan, and use separate reviewed plan ids for cleanup execution and trash purge.
-                </p>
-              </div>
-              <div class="terminal">
-                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>reference</span></div>
-                <pre><code>$ artshelf help
-$ artshelf help put
-$ artshelf help cleanup
-$ artshelf --version</code></pre>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <main class="wrap">
-          <article>
-            <section>
-              <h2>Commands</h2>
-              <div class="command-list">
-                <div class="command-row"><code>artshelf put &lt;path&gt;</code><p>Append a ledger entry with reason, retention, owner, labels, kind, and cleanup mode.</p></div>
-                <div class="command-row"><code>artshelf ledgers list</code><p>List registered ledgers with per-ledger validation status (ok/missing/invalid), entry counts, and warning/error counts so agents can spot stale registry entries without a separate validate pass. Exits non-zero when the registry or any ledger is broken. Add <code>--plain</code> for the fast listing that skips validation.</p></div>
-                <div class="command-row"><code>artshelf ledgers add --ledger &lt;path&gt; [--scope repo|user|other]</code><p>Register an existing ledger so Artshelf can review it through one entry point. Scope is inferred from the path when omitted.</p></div>
-                <div class="command-row"><code>artshelf list</code><p>Show ledger entries and current status. Use <code>--all</code> and <code>--status active|review-required|trashed|cleanup-refused|resolved</code> to filter registered ledgers.</p></div>
-                <div class="command-row"><code>artshelf find --path &lt;path&gt;</code><p>Read-only lookup for existing records by path, owner, labels, and status.</p></div>
-                <div class="command-row"><code>artshelf get &lt;id&gt;</code><p>Read-only audit lookup for one ledger record by Artshelf id. Use <code>--all</code> to search registered ledgers.</p></div>
-                <div class="command-row"><code>artshelf due</code><p>Classify active entries as kept, due, manual-review, or missing-path. Use <code>--all</code> to read every registered ledger after registry validation.</p></div>
-                <div class="command-row"><code>artshelf validate</code><p>Validate JSONL shape, handled cleanup metadata, and warn about missing active, review-required, or trashed target paths. Use <code>--all</code> to report stale registered ledgers.</p></div>
-                <div class="command-row"><code>artshelf review</code><p>Run validate, due, and cleanup plan preview. Invalid ledgers and valid ledgers with no cleanup entries report a <code>not-created</code> plan. <code>--all</code> adds an aggregate triage summary (affected ledgers, due, manual-review, missing-path, executable, and skipped counts plus preview plan ids) and states the next safe action, staying read-only.</p></div>
-                <div class="command-row"><code>artshelf doctor</code><p>Report machine and registry health: CLI version, selected/default ledger path, selected/global registry path, stale or invalid registered ledgers, and the cleanup safety posture. Read-only; run it after install or when <code>--all</code> commands misbehave. Exits non-zero when the registry or a registered ledger is broken.</p></div>
-                <div class="command-row"><code>artshelf status</code><p>Lightweight daily dashboard: single-ledger counts by default, or registry health, total ledgers, and aggregated counts with <code>--all</code>. Reports active, kept, due, manual-review, and missing-path entries plus the pending cleanup count. Read-only and never writes plans or receipts; <code>--all --json</code> is cron-friendly and human output is short enough to paste into a chat.</p></div>
-                <div class="command-row"><code>artshelf cleanup --dry-run</code><p>Create and register a cleanup plan without moving files when cleanup entries exist; no-op dry-runs report <code>not-created</code>, and matching dry-runs reuse the existing plan id.</p></div>
-                <div class="command-row"><code>artshelf cleanup --execute --plan-id &lt;id&gt;</code><p>Approval-only execution for one reviewed plan id: no daemon, no auto-execute, no global execute, and no fresh live set during execute. Writes a receipt, registers the receipt artifact, and updates touched ledger records.</p></div>
-                <div class="command-row"><code>artshelf trash list [--all] [--ledger &lt;path&gt;] [--json]</code><p>List trashed records with target path, receiving receipt provenance, and age.</p></div>
-                <div class="command-row"><code>artshelf trash purge --older-than &lt;ttl&gt; --dry-run [--ledger &lt;path&gt;] [--json]</code><p>Create a reviewed age-based trash purge plan from a specific ledger. The reviewed plan can be executed with <code>--execute --plan-id &lt;id&gt;</code>.</p></div>
-                <div class="command-row"><code>artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]</code><p>Execute a reviewed trash purge plan id for one explicit ledger. <code>--all</code> is not supported for purge; completed receipts are refused, while started receipts may be resumed and reconciled.</p></div>
-                <div class="command-row"><code>artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code><p>Mark a handled, missing, or no-longer-needed record as manually resolved.</p></div>
-              </div>
-            </section>
-
-            <section>
-              <h2>Global Options</h2>
-              <pre><code>--ledger &lt;path&gt;   Use an explicit JSONL ledger
---registry &lt;path&gt; Use an explicit ledger registry
---all             Read all registered ledgers for supported commands
-ARTSHELF_REGISTRY    Override the default ledger registry path
-SHELF_REGISTRY       Legacy fallback when ARTSHELF_REGISTRY is unset
-ARTSHELF_NOW         Override current time for retention and due calculations
-SHELF_NOW            Legacy fallback when ARTSHELF_NOW is unset
---json            Emit machine-readable JSON
---help            Show help
---version         Show version</code></pre>
-            </section>
-
-            <section>
-              <h2>Retention</h2>
-              <p>Choose exactly one retention mode when calling `put`.</p>
-              <pre><code>--ttl 3d
---retain-until 2026-06-04T08:28:00Z
---manual-review</code></pre>
-            </section>
-
-            <section>
-              <h2>Cleanup Modes</h2>
-              <div class="grid">
-                <div class="card"><h3>review</h3><p>Default. Included for review but not moved by execute.</p></div>
-                <div class="card"><h3>trash</h3><p>Moved into Artshelf's local trash folder when the approved plan executes.</p></div>
-                <div class="card"><h3>delete</h3><p>Accepted in the ledger but refused by v1 execution.</p></div>
-              </div>
-              <p>
-                Executed records move out of the active cleanup flow. `review` becomes
-                `review-required`, `trash` becomes `trashed`, and refused delete becomes
-                `cleanup-refused`. Manual resolution becomes `resolved`. `artshelf list` keeps
-                those records visible for audit.
-              </p>
-              <p>
-                `trash` moves stay in Artshelf quarantine until you run `artshelf trash purge`
-                with a reviewed purge plan for the current ledger.
-              </p>
-            </section>
-
-            <section>
-              <h2>Lookup</h2>
-              <p>
-                Use <code>find</code> before <code>put</code> when an integration needs idempotent
-                artifact registration. It requires at least one selector and never mutates records.
-              </p>
-              <pre><code>artshelf find --path &lt;path&gt; --owner &lt;agent-or-runtime&gt; --label &lt;task-or-run-id&gt; --json
-artshelf find --all --owner &lt;agent-or-runtime&gt; --json
-artshelf get &lt;id&gt; --json
-artshelf get &lt;id&gt; --all --json</code></pre>
-            </section>
-
-            <section>
-              <h2>Storage</h2>
-              <p>
-                Inside a git repo, Artshelf defaults to `.artshelf/ledger.jsonl`. Outside a repo, it
-                defaults to `~/.artshelf/ledger.jsonl`. Pass `--ledger &lt;path&gt;` for tests, demos,
-                and controlled smoke runs.
-              </p>
-              <p>
-                Artshelf also keeps a user-level registry at `~/.artshelf/ledgers.json`. Override it
-                with <code>--registry &lt;path&gt;</code> or <code>ARTSHELF_REGISTRY</code>; legacy
-                <code>SHELF_REGISTRY</code> is used only when <code>ARTSHELF_REGISTRY</code> is unset.
-                The registry is a discovery index for supported `--all` review, status, cleanup
-                dry-run, and trash-list commands; project records stay in their own repo-local ledgers.
-              </p>
-              <p>
-                Renamed installs before <code>0.5.0</code> used <code>.shelf</code> paths. Copy those
-                ledgers into <code>.artshelf</code>, rewrite registry paths, validate with
-                <code>artshelf ledgers list --json</code>, and keep the old directories until rollback
-                is no longer needed.
-              </p>
-              <pre><code>artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;project&gt; --scope repo
-artshelf review --all --json
-artshelf status --all --json
-artshelf cleanup --dry-run --all --json
-artshelf trash list --all --json</code></pre>
-              <p>
-                <code>artshelf ledgers add</code> requires an existing ledger path. Scope may be
-                <code>repo</code>, <code>user</code>, or <code>other</code>; when omitted, Artshelf infers
-                it from the path. All-mode reads report stale or invalid registered ledgers
-                before returning records. Global cleanup dry-run writes plan files only for ledgers
-                with cleanup entries, and <code>artshelf trash list --all --json</code> is read-only
-                trash discovery. Global cleanup execution and trash purge with <code>--all</code>
-                are refused. Execute only a specific reviewed plan id against the ledger that
-                produced it.
-              </p>
-            </section>
-          </article>
-        </main>
-        <footer class="site-footer"><div class="wrap">Artshelf docs · <a href="https://github.com/calvinnwq/artshelf/blob/main/SPEC.md">Read the spec</a></div></footer>
       </div>
+    </header>
+
+    <div class="frame">
+      <nav id="sidebar" class="sidebar" aria-label="Documentation"></nav>
+
+      <main id="content" class="article-col">
+        <article>
+          <p class="kicker"><span class="n">05</span>Reference · CLI</p>
+          <h1>Small commands, explicit cleanup.</h1>
+          <p class="lede">
+            Artshelf v1 keeps the API narrow: put entries in a ledger, query existing
+            records, write a cleanup plan, and use separate reviewed plan ids for
+            cleanup execution and trash purge. Every command below is tagged read-only,
+            writes-ledger, or approval-gated.
+          </p>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf put</h2><span class="cmd-flag plan">writes ledger</span></div>
+            <pre><code>artshelf put &lt;path&gt; --reason &lt;text&gt; (--ttl &lt;ttl&gt; | --retain-until &lt;iso&gt; | --manual-review) [options]</code></pre>
+            <p>Append a ledger entry with reason, retention, owner, labels, kind, and cleanup mode.</p>
+            <table class="opts">
+              <tr><th>option</th><th>meaning</th></tr>
+              <tr><td>--reason &lt;text&gt;</td><td>short audit note for why the artifact exists</td></tr>
+              <tr><td>--ttl / --retain-until / --manual-review</td><td>choose exactly one retention mode</td></tr>
+              <tr><td>--cleanup review|trash|delete</td><td>cleanup mode; delete is accepted but refused at execute</td></tr>
+              <tr><td>--owner, --label, --kind</td><td>provenance for later lookup and triage</td></tr>
+            </table>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf ledgers</h2><span class="cmd-flag readonly">read-only</span></div>
+            <pre><code><span class="c"># show registered ledgers and their health</span>
+artshelf ledgers list [--plain] [--json]
+
+<span class="c"># register an existing ledger for --all review</span>
+artshelf ledgers add --ledger &lt;path&gt; [--name &lt;project&gt;] [--scope repo|user|other]</code></pre>
+            <p>
+              <code>list</code> shows registered ledgers with validation status (ok/missing/invalid)
+              and entry counts; it exits non-zero when the registry or any ledger is broken, and
+              <code>--plain</code> skips validation. <code>add</code> registers an existing ledger so
+              Artshelf can review it through one entry point; scope is inferred from the path when omitted.
+            </p>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf list / find / get</h2><span class="cmd-flag readonly">read-only</span></div>
+            <pre><code><span class="c"># browse ledger entries by status</span>
+artshelf list [--all] [--status active|review-required|trashed|cleanup-refused|resolved]
+
+<span class="c"># look up records by path, owner, or label</span>
+artshelf find --path &lt;path&gt; [--owner &lt;o&gt;] [--label &lt;l&gt;] [--json]
+
+<span class="c"># fetch one record by id</span>
+artshelf get &lt;id&gt; [--all] [--json]</code></pre>
+            <p>
+              <code>list</code> shows ledger entries and current status. <code>find</code> looks up
+              existing records by path, owner, labels, and status. Use it before <code>put</code>
+              for idempotent registration; it requires at least one selector and never mutates records.
+              <code>get</code> is the audit lookup for one record by Artshelf id.
+            </p>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf due / validate</h2><span class="cmd-flag readonly">read-only</span></div>
+            <pre><code><span class="c"># classify active entries: kept, due, manual-review, missing-path</span>
+artshelf due [--all] [--json]
+
+<span class="c"># check ledger shape and cleanup metadata</span>
+artshelf validate [--all] [--json]</code></pre>
+            <p>
+              <code>due</code> classifies active entries as kept, due, manual-review, or missing-path.
+              <code>validate</code> checks JSONL shape and handled cleanup metadata, and warns about
+              missing active, review-required, or trashed target paths. With <code>--all</code>, both
+              report stale registered ledgers.
+            </p>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf review / status / doctor</h2><span class="cmd-flag readonly">read-only</span></div>
+            <pre><code><span class="c"># validate + due + plan preview in one pass</span>
+artshelf review [--all] [--json]
+
+<span class="c"># lightweight dashboard of counts</span>
+artshelf status [--all] [--json]
+
+<span class="c"># CLI version, resolved paths, registry health</span>
+artshelf doctor [--json]</code></pre>
+            <p>
+              <code>review</code> runs validate, due, and a cleanup plan preview in one pass; no-op
+              previews report <code>not-created</code>, and <code>--all</code> adds an aggregate triage
+              summary plus the next safe action. <code>status</code> is the lightweight dashboard of
+              counts; <code>--all --json</code> is cron-friendly. <code>doctor</code> reports CLI version,
+              resolved paths, registry health, and the cleanup safety posture.
+            </p>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf cleanup</h2><span class="cmd-flag approval">approval-gated</span></div>
+            <pre><code><span class="c"># preview cleanup and register a reviewed plan</span>
+artshelf cleanup --dry-run [--all] [--json]
+
+<span class="c"># execute exactly one reviewed plan (approval only)</span>
+artshelf cleanup --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;]</code></pre>
+            <p>
+              <code>--dry-run</code> creates and registers a cleanup plan without moving files;
+              no-op dry-runs report <code>not-created</code>, and matching dry-runs reuse the
+              existing plan id. <code>--execute</code> is approval-only for one reviewed plan id:
+              it writes a receipt, registers the receipt artifact, and updates touched records in the ledger.
+            </p>
+            <div class="callout" data-kind="boundary">
+              <span class="callout-label">Hard boundary</span>
+              <p>No daemon, no auto-execute, no global execute, and no fresh live set during execute.
+              <code>cleanup --execute --all</code> does not exist.</p>
+            </div>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf trash</h2><span class="cmd-flag approval">approval-gated</span></div>
+            <pre><code><span class="c"># show trashed records with provenance and age</span>
+artshelf trash list [--all] [--ledger &lt;path&gt;] [--json]
+
+<span class="c"># preview an age-based purge plan for one ledger</span>
+artshelf trash purge --older-than &lt;ttl&gt; --dry-run [--ledger &lt;path&gt;] [--json]
+
+<span class="c"># physically delete, only with the reviewed purge plan id</span>
+artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]</code></pre>
+            <p>
+              <code>list</code> shows trashed records with target path, receipt provenance, and age.
+              <code>purge --dry-run</code> creates a reviewed age-based purge plan from a specific ledger;
+              <code>purge --execute</code> runs one reviewed purge plan id for one explicit ledger.
+              <code>--all</code> is not supported for purge. Completed receipts are refused; started
+              receipts may be resumed and reconciled.
+            </p>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf resolve</h2><span class="cmd-flag plan">writes ledger</span></div>
+            <pre><code>artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code></pre>
+            <p>Mark a handled, missing, or no-longer-needed record as manually resolved. Updates the ledger only; never moves or deletes files.</p>
+          </section>
+
+          <section>
+            <h2>Global options</h2>
+            <table class="opts">
+              <tr><th>option</th><th>meaning</th></tr>
+              <tr><td>--ledger &lt;path&gt;</td><td>use an explicit JSONL ledger</td></tr>
+              <tr><td>--registry &lt;path&gt;</td><td>use an explicit ledger registry</td></tr>
+              <tr><td>--all</td><td>read all registered ledgers for supported commands</td></tr>
+              <tr><td>--json</td><td>emit machine-readable JSON</td></tr>
+              <tr><td>ARTSHELF_REGISTRY</td><td>override the default ledger registry path</td></tr>
+              <tr><td>ARTSHELF_NOW</td><td>override current time for retention and due calculations</td></tr>
+            </table>
+          </section>
+
+          <section>
+            <h2>Cleanup modes</h2>
+            <dl class="def-rows">
+              <div><dt>review</dt><dd>the default; included for review but not moved by execute; becomes <code>review-required</code></dd></div>
+              <div><dt>trash</dt><dd>moved into Artshelf's local trash when the approved plan executes; becomes <code>trashed</code></dd></div>
+              <div><dt>delete</dt><dd>accepted in the ledger, but v1 refuses delete execution; becomes <code>cleanup-refused</code></dd></div>
+            </dl>
+            <p>
+              Executed records move out of the active cleanup flow but stay visible in
+              <code>artshelf list</code> for audit. Manual resolution becomes <code>resolved</code>.
+              Trash moves stay in Artshelf quarantine until a reviewed purge plan runs for that ledger.
+            </p>
+          </section>
+
+          <section>
+            <h2>Storage</h2>
+            <p>
+              Inside a git repo, Artshelf defaults to <code>.artshelf/ledger.jsonl</code>. Outside a
+              repo it defaults to <code>~/.artshelf/ledger.jsonl</code>. A user-level registry at
+              <code>~/.artshelf/ledgers.json</code> is the discovery index for <code>--all</code>
+              review, status, cleanup dry-run, and trash-list; project records stay in their own
+              repo-local ledgers.
+            </p>
+            <div class="callout" data-kind="boundary">
+              <span class="callout-label">Hard boundary</span>
+              <p>
+                Global cleanup execution and trash purge with <code>--all</code> are refused.
+                Execute only a specific reviewed plan id against the ledger that produced it.
+              </p>
+            </div>
+          </section>
+        </article>
+        <footer class="pager" id="pager"></footer>
+      </main>
+
+      <aside class="toc-col"><p class="toc-title">On this page</p><nav id="toc" aria-label="On this page"></nav></aside>
     </div>
+
+    <footer class="colophon"><div class="colophon-inner"><span>Artshelf docs</span><span>MIT</span><a href="https://github.com/calvinnwq/artshelf">GitHub</a></div></footer>
   </body>
 </html>

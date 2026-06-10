@@ -3,412 +3,119 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Artshelf Agent Usage</title>
-    <meta name="description" content="How agents should use Artshelf safely.">
+    <title>Agent usage · Artshelf</title>
+    <meta name="description" content="How agents use Artshelf safely: Create, Monitor, Review, Clean.">
+    <script>document.documentElement.dataset.theme=localStorage.getItem("artshelf-docs-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450..680;1,9..144,450..680&family=Newsreader:ital,opsz,wght@0,6..72,400..650;1,6..72,400..650&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="site.css">
-    <script src="theme.js" defer></script>
+    <script src="site.js" defer></script>
   </head>
-  <body>
-    <div class="docs-shell">
-      <nav class="global-nav" aria-label="Documentation">
-        <a class="site-mark" href="index.html"><strong>Artshelf</strong><span>Artifact retention CLI</span></a>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
-        <div class="nav-scroll" aria-label="Documentation sections">
-        <div class="nav-section">
-          <p class="nav-section-title">Start</p>
-          <a href="index.html">Overview</a>
-          <a href="install.html">Install</a>
-          <a href="quickstart.html">Quickstart</a>
+  <body data-page="agent-usage.html">
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <button class="menu-btn" type="button" data-menu aria-label="Toggle navigation" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5h14M1 8h14M1 12.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <a class="brand" href="index.html">Artshelf<span class="brand-tag">docs</span></a>
+        <button class="search-btn" type="button" data-search-open><span>Search docs</span><kbd>/</kbd></button>
+        <div class="masthead-tools">
+          <a class="gh" href="https://github.com/calvinnwq/artshelf">GitHub</a>
+          <button class="theme-btn" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">
+            <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M14.6 12.1A6.5 6.5 0 0 1 7.4 2.7a6.5 6.5 0 1 0 7.2 9.4z" fill="currentColor"/></svg>
+            <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="14.4" y1="14.4" x2="15.8" y2="15.8"/><line x1="4.2" y1="15.8" x2="5.6" y2="14.4"/><line x1="14.4" y1="5.6" x2="15.8" y2="4.2"/></g></svg>
+          </button>
         </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Agents</p>
-          <a href="agent-usage.html" aria-current="page">Agent usage</a>
-          <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">Agent skill</a>
-        </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Reference</p>
-          <a href="reference.html">CLI reference</a>
-          <a href="https://github.com/calvinnwq/artshelf">GitHub</a>
-        </div>
-        </div>
-      </nav>
-
-      <div class="docs-content">
-        <header class="page-top">
-          <div class="wrap">
-            <nav class="breadcrumbs" aria-label="Breadcrumbs"><a href="index.html">Docs</a><span>/</span><span>Agent usage</span></nav>
-            <div class="hero">
-              <div>
-                <p class="eyebrow">For local agents and automation</p>
-                <h1>Register artifacts while intent is fresh.</h1>
-                <p class="lede">
-                  Agents should use Artshelf when temporary files need accountability, restart
-                  context, or later human review. Source files and cheap build outputs stay out.
-                </p>
-              </div>
-              <div class="terminal">
-                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>agent contract</span></div>
-                <pre><code>$ artshelf put &lt;path&gt; \
-  --reason "&lt;why this exists&gt;" \
-  --ttl 3d \
-  --kind run-artifact \
-  --cleanup review \
-  --owner agent \
-  --label &lt;project&gt; \
-  --json</code></pre>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <main class="wrap">
-          <article>
-            <section>
-              <h2>Registration Trigger</h2>
-              <p>
-                Treat Artshelf as a finalization check, not an optional cleanup habit. Before an agent reports a task as done,
-                it should check whether the task created, copied,
-                exported, quarantined, backed up, or preserved any non-source file or directory
-                that may outlive the current command.
-              </p>
-              <p>
-                Register eligible artifacts immediately. If an eligible artifact is skipped,
-                state the reason: source-controlled, regeneratable, secret-bearing, already
-                tracked by another durable ledger, or explicitly not retained by request.
-              </p>
-            </section>
-
-            <section>
-              <h2>Install Behavior</h2>
-              <p>
-                If <code>artshelf</code> is not installed, prefer the package-manager install
-                when available and verify the CLI before registering artifacts.
-              </p>
-              <pre><code>npm install -g artshelf
-artshelf --version
-artshelf doctor</code></pre>
-              <pre><code>pnpm add -g artshelf
-artshelf --version
-artshelf doctor</code></pre>
-              <p>
-                For source installs, ask where the user wants the repo cloned before setup.
-                Use the local clone, build, and <code>npm link</code> path. Do not create a
-                custom shim.
-              </p>
-              <pre><code>git clone https://github.com/calvinnwq/artshelf.git "$ARTSHELF_REPO"
-cd "$ARTSHELF_REPO"
-corepack enable
-pnpm install --frozen-lockfile
-pnpm run build
-npm link
-artshelf --version
-artshelf doctor</code></pre>
-            </section>
-
-            <section>
-              <h2>Use Artshelf For</h2>
-              <div class="grid">
-                <div class="card"><h3>Backups</h3><p>Rollback copies, pre-edit snapshots, migration backups, and quarantine folders.</p></div>
-                <div class="card"><h3>Evidence</h3><p>Debug output directories, generated reports, logs, and live-smoke artifacts.</p></div>
-                <div class="card"><h3>Long runs</h3><p>Workflow artifacts a future agent might need to resume, review, or clean up.</p></div>
-              </div>
-            </section>
-
-            <section>
-              <h2>Skip Artshelf For</h2>
-              <ul>
-                <li>Source files that belong in git.</li>
-                <li>Build outputs and dependency caches that can be regenerated cheaply.</li>
-                <li>Secrets, credential dumps, or private tokens.</li>
-                <li>Artifacts already owned by a more specific durable workflow ledger.</li>
-              </ul>
-            </section>
-
-            <section>
-              <h2>Idempotent Lookup</h2>
-              <p>
-                Integrations should query the ledger before creating another record for the same
-                artifact. <code>find</code> and <code>get</code> are read-only; they never move,
-                resolve, or delete files.
-              </p>
-              <pre><code>artshelf find --path &lt;path&gt; --owner &lt;agent-or-runtime&gt; --label &lt;task-or-run-id&gt; --json
-artshelf get &lt;id&gt; --json</code></pre>
-              <p>
-                <code>find</code> requires at least one selector. Multiple labels are an all-label
-                match. If it returns a record, reuse that Artshelf id; otherwise call
-                <code>artshelf put</code> and record the new id.
-              </p>
-            </section>
-
-            <section>
-              <h2>Ledger Registry</h2>
-              <p>
-                Artshelf keeps a user-level registry at `~/.artshelf/ledgers.json` so one CLI can
-                review all known ledgers without moving project records into one global file.
-                <code>put</code> registers the ledger it writes to.
-              </p>
-              <pre><code>artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;project&gt; --scope repo
-artshelf ledgers list --json
-artshelf review --all --json
-artshelf status --all --json
-artshelf find --all --owner &lt;agent-or-runtime&gt; --json
-artshelf trash list --all --json</code></pre>
-              <p>
-                Renamed installs before <code>0.5.0</code> used <code>.shelf</code> paths. For migration,
-                copy the old ledger directories into <code>.artshelf</code>, rewrite registry entries,
-                validate the new registry, and keep the <code>.shelf</code> copies until rollback is no
-                longer needed.
-              </p>
-              <p>
-                <code>artshelf ledgers list --json</code> validates each registered ledger and reports
-                ok/missing/invalid status with entry and warning/error counts, so agents can detect
-                stale registry entries without a separate validate pass; add <code>--plain</code> for a
-                fast listing that skips validation. <code>artshelf review --all --json</code> returns an
-                aggregate triage summary and the next safe action next to the per-ledger detail.
-              </p>
-              <p>Use global cleanup dry-run when you want Artshelf to write cleanup plans for registered ledgers with cleanup entries, without moving files.</p>
-              <pre><code>artshelf cleanup --dry-run --all --json</code></pre>
-              <div class="note">
-                <code>--all</code> is for discovery and review. Cleanup execution remains
-                ledger-specific and requires a reviewed plan id for that ledger.
-              </div>
-              <p>If the executable cleanup entries have not changed, dry-run reuses the existing plan id and refreshes the same plan file instead of creating duplicate plans.</p>
-            </section>
-
-            <section>
-              <h2>Daily Review Workflow</h2>
-              <p>
-                Use this flow when a scheduled review, recurring task, or user request reports
-                Artshelf cleanup attention.
-              </p>
-              <ol>
-                <li>Register artifacts early during work, or state why an eligible artifact was skipped.</li>
-                <li>Review state with read-only commands first: <code>artshelf ledgers list --json</code>, <code>artshelf review --all --json</code>, and <code>artshelf trash list --all --json</code>; for old trash on a selected ledger, run <code>artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json</code>.</li>
-                <li>Present a decision packet instead of raw counts. Include registry health, affected ledgers, due/manual-review/missing-path counts, executable entries, skipped entries, refused entries, trashed record counts and ages, purge dry-run plan ids/skipped entries, and the next safe action.</li>
-                <li>Classify each candidate as <code>trash-safe</code>, <code>needs-human-review</code>, <code>resolve-candidate</code>, or <code>registry-problem</code>.</li>
-                <li>If cleanup execution is appropriate, generate or reuse a dry-run plan, then ask for explicit approval naming the ledger path and reviewed plan id.</li>
-                <li>For trashed records, require a separate reviewed purge plan before physical deletion.</li>
-                <li>After approved cleanup execute, trash purge, or resolve, verify quiet with <code>artshelf review --all --json</code>, plus <code>artshelf trash list --ledger &lt;ledger-path&gt; --json</code> and purge receipt evidence after purge, or explain what remains.</li>
-              </ol>
-              <pre><code>artshelf trash list --ledger &lt;ledger-path&gt;
-artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json
-artshelf trash purge --execute --plan-id &lt;purge-plan-id&gt; --ledger &lt;ledger-path&gt; --json</code></pre>
-              <h3>Review Plan Report Schema</h3>
-              <p>
-                When a dry-run creates or reuses a cleanup or trash purge plan, surface the
-                plan in a compact human-readable report. The report should let the user
-                approve, ask for changes, or request alternatives without opening the plan
-                file.
-              </p>
-              <p>
-                For deterministic agent integrations, construct an
-                <code>ArtshelfReviewReport</code> JSON object first, then render it to text.
-                Use <a href="schemas/artshelf-review-report.schema.json">schemas/artshelf-review-report.schema.json</a>
-                for the packet shape and
-                <a href="examples/artshelf-review-report.json">examples/artshelf-review-report.json</a>
-                as the canonical example. The schema locks report structure; the CLI output
-                and approval rules still define cleanup safety.
-              </p>
-              <p>
-                Render the JSON packet as a compact decision card using
-                <code>decisionSummary</code> and <code>decisionGroups</code>. Lead with
-                counts, then show exactly what is ready for approval and what needs review
-                first. Emojis are encouraged when the host renders them well because they
-                make review groups scannable; omit them only for plain-text or
-                accessibility-constrained surfaces.
-              </p>
-              <pre><code>Artshelf daily review
-Status: &lt;ok|attention needed&gt;; registry &lt;ok|attention&gt;
-
-✅ Ready for approval: &lt;n&gt;
-👀 Needs review first: &lt;n&gt;
-⚠️ Blocked: &lt;n&gt;
-
-Recommendation
-&lt;one short sentence with the next safest action&gt;.
-
-Ready for approval
-1. &lt;short item label&gt;
-   Why: &lt;short reason&gt;
-   Action: &lt;what approval will do&gt;
-   approve artshelf cleanup ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;
-
-2. &lt;short item label&gt;
-   Why: &lt;short reason&gt;
-   Action: &lt;ledger-only update, no file changes&gt;
-   approve artshelf resolve missing ledger &lt;ledger-path&gt; ids &lt;id...&gt;
-
-Needs review first
-1. &lt;short item label&gt;
-   Why: &lt;short reason&gt;
-   Suggested next step: inspect path, then choose keep, change retention, resolve, or clean up later
-   Path: &lt;path&gt;
-
-Blocked
-&lt;none, or the registry/refused/missing-path blocker and next repair step&gt;
-
-Safety
-Dry-run only. No execute, resolve, or delete ran.</code></pre>
-              <p>
-                Keep the full <code>ArtshelfReviewReport</code> JSON as the audit packet
-                and include it as an attachment, linked file, or expandable detail when the
-                host supports that. Do not paste the whole packet into chat unless the user
-                asks for it. For long plans, show only the first 3 to 5 decisions under
-                each visible group, then state the hidden count by group and classification.
-                Do not hide refused, registry-problem, or missing-path items.
-              </p>
-              <p>
-                If the host supports buttons, menus, or other interactive controls, they
-                should emit exact text commands such as the approval targets below. Always
-                include the exact approval target in the message body as a fallback for
-                clients where those controls do not render.
-              </p>
-              <pre><code>approve artshelf cleanup ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;
-approve artshelf trash purge ledger &lt;ledger-path&gt; plan &lt;purge-plan-id&gt;
-approve artshelf resolve missing ledger &lt;ledger-path&gt; ids &lt;id...&gt;</code></pre>
-              <div class="note">
-                Never execute from a read-only preview id. Never generate a fresh plan and execute
-                it in the same step. <code>trash</code> moves artifacts into Artshelf trash; physical
-                delete requires a separate reviewed trash purge plan.
-              </div>
-            </section>
-
-            <section>
-              <h2>Report The ID</h2>
-              <pre><code>Artshelf artifacts:
-- shf_20260601_182800_ab12: /tmp/parser-output, debug evidence for issue-123,
-  retain until 2026-06-04, cleanup=review</code></pre>
-              <p>
-                Put the id in handoffs, PR comments, issue comments, memory, or task run
-                summaries when the artifact matters for restart.
-              </p>
-              <p>
-                If there are no eligible artifacts, say nothing. If eligible artifacts were
-                skipped instead of registered, include the brief skip reason from the
-                completion checklist.
-              </p>
-              <p>
-                When <code>artshelf put --json</code> succeeds, include a deterministic Artshelf
-                footnote in the same handoff, status, final response, or run summary that
-                mentions the artifact.
-              </p>
-              <pre><code>Artshelf footnote: registered &lt;artifact-path&gt; as &lt;artshelf-id&gt;; reason: &lt;short reason&gt;; due: &lt;YYYY-MM-DD|manual-review&gt;; cleanup=&lt;cleanup-mode&gt;.</code></pre>
-            </section>
-
-            <section>
-              <h2>Cleanup Boundary</h2>
-              <pre><code>artshelf validate --json
-artshelf validate --all --json
-artshelf due --json
-artshelf due --all --json
-artshelf review --all --json</code></pre>
-              <p>Cleanup dry-run is safe to run. It writes plan files for later review only when there are executable cleanup entries; no-op dry-runs report <code>not-created</code> and write no plan file. Matching dry-runs reuse the existing plan id and refresh the plan timestamp.</p>
-              <pre><code>artshelf cleanup --dry-run --json
-artshelf cleanup --dry-run --all --json</code></pre>
-              <pre><code>artshelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
-              <pre><code>artshelf trash list --ledger &lt;ledger-path&gt; --json
-artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json
-artshelf trash purge --execute --plan-id &lt;purge-plan-id&gt; --ledger &lt;ledger-path&gt; --json</code></pre>
-              <div class="note">
-                Execution is approval-only: no daemon, no auto-execute, no global execute, and no
-                fresh-plan-then-execute shortcut. Cleanup execution needs explicit human approval
-                for the reviewed plan id. Trash list and purge dry-run are review steps; trash
-                purge execution needs separate approval naming the ledger and reviewed purge plan
-                id. Execution writes a receipt and updates touched ledger records to `trashed`,
-                `review-required`, or `cleanup-refused`. <code>cleanup=delete</code> stays refused
-                instead of silently deleting files; physical deletion requires a separate reviewed
-                trash purge plan. Artshelf records generated plans and receipts as `owner=artshelf`
-                artifacts.
-              </div>
-              <p>
-                Agents may mark a ledger record manually resolved when the user confirms the
-                artifact was inspected, is already missing, or is no longer needed.
-              </p>
-              <pre><code>artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code></pre>
-              <p>
-                Use a specific reason. <code>resolve</code> only updates the ledger; it does not
-                move or delete files. For batches of missing-path records, ask for approval that
-                names the exact ledger and ids.
-              </p>
-              <pre><code>approve artshelf resolve missing ledger &lt;ledger-path&gt; ids &lt;id...&gt;</code></pre>
-              <p>
-                After resolution, verify with <code>artshelf review --all --json</code> and report
-                whether the review is quiet or what remains. Resolved records stop reappearing
-                in future due and dry-run cleanup output while remaining visible through
-                <code>artshelf list --status resolved</code>.
-              </p>
-            </section>
-
-            <section>
-              <h2>Scheduled Review</h2>
-              <p>
-                Agents may schedule routine Artshelf checks for stale artifacts through their host
-                runtime, such as an agent cron, CI job, or recurring task. Keep scheduled jobs
-                non-destructive.
-              </p>
-              <pre><code>artshelf validate --json
-artshelf validate --all --json
-artshelf due --json
-artshelf due --all --json
-artshelf review --all --json</code></pre>
-              <p>
-                Read-only health and dashboard checks are also safe to schedule. Run
-                <code>artshelf review --all --json</code> for aggregate triage (<code>summary</code>
-                and <code>nextAction</code>), <code>artshelf doctor --json</code> to catch a broken
-                or stale registry before relying on cleanup planning, and
-                <code>artshelf status --all --json</code> for a compact cron summary.
-              </p>
-              <pre><code>artshelf doctor --json
-artshelf status --all --json</code></pre>
-              <p>
-                Scheduled cleanup and trash purge dry-runs may write plan files for later review
-                when entries exist, but must not move or delete files. Matching cleanup dry-runs
-                reuse the existing plan id and refresh the plan timestamp.
-              </p>
-              <pre><code>artshelf cleanup --dry-run --json
-artshelf cleanup --dry-run --all --json
-artshelf trash list --ledger &lt;ledger-path&gt; --json
-artshelf trash list --all --json
-artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json</code></pre>
-              <p>
-                Reports should include the ledger path, due/manual-review/missing-path counts,
-                cleanup dry-run plan id, executable entries, skipped entries, and refused entries.
-                Trash reports may use <code>artshelf trash list --all --json</code> to discover
-                trashed records across registered ledgers, then include trashed record counts
-                and target ages. Run purge dry-runs only for an explicit ledger and report
-                any plan id, matching entries, and skipped entries.
-                Stay quiet when nothing needs attention unless a regular summary was requested.
-              </p>
-              <div class="note">
-                Use explicit ledger paths for scheduled checks. Do not scan arbitrary filesystem
-                locations for ledgers unless the user opted into that discovery scope. Never
-                schedule cleanup execution or trash purge execution; scheduled jobs may only
-                dry-run and report plans for later human review.
-              </div>
-            </section>
-
-            <section>
-              <h2>Completion Checklist</h2>
-              <ol>
-                <li>Did you create, copy, export, quarantine, back up, or preserve any non-source file or directory?</li>
-                <li>Will any of those paths outlive this command?</li>
-                <li>If yes, did you register them with Artshelf or state why Artshelf is not appropriate?</li>
-              </ol>
-              <div class="note">Do not call work done while known eligible artifacts are neither registered nor explicitly skipped.</div>
-            </section>
-
-            <section>
-              <h2>Portable Skill</h2>
-              <p>
-                The repo ships a portable skill at
-                <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">skills/artshelf/SKILL.md</a>.
-                Agents that support local skills can copy or reference it directly.
-              </p>
-            </section>
-          </article>
-        </main>
-        <footer class="site-footer"><div class="wrap">Artshelf docs · <a href="reference.html">Next: CLI reference</a></div></footer>
       </div>
+    </header>
+
+    <div class="frame">
+      <nav id="sidebar" class="sidebar" aria-label="Documentation"></nav>
+
+      <main id="content" class="article-col">
+        <article>
+          <p class="kicker"><span class="n">04</span>Agents · Overview</p>
+          <h1>Create, monitor, review, clean.</h1>
+          <p class="lede">
+            An agent's whole relationship with Artshelf fits in four stages. Each stage
+            has its own page with the exact commands; this page is the contract that
+            ties them together.
+          </p>
+
+          <section>
+            <h2>Workflow summary</h2>
+            <div class="ledger">
+              <a class="ledger-row" href="agent-create.html">
+                <span class="n">4.1</span>
+                <span class="stage">Create</span>
+                <span class="what"><span class="cmdline">artshelf put &lt;path&gt; --reason &lt;why&gt; --ttl &lt;ttl&gt;</span>Register a temporary file while you still remember why it exists, or state the reason for skipping it.</span>
+              </a>
+              <a class="ledger-row" href="agent-monitor.html">
+                <span class="n">4.2</span>
+                <span class="stage">Monitor</span>
+                <span class="what"><span class="cmdline">artshelf review --all --json</span>Check the shelf on a schedule with read-only commands, and stay quiet when everything is clear.</span>
+              </a>
+              <a class="ledger-row" href="agent-review.html">
+                <span class="n">4.3</span>
+                <span class="stage">Review</span>
+                <span class="what"><span class="cmdline">artshelf cleanup --dry-run --json</span>Preview cleanup, then turn the output into an <code>ArtshelfReviewReport</code> decision packet a human can approve.</span>
+              </a>
+              <a class="ledger-row" href="agent-clean.html">
+                <span class="n">4.4</span>
+                <span class="stage">Clean</span>
+                <span class="what"><span class="cmdline">artshelf cleanup --execute --plan-id &lt;id&gt;</span>Run the one plan the human approved, clear old trash with its own reviewed purge plan, resolve confirmed ids, and verify the next review is quiet.</span>
+              </a>
+            </div>
+            <p>
+              Trash rides the same loop. Monitor lists what sits in Artshelf trash,
+              Review previews an age-based purge plan, and Clean executes only the
+              reviewed purge plan id. Clearing trash never piggybacks on the cleanup
+              plan that trashed the file.
+            </p>
+          </section>
+
+          <section>
+            <h2>Operating principles</h2>
+            <dl class="def-rows">
+              <div><dt>agents remember</dt><dd>use the portable skill so final, status, and handoff turns check artifacts</dd></div>
+              <div><dt>crons only read</dt><dd>scheduled jobs may validate, review, dry-run, and report, but never execute</dd></div>
+              <div><dt>humans approve</dt><dd>mutation needs exact approval targets: ledger path, reviewed plan id, or record id list</dd></div>
+            </dl>
+          </section>
+
+          <section>
+            <h2>The mental model</h2>
+            <ul class="boundary-list">
+              <li>
+                <span class="stamp readonly">Green path</span>
+                <span>Artifact is due, the dry-run plan is reviewed, and the approval target is exact.</span>
+              </li>
+              <li>
+                <span class="stamp approval">Review first</span>
+                <span>Artifact needs a human look, a retention change, or a keep/snooze decision.</span>
+              </li>
+              <li>
+                <span class="stamp refused">Blocked</span>
+                <span>Registry is stale, a path is suspicious, or the action would delete without a purge plan.</span>
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>Portable skill</h2>
+            <p>
+              The repo ships a portable skill at
+              <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">skills/artshelf/SKILL.md</a>.
+              Agents that support local skills can copy or reference it directly.
+            </p>
+          </section>
+        </article>
+        <footer class="pager" id="pager"></footer>
+      </main>
+
+      <aside class="toc-col"><p class="toc-title">On this page</p><nav id="toc" aria-label="On this page"></nav></aside>
     </div>
+
+    <footer class="colophon"><div class="colophon-inner"><span>Artshelf docs</span><span>MIT</span><a href="https://github.com/calvinnwq/artshelf">GitHub</a></div></footer>
   </body>
 </html>

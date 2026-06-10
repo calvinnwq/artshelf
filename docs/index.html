@@ -3,170 +3,178 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Artshelf Docs</title>
-    <meta name="description" content="Artshelf is a tiny CLI for accountable temporary artifact retention.">
+    <title>Artshelf docs · approval-first artifact retention</title>
+    <meta name="description" content="Artshelf records why temporary artifacts exist and refuses to clean anything up without exact human approval.">
+    <script>document.documentElement.dataset.theme=localStorage.getItem("artshelf-docs-theme")||(matchMedia("(prefers-color-scheme: dark)").matches?"dark":"light");</script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,450..680;1,9..144,450..680&family=Newsreader:ital,opsz,wght@0,6..72,400..650;1,6..72,400..650&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="site.css">
-    <script src="theme.js" defer></script>
+    <script src="site.js" defer></script>
   </head>
-  <body>
-    <div class="docs-shell">
-      <nav class="global-nav" aria-label="Documentation">
-        <a class="site-mark" href="index.html" aria-current="page">
-          <strong>Artshelf</strong>
-          <span>Artifact retention CLI</span>
-        </a>
-        <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">Dark</button>
-        <div class="nav-scroll" aria-label="Documentation sections">
-        <div class="nav-section">
-          <p class="nav-section-title">Start</p>
-          <a href="index.html" aria-current="page">Overview</a>
-          <a href="install.html">Install</a>
-          <a href="quickstart.html">Quickstart</a>
+  <body data-page="index.html">
+    <a class="skip" href="#content">Skip to content</a>
+    <header class="masthead">
+      <div class="masthead-inner">
+        <button class="menu-btn" type="button" data-menu aria-label="Toggle navigation" aria-expanded="false"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M1 3.5h14M1 8h14M1 12.5h14" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg></button>
+        <a class="brand" href="index.html">Artshelf<span class="brand-tag">docs</span></a>
+        <button class="search-btn" type="button" data-search-open><span>Search docs</span><kbd>/</kbd></button>
+        <div class="masthead-tools">
+          <a class="gh" href="https://github.com/calvinnwq/artshelf">GitHub</a>
+          <button class="theme-btn" type="button" data-theme-toggle aria-label="Toggle color theme" aria-pressed="false">
+            <svg class="icon-moon" viewBox="0 0 20 20" aria-hidden="true"><path d="M14.6 12.1A6.5 6.5 0 0 1 7.4 2.7a6.5 6.5 0 1 0 7.2 9.4z" fill="currentColor"/></svg>
+            <svg class="icon-sun" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="3.4" fill="currentColor"/><g stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><line x1="10" y1="2" x2="10" y2="4"/><line x1="10" y1="16" x2="10" y2="18"/><line x1="2" y1="10" x2="4" y2="10"/><line x1="16" y1="10" x2="18" y2="10"/><line x1="4.2" y1="4.2" x2="5.6" y2="5.6"/><line x1="14.4" y1="14.4" x2="15.8" y2="15.8"/><line x1="4.2" y1="15.8" x2="5.6" y2="14.4"/><line x1="14.4" y1="5.6" x2="15.8" y2="4.2"/></g></svg>
+          </button>
         </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Agents</p>
-          <a href="agent-usage.html">Agent usage</a>
-          <a href="https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md">Agent skill</a>
-        </div>
-        <div class="nav-section">
-          <p class="nav-section-title">Reference</p>
-          <a href="reference.html">CLI reference</a>
-          <a href="https://github.com/calvinnwq/artshelf">GitHub</a>
-        </div>
-        </div>
-      </nav>
-
-      <div class="docs-content">
-        <header class="page-top">
-          <div class="wrap">
-            <nav class="breadcrumbs" aria-label="Breadcrumbs">
-              <span>Docs</span>
-            </nav>
-            <div class="hero">
-              <div>
-                <p class="eyebrow">Temporary artifacts · Accountable cleanup</p>
-                <h1>Put run outputs somewhere accountable.</h1>
-                <p class="lede">
-                  Artshelf records why temporary artifacts, backups, and debug evidence exist,
-                  then gives humans and agents a reviewable cleanup plan before anything moves.
-                </p>
-                <div class="actions">
-                  <a class="button primary" href="install.html">Install from npm</a>
-                  <a class="button" href="quickstart.html">Quickstart</a>
-                  <a class="button" href="agent-usage.html">Agent usage</a>
-                  <a class="button" href="https://github.com/calvinnwq/artshelf">GitHub</a>
-                </div>
-              </div>
-              <div class="terminal" aria-label="Artshelf terminal example">
-                <div class="terminal-head"><span class="dot"></span><span class="dot"></span><span class="dot"></span><span>artshelf</span></div>
-                <pre><code>$ artshelf put /tmp/parser-output \
-  --reason "debug evidence for parser fix" \
-  --ttl 3d \
-  --kind run-artifact \
-  --cleanup review
-
-recorded shf_20260601_182800_ab12
-retains until: 2026-06-04T08:28:00Z
-
-$ artshelf cleanup --dry-run --json
-{ "plan": { "planId": "not-created", "planPath": null } }</code></pre>
-              </div>
-            </div>
-          </div>
-        </header>
-
-        <main class="wrap">
-          <article>
-            <section>
-              <h2>Why Artshelf Exists</h2>
-              <p>
-                Agent-heavy projects create a lot of temporary stuff: copied files, rollback
-                folders, smoke-test output, reports, and logs. Filesystem age cannot tell a future
-                agent whether those artifacts are still useful. Artshelf captures intent at creation
-                time, while the reason is still fresh.
-              </p>
-              <div class="summary-grid">
-                <div class="stat"><strong>13</strong><span>small v1 commands</span></div>
-                <div class="stat"><strong>0</strong><span>runtime dependencies</span></div>
-                <div class="stat"><strong>JSONL</strong><span>plain ledger storage</span></div>
-                <div class="stat"><strong>dry-run</strong><span>before mutation</span></div>
-              </div>
-            </section>
-
-            <section>
-              <h2>What Artshelf Does</h2>
-              <div class="grid">
-                <div class="card">
-                  <h3>Register a temp artifact</h3>
-                  <p>Record path, reason, owner, labels, retention, and cleanup mode with `artshelf put`.</p>
-                </div>
-                <div class="card">
-                  <h3>Review everything safely</h3>
-                  <p>Use `artshelf due` and `artshelf cleanup --dry-run` to inspect what needs attention; no-op previews report `not-created`.</p>
-                </div>
-                <div class="card">
-                  <h3>Approve cleanup safely</h3>
-                  <p>Cleanup execution uses a human-approved plan id, writes a receipt, and updates ledger state.</p>
-                </div>
-                <div class="card">
-                  <h3>Purge old trash explicitly</h3>
-                  <p>Trash purge physically removes only quarantined trash from a separately reviewed purge plan.</p>
-                </div>
-              </div>
-            </section>
-
-            <section>
-              <h2>Pick Your Path</h2>
-              <div class="grid">
-                <a class="doc-card" href="install.html">
-                  <strong>Install from npm</strong>
-                  <span>Install the package globally, or use source install as the fallback path.</span>
-                </a>
-                <a class="doc-card" href="quickstart.html">
-                  <strong>Try the workflow</strong>
-                  <span>Register a temp artifact, review safely, approve cleanup, and purge old trash explicitly.</span>
-                </a>
-                <a class="doc-card" href="agent-usage.html">
-                  <strong>Wire up agents</strong>
-                  <span>Teach agents when to call Artshelf and how to report Artshelf ids.</span>
-                </a>
-                <a class="doc-card" href="reference.html">
-                  <strong>Look up commands</strong>
-                  <span>See the v1 command surface and cleanup safety rules.</span>
-                </a>
-                <a class="doc-card" href="https://github.com/calvinnwq/artshelf/blob/main/SPEC.md">
-                  <strong>Read the spec</strong>
-                  <span>Understand the ledger-first contract and v1 non-goals.</span>
-                </a>
-                <a class="doc-card" href="https://github.com/calvinnwq/artshelf">
-                  <strong>Open the repo</strong>
-                  <span>Source, tests, release automation, and the portable agent skill.</span>
-                </a>
-              </div>
-            </section>
-
-            <section>
-              <h2>Safety Model</h2>
-              <ul>
-                <li>Ledger-first. Artshelf only cleans entries that were registered intentionally.</li>
-                <li>Dry-run before mutation. Plans are written before execution.</li>
-                <li>No daemon or auto-execute path. Only a human-run command can mutate files.</li>
-                <li>No global execute. <code>--all</code> is read-only or dry-run reporting only; trash purge refuses it.</li>
-                <li>No fresh-plan-then-execute shortcut. Execute only a reviewed plan id.</li>
-                <li>Handled records stop appearing in future due and cleanup dry-run output.</li>
-                <li>Cleanup refuses delete actions; physical trash purge needs its own reviewed plan.</li>
-              </ul>
-              <div class="note">
-                Artshelf is an early v1 MVP. The npm package is the primary install path; source install remains available as a fallback.
-              </div>
-            </section>
-          </article>
-        </main>
-
-        <footer class="site-footer">
-          <div class="wrap">Artshelf docs · MIT · <a href="https://github.com/calvinnwq/artshelf">GitHub</a></div>
-        </footer>
       </div>
+    </header>
+
+    <div class="frame">
+      <nav id="sidebar" class="sidebar" aria-label="Documentation"></nav>
+
+      <main id="content" class="article-col">
+        <article>
+          <p class="kicker"><span class="n">01</span>Start · Overview</p>
+          <h1>A shelf for temporary work.</h1>
+          <p class="lede">
+            Artshelf is an approval-first artifact retention CLI for coding agents and
+            the humans reviewing them. Agents create files they should not forget:
+            backups, reports, quarantines, debug output. Artshelf records why each one
+            exists, when to look at it again, and what cleanup is allowed to do with it.
+          </p>
+
+          <section>
+            <h2>First command</h2>
+            <pre><code><span class="c"># install the CLI</span>
+npm install -g artshelf
+
+<span class="c"># put a file on the shelf: where it is, why it exists, when to look again</span>
+artshelf put ./backup-2026-06-10.tar.gz \
+  --reason "pre-migration backup" --ttl 7d --cleanup trash
+
+<span class="c"># ask what needs attention (reads only, moves nothing)</span>
+artshelf review --json</code></pre>
+            <p>
+              That is the whole habit. Every temporary file gets a ledger entry, and
+              <code>review</code> tells you what needs attention without touching anything.
+            </p>
+          </section>
+
+          <section>
+            <h2>The loop</h2>
+            <p>
+              Everything in Artshelf follows four stages: Create, Monitor, Review, Clean.
+              The agent docs use the same names, and each stage links to its page.
+            </p>
+            <div class="ledger">
+              <a class="ledger-row" href="agent-create.html">
+                <span class="n">4.1</span>
+                <span class="stage">Create</span>
+                <span class="what"><span class="cmdline">artshelf put &lt;path&gt; --reason &lt;why&gt; --ttl &lt;ttl&gt;</span>Register a temporary file while you still remember why it exists. The record keeps the path, the reason, and a review date.</span>
+              </a>
+              <a class="ledger-row" href="agent-monitor.html">
+                <span class="n">4.2</span>
+                <span class="stage">Monitor</span>
+                <span class="what"><span class="cmdline">artshelf review --all --json</span>Check the shelf on a schedule. Monitor commands only read, so agents and cron jobs can run them safely.</span>
+              </a>
+              <a class="ledger-row" href="agent-review.html">
+                <span class="n">4.3</span>
+                <span class="stage">Review</span>
+                <span class="what"><span class="cmdline">artshelf cleanup --dry-run --json</span>Preview what cleanup would do and get a plan id. A human reads that plan and approves it, or doesn't.</span>
+              </a>
+              <a class="ledger-row" href="agent-clean.html">
+                <span class="n">4.4</span>
+                <span class="stage">Clean</span>
+                <span class="what"><span class="cmdline">artshelf cleanup --execute --plan-id &lt;id&gt;</span>Run the one plan the human approved, then clear trash with its own reviewed purge plan. Artshelf writes receipts, and a follow-up review confirms the shelf is quiet.</span>
+              </a>
+            </div>
+          </section>
+
+          <section>
+            <h2>Safety model</h2>
+            <p>The same rules apply everywhere, to agents and humans alike. There are no escape hatches.</p>
+            <ul class="boundary-list">
+              <li>
+                <span class="stamp refused">Refused</span>
+                <span>No automatic cleanup. Nothing runs on a schedule or daemon, ever.</span>
+              </li>
+              <li>
+                <span class="stamp refused">Refused</span>
+                <span><code>cleanup --execute --all</code> does not exist. Execution names one ledger and one reviewed plan id.</span>
+              </li>
+              <li>
+                <span class="stamp refused">Refused</span>
+                <span>Delete is refused in v1. <code>cleanup=trash</code> quarantines; physical deletion needs a separate reviewed purge plan.</span>
+              </li>
+              <li>
+                <span class="stamp approval">Approval</span>
+                <span>Execute runs only from an already-reviewed ledger plus plan id, after exact human approval.</span>
+              </li>
+              <li>
+                <span class="stamp readonly">Read-only</span>
+                <span><code>review</code>, <code>status</code>, and <code>doctor</code> never write plans, receipts, or records.</span>
+              </li>
+            </ul>
+          </section>
+
+          <section>
+            <h2>What a record looks like</h2>
+            <p>A record is one line of JSON in the ledger file (<code>.artshelf/ledger.jsonl</code>):</p>
+            <pre><code>{
+  "id": "shf_20260610_091400_4be1",
+  "path": "/repo/backup-2026-06-10.tar.gz",
+  "kind": "backup",
+  "reason": "pre-migration backup",
+  "createdAt": "2026-06-10T09:14:00.000Z",
+  "retention": { "mode": "ttl", "ttl": "7d" },
+  "retainUntil": "2026-06-17T09:14:00.000Z",
+  "cleanup": "trash",
+  "owner": "manual",
+  "labels": ["migration"],
+  "status": "active"
+}</code></pre>
+            <p>
+              Three fields drive the loop. <code>retention</code> decides when the record
+              comes due, <code>cleanup</code> decides what an approved plan may do with the
+              file, and <code>status</code> tracks where the record sits in that loop.
+              The <code>id</code> is what you quote in reports and handoffs.
+            </p>
+            <p>
+              Ledgers stay with the work. Each project keeps its own ledger file, and a
+              global registry keeps track of every ledger it has seen, so one read-only
+              command can answer for all of them without merging records into one
+              global file.
+            </p>
+            <pre><code><span class="c"># each project writes its own ledger</span>
+~/work/api/.artshelf/ledger.jsonl
+~/work/site/.artshelf/ledger.jsonl
+
+<span class="c"># the global registry keeps track of every known ledger</span>
+~/.artshelf/ledgers.json
+
+<span class="c"># put registers its ledger automatically; add existing ones explicitly</span>
+artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;project&gt; --scope repo
+
+<span class="c"># --all commands read across every registered ledger</span>
+artshelf review --all --json</code></pre>
+          </section>
+
+          <section>
+            <h2>Where next</h2>
+            <ul>
+              <li><a href="install.html">Install</a>: get the CLI from npm and check it with <code>artshelf doctor</code>.</li>
+              <li><a href="quickstart.html">Quickstart</a>: walk one real artifact through the whole loop in five minutes.</li>
+              <li><a href="agent-usage.html">Agent usage</a>: the Create, Monitor, Review, Clean contract for coding agents.</li>
+              <li><a href="reference.html">CLI reference</a>: every command on one page.</li>
+            </ul>
+          </section>
+        </article>
+        <footer class="pager" id="pager"></footer>
+      </main>
+
+      <aside class="toc-col"><p class="toc-title">On this page</p><nav id="toc" aria-label="On this page"></nav></aside>
     </div>
+
+    <footer class="colophon"><div class="colophon-inner"><span>Artshelf docs</span><span>MIT</span><a href="https://github.com/calvinnwq/artshelf">GitHub</a></div></footer>
   </body>
 </html>
