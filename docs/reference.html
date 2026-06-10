@@ -40,7 +40,7 @@
             Artshelf v1 keeps the API narrow: put entries in a ledger, query existing
             records, write a cleanup plan, and use separate reviewed plan ids for
             cleanup execution and trash purge. Every command below is tagged read-only,
-            writes-ledger, or approval-gated.
+            writes ledger, writes registry, or approval-gated.
           </p>
 
           <section class="cmd">
@@ -57,17 +57,23 @@
           </section>
 
           <section class="cmd">
-            <div class="cmd-head"><h2>artshelf ledgers</h2><span class="cmd-flag readonly">read-only</span></div>
+            <div class="cmd-head"><h2>artshelf ledgers list</h2><span class="cmd-flag readonly">read-only</span></div>
             <pre><code><span class="c"># show registered ledgers and their health</span>
-artshelf ledgers list [--plain] [--json]
-
-<span class="c"># register an existing ledger for --all review</span>
-artshelf ledgers add --ledger &lt;path&gt; [--name &lt;project&gt;] [--scope repo|user|other]</code></pre>
+artshelf ledgers list [--plain] [--json]</code></pre>
             <p>
               <code>list</code> shows registered ledgers with validation status (ok/missing/invalid)
               and entry counts; it exits non-zero when the registry or any ledger is broken, and
-              <code>--plain</code> skips validation. <code>add</code> registers an existing ledger so
-              Artshelf can review it through one entry point; scope is inferred from the path when omitted.
+              <code>--plain</code> skips validation.
+            </p>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf ledgers add</h2><span class="cmd-flag plan">writes registry</span></div>
+            <pre><code><span class="c"># register an existing ledger for --all review</span>
+artshelf ledgers add --ledger &lt;path&gt; [--name &lt;project&gt;] [--scope repo|user|other]</code></pre>
+            <p>
+              <code>add</code> registers an existing ledger so Artshelf can review it through one
+              entry point; scope is inferred from the path when omitted.
             </p>
           </section>
 
