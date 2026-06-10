@@ -285,7 +285,7 @@ h1 {
 
 .lede {
   margin: 0 0 8px;
-  font-size: 1.18rem;
+  font-size: 1.26rem;
   line-height: 1.62;
   color: var(--soft);
 }
@@ -316,7 +316,7 @@ h2::after {
 h3 {
   margin: 26px 0 10px;
   font-family: var(--display);
-  font-size: 1.12rem;
+  font-size: 1.18rem;
   font-weight: 620;
   color: var(--ink);
 }
@@ -332,7 +332,7 @@ h3 {
 h2:hover .anchor, h3:hover .anchor, .cmd-head:hover .anchor { opacity: 1; }
 .anchor:hover { color: var(--green); }
 
-p, li { font-size: 1.02rem; }
+p, li { font-size: 1.1rem; }
 ul, ol { padding-left: 1.3em; }
 li { margin: 4px 0; }
 li::marker { color: var(--green); }
@@ -362,7 +362,7 @@ pre {
   border-radius: 8px;
   padding: 15px 18px;
   font-family: var(--mono);
-  font-size: 0.84rem;
+  font-size: 0.88rem;
   line-height: 1.66;
   scrollbar-width: thin;
   scrollbar-color: var(--term-rule) transparent;
@@ -430,7 +430,7 @@ pre .c { color: var(--term-soft); }
   font-size: 1.02rem;
   color: var(--ink);
 }
-.ledger-row .what { color: var(--soft); font-size: 0.96rem; }
+.ledger-row .what { color: var(--soft); font-size: 1.02rem; }
 .ledger-row .what code { font-size: 0.8em; }
 .ledger-row .cmdline {
   display: block;
@@ -469,7 +469,7 @@ a.ledger-row:hover { background: color-mix(in srgb, var(--green-wash) 50%, trans
   padding: 1px 8px;
 }
 
-.callout p { margin: 4px 0; font-size: 0.96rem; }
+.callout p { margin: 4px 0; font-size: 1.02rem; }
 .callout p:first-of-type { margin-top: 0; }
 
 .callout[data-kind="boundary"] { border-color: color-mix(in srgb, var(--red) 45%, var(--rule)); }
@@ -517,7 +517,7 @@ a.ledger-row:hover { background: color-mix(in srgb, var(--green-wash) 50%, trans
 }
 .def-rows > div + div { border-top: 1px solid var(--rule-soft); }
 .def-rows dt, .def-rows .k { font-family: var(--mono); font-size: 0.8rem; color: var(--green-deep); }
-.def-rows dd, .def-rows .v { margin: 0; color: var(--soft); font-size: 0.96rem; }
+.def-rows dd, .def-rows .v { margin: 0; color: var(--soft); font-size: 1.02rem; }
 
 /* ---------- command reference ---------- */
 
@@ -564,13 +564,13 @@ a.ledger-row:hover { background: color-mix(in srgb, var(--green-wash) 50%, trans
 .cmd-flag.plan { color: var(--amber); }
 .cmd-flag.approval { color: var(--red); }
 
-.cmd > p { margin: 10px 0; font-size: 0.99rem; }
+.cmd > p { margin: 10px 0; font-size: 1.06rem; }
 
 table.opts {
   width: 100%;
   margin: 12px 0;
   border-collapse: collapse;
-  font-size: 0.9rem;
+  font-size: 0.96rem;
 }
 table.opts th {
   font-family: var(--mono);
