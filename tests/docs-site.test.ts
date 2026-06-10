@@ -492,6 +492,32 @@ test("review report renderer derives visible counts and requires recommendation"
   assert.match(missingResult.stderr, /missing string recommendation/);
 });
 
+test("review report renderer requires execute-all refusal in safety line", () => {
+  const example = JSON.parse(read("examples/artshelf-review-report.json"));
+
+  const missingFlag = structuredClone(example);
+  delete missingFlag.safety.executeAllRefused;
+  const missingResult = spawnSync(
+    process.execPath,
+    ["skills/artshelf/scripts/render-review-report.mjs", "-"],
+    { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(missingFlag) }
+  );
+
+  assert.equal(missingResult.status, 1);
+  assert.match(missingResult.stderr, /missing boolean safety\.executeAllRefused/);
+
+  const notRefused = structuredClone(example);
+  notRefused.safety.executeAllRefused = false;
+  const notRefusedResult = spawnSync(
+    process.execPath,
+    ["skills/artshelf/scripts/render-review-report.mjs", "-"],
+    { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(notRefused) }
+  );
+
+  assert.equal(notRefusedResult.status, 0, notRefusedResult.stderr);
+  assert.match(notRefusedResult.stdout, /Attention: safety flags show a mutation may have run\./);
+});
+
 test("review report renderer can be imported without running the CLI", () => {
   const importResult = spawnSync(
     process.execPath,

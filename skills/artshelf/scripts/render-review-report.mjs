@@ -119,10 +119,11 @@ export function renderReviewReport(report) {
   const recommendation = requireString(report.recommendation, "recommendation");
 
   const dryRunOnly = requireBoolean(report, ["safety", "dryRunOnly"]);
+  const executeAllRefused = requireBoolean(report, ["safety", "executeAllRefused"]);
   const noExecuteRan = requireBoolean(report, ["safety", "noExecuteRan"]);
   const noResolveRan = requireBoolean(report, ["safety", "noResolveRan"]);
   const noDeleteRan = requireBoolean(report, ["safety", "noDeleteRan"]);
-  const safetyLine = dryRunOnly && noExecuteRan && noResolveRan && noDeleteRan
+  const safetyLine = dryRunOnly && executeAllRefused && noExecuteRan && noResolveRan && noDeleteRan
     ? "Dry-run only. No execute, resolve, or delete ran."
     : "Attention: safety flags show a mutation may have run.";
 
