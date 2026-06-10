@@ -150,8 +150,9 @@ count dump.
 4. Use `ArtshelfReviewReport` from
    `schemas/artshelf-review-report.schema.json`; use
    `examples/artshelf-review-report.json` as the canonical packet.
-5. Render a compact decision card from `decisionSummary` and `decisionGroups`.
-   Emojis are encouraged when the host renders them well.
+5. Render the compact decision card with `scripts/render-review-report.mjs`;
+   keep `decisionSummary` in audit, while `decisionGroups` drive counts.
+   Emojis are encouraged only in host-specific wrappers, not the renderer.
 6. Always include the exact approval target in the message body as a fallback.
    Do not paste the whole packet into chat unless the user asks for it.
 

@@ -57,33 +57,34 @@
             <p>
               Use <a href="schemas/artshelf-review-report.schema.json">schemas/artshelf-review-report.schema.json</a>
               and <a href="examples/artshelf-review-report.json">examples/artshelf-review-report.json</a>.
-              <code>decisionSummary</code> and <code>decisionGroups</code> drive the visible card.
-              Emojis are encouraged when the host renders them well.
+              The portable skill also ships <code>scripts/render-review-report.mjs</code>;
+              keep <code>decisionSummary</code> in the audit packet while
+              <code>decisionGroups</code> drive its visible counts and sections.
+              Emojis are encouraged only in host-specific wrappers, not the renderer.
             </p>
             <pre><code>Artshelf daily review
 Status: &lt;ok|attention needed&gt;; registry &lt;ok|attention&gt;
 
-✅ Ready for approval: &lt;n&gt;
-👀 Needs review first: &lt;n&gt;
-⚠️ Blocked: &lt;n&gt;
+Ready for approval: &lt;n&gt;
+Needs review first: &lt;n&gt;
+Blocked: &lt;n&gt;
 
-Recommendation
-&lt;one short sentence with the next safest action&gt;.
+Recommended action
+&lt;one short sentence&gt;.
 
 Ready for approval
-1. &lt;short item label&gt;
-   Why: &lt;short reason&gt;
-   Action: &lt;what approval will do&gt;
+1. &lt;label&gt;
+   Why: &lt;reason&gt;
+   Action: &lt;next step&gt;
    approve artshelf cleanup ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;
 
 Needs review first
-1. &lt;short item label&gt;
-   Why: &lt;short reason&gt;
-   Suggested next step: inspect path, then choose keep, change retention, resolve, or clean up later
-   Path: &lt;path&gt;
+1. &lt;label&gt;
+   Why: &lt;reason&gt;
+   Suggested next step: &lt;next step&gt;
 
 Blocked
-&lt;none, or the registry/refused/missing-path blocker and next repair step&gt;
+&lt;none, or blocker and repair step&gt;
 
 Safety
 Dry-run only. No execute, resolve, or delete ran.</code></pre>

@@ -49,4 +49,5 @@ The browsable docs split the workflow into focused child pages:
 
 The repo ships a portable skill at
 [`skills/artshelf`](../skills/artshelf). Agents that support local skills can
-copy or reference the whole directory directly.
+copy or reference the whole directory directly, including the bundled
+`scripts/render-review-report.mjs` renderer plus schema and example copies.

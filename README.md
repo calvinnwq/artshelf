@@ -280,10 +280,11 @@ review-report decision packets, how to review trashed records with
 handled, missing, or no-longer-needed records without moving or deleting files.
 
 The same skill ships in the npm package alongside
-`schemas/artshelf-review-report.schema.json` and the canonical
-`examples/artshelf-review-report.json` packet. From a source checkout, use
-the whole `skills/artshelf` directory directly. Agents should ask where the user wants
-Artshelf cloned before installing or linking it.
+`scripts/render-review-report.mjs`,
+`schemas/artshelf-review-report.schema.json`, and the canonical
+`examples/artshelf-review-report.json` packet. From a source checkout, use the
+whole `skills/artshelf` directory directly. Agents should ask where the user
+wants Artshelf cloned before installing or linking it.
 
 ## Development
 

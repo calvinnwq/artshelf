@@ -51,9 +51,11 @@
   available below the lead.
 - Tightened the portable agent skill description so the completion-gate trigger
   is visible before final responses, status updates, handoffs, and done reports.
-- Added packaged `ArtshelfReviewReport` schema and canonical example files for
-  deterministic agent review reports, plus deterministic footnote guidance for
-  `artshelf put --json` registrations.
+- Added packaged `ArtshelfReviewReport` schema, canonical example files, and a
+  portable renderer script for deterministic agent review reports, plus
+  deterministic footnote guidance for `artshelf put --json` registrations.
+- Split the agent docs into Create, Monitor, Review, and Clean workflow pages
+  backed by shared docs-site chrome, search, and navigation.
 
 ## [0.6.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.5.0...artshelf-v0.6.0) (2026-06-07)
 
