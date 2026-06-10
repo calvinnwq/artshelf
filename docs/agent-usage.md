@@ -1,7 +1,7 @@
 # Agent Usage
 
 Agents that support local skills can copy or reference
-[`skills/artshelf/SKILL.md`](../skills/artshelf/SKILL.md). The public docs site at
+the whole [`skills/artshelf`](../skills/artshelf) directory. The public docs site at
 <https://calvinnwq.github.io/artshelf/> explains the same contract in browsable
 form.
 
@@ -48,5 +48,5 @@ The browsable docs split the workflow into focused child pages:
 ## Portable Skill
 
 The repo ships a portable skill at
-[`skills/artshelf/SKILL.md`](../skills/artshelf/SKILL.md). Agents that support
-local skills can copy or reference it directly.
+[`skills/artshelf`](../skills/artshelf). Agents that support local skills can
+copy or reference the whole directory directly.

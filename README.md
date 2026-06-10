@@ -68,7 +68,7 @@ npm unlink -g artshelf
 For agent setup, the agent should prompt before optional integration steps:
 
 - install CLI from npm, or use a source checkout
-- install/copy/reference `skills/artshelf/SKILL.md`
+- install/copy/reference the whole `skills/artshelf` directory
 - register existing project ledgers
 - schedule a read-only review job in the host runtime
 - choose where review packets should be delivered
@@ -268,8 +268,8 @@ quickstart, agent usage, and CLI reference. The source repo also keeps the
 
 ## Agent Skill
 
-The package includes an agent-facing skill at `skills/artshelf/SKILL.md`. Agents
-that support local skills can copy or reference this file to learn when to call
+The package includes an agent-facing skill at `skills/artshelf`. Agents
+that support local skills can copy or reference this directory to learn when to call
 `artshelf put`, how to report deterministic Artshelf footnotes after JSON
 registration, why `artshelf find` / `artshelf get` are the read-only idempotency
 lookup surface, why `cleanup --execute` requires explicit approval for a
@@ -282,7 +282,7 @@ handled, missing, or no-longer-needed records without moving or deleting files.
 The same skill ships in the npm package alongside
 `schemas/artshelf-review-report.schema.json` and the canonical
 `examples/artshelf-review-report.json` packet. From a source checkout, use
-`skills/artshelf/SKILL.md` directly. Agents should ask where the user wants
+the whole `skills/artshelf` directory directly. Agents should ask where the user wants
 Artshelf cloned before installing or linking it.
 
 ## Development

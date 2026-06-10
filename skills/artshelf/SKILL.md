@@ -160,7 +160,8 @@ count dump.
 Deterministic renderer:
 
 ```bash
-node skills/artshelf/scripts/render-review-report.mjs examples/artshelf-review-report.json
+cd /path/to/skills/artshelf
+node scripts/render-review-report.mjs examples/artshelf-review-report.json
 ```
 
 Expected card shape:

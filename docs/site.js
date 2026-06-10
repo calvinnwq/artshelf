@@ -23,7 +23,7 @@
             { n: "4.4", t: "Clean", h: "agent-clean.html" }
           ]
         },
-        { t: "Agent skill", h: "https://github.com/calvinnwq/artshelf/blob/main/skills/artshelf/SKILL.md", ext: true }
+        { t: "Agent skill", h: "https://github.com/calvinnwq/artshelf/tree/main/skills/artshelf", ext: true }
       ]
     },
     {
