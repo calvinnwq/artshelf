@@ -111,12 +111,12 @@ export function renderReviewReport(report) {
   }
 
   const scope = report.scope ?? {};
-  const summary = report.decisionSummary ?? {};
   const ready = requireArray(report, ["decisionGroups", "readyForApproval"]).map(validateApprovalDecision);
   const needsReview = requireArray(report, ["decisionGroups", "needsReviewFirst"])
     .map((decision, index) => validateNonApprovalDecision("needsReviewFirst", decision, index));
   const blocked = requireArray(report, ["decisionGroups", "blocked"])
     .map((decision, index) => validateNonApprovalDecision("blocked", decision, index));
+  const recommendation = requireString(report.recommendation, "recommendation");
 
   const dryRunOnly = requireBoolean(report, ["safety", "dryRunOnly"]);
   const noExecuteRan = requireBoolean(report, ["safety", "noExecuteRan"]);
@@ -130,12 +130,12 @@ export function renderReviewReport(report) {
     "Artshelf daily review",
     `Status: ${scope.health ?? "attention"}; registry ${scope.registryHealth ?? "attention"}`,
     "",
-    `Ready for approval: ${summary.readyForApproval ?? ready.length}`,
-    `Needs review first: ${summary.needsReviewFirst ?? needsReview.length}`,
-    `Blocked: ${summary.blocked ?? blocked.length}`,
+    `Ready for approval: ${ready.length}`,
+    `Needs review first: ${needsReview.length}`,
+    `Blocked: ${blocked.length}`,
     "",
     "Recommended action",
-    report.recommendation,
+    recommendation,
     "",
     formatGroup("Ready for approval", ready, formatApprovalDecision),
     "",

@@ -151,14 +151,16 @@ plus its `schemas/` and `examples/`, and those must travel together.
 
 ```bash
 # from the installed npm package
-cp -R "$(npm root -g)/artshelf/skills/artshelf" &lt;your-skills-dir&gt;/artshelf
+rm -rf &lt;your-skills-dir&gt;/artshelf
+cp -R "$(npm root -g)/artshelf/skills/artshelf" &lt;your-skills-dir&gt;/
 
 # or from a source checkout
-cp -R "$ARTSHELF_REPO/skills/artshelf" &lt;your-skills-dir&gt;/artshelf
+rm -rf &lt;your-skills-dir&gt;/artshelf
+cp -R "$ARTSHELF_REPO/skills/artshelf" &lt;your-skills-dir&gt;/
 ```
 
-Re-run the same copy after upgrading the package so the skill and script stay
-in sync with the CLI.
+Re-run the replacement copy after upgrading the package so the skill and
+script stay in sync with the CLI.
 
 ## 3. Register existing ledgers
 

@@ -461,6 +461,36 @@ test("review report renderer rejects mismatched approval targets", () => {
   }
 });
 
+test("review report renderer derives visible counts and requires recommendation", () => {
+  const example = JSON.parse(read("examples/artshelf-review-report.json"));
+  const mismatchedSummary = structuredClone(example);
+  mismatchedSummary.decisionSummary.readyForApproval = 0;
+  mismatchedSummary.decisionSummary.needsReviewFirst = 0;
+  mismatchedSummary.decisionSummary.blocked = 4;
+
+  const renderResult = spawnSync(
+    process.execPath,
+    ["skills/artshelf/scripts/render-review-report.mjs", "-"],
+    { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(mismatchedSummary) }
+  );
+
+  assert.equal(renderResult.status, 0, renderResult.stderr);
+  assert.match(renderResult.stdout, /Ready for approval: 2/);
+  assert.match(renderResult.stdout, /Needs review first: 1/);
+  assert.match(renderResult.stdout, /Blocked: 0/);
+
+  const missingRecommendation = structuredClone(example);
+  delete missingRecommendation.recommendation;
+  const missingResult = spawnSync(
+    process.execPath,
+    ["skills/artshelf/scripts/render-review-report.mjs", "-"],
+    { cwd: process.cwd(), encoding: "utf8", input: JSON.stringify(missingRecommendation) }
+  );
+
+  assert.equal(missingResult.status, 1);
+  assert.match(missingResult.stderr, /missing string recommendation/);
+});
+
 test("review report renderer can be imported without running the CLI", () => {
   const importResult = spawnSync(
     process.execPath,
@@ -673,6 +703,12 @@ test("agent install guidance prompts for paths and avoids unsupported install me
   assert.match(installGuide, /[Aa]sk the user (?:whether|where)/);
   assert.match(installGuide, /scripts\/render-review-report\.mjs/);
   assert.match(installGuide, /[Nn]ever schedule/);
+
+  for (const text of [installPage, installGuide]) {
+    assert.match(text, /rm -rf (?:&lt;your-skills-dir&gt;|<your-skills-dir>)\/artshelf/);
+    assert.match(text, /cp -R .*skills\/artshelf" (?:&lt;your-skills-dir&gt;|<your-skills-dir>)\//);
+    assert.doesNotMatch(text, /cp -R .*skills\/artshelf" (?:&lt;your-skills-dir&gt;|<your-skills-dir>)\/artshelf/);
+  }
 });
 
 test("public docs describe current behavior without future-plan setup language", () => {
@@ -858,6 +894,10 @@ test("README and quickstart lead with the core workflow", () => {
     assert.ok(idx > quickstartCursor, `quickstart workflows out of order at "${workflow}"`);
     quickstartCursor = idx;
   }
+
+  assert.match(quickstart, /--ttl 0m/);
+  assert.match(quickstart, /--older-than 0m/);
+  assert.match(quickstart, /immediately due/);
 });
 
 function read(path: string): string {

@@ -48,10 +48,10 @@
 mkdir -p /tmp/artshelf-demo
 echo "debug output" &gt; /tmp/artshelf-demo/output.txt
 
-<span class="c"># put it on the shelf: keep for 1 day, then trash on approval</span>
+<span class="c"># put it on the shelf: make this demo immediately due, then trash on approval</span>
 artshelf put /tmp/artshelf-demo \
   --reason "quickstart artifact" \
-  --ttl 1d \
+  --ttl 0m \
   --kind scratch \
   --cleanup trash \
   --owner manual \
@@ -83,9 +83,9 @@ artshelf due --ledger /tmp/artshelf-ledger.jsonl --json
 <span class="c"># preview cleanup and get a plan id (still moves nothing)</span>
 artshelf cleanup --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
             <p>
-              When nothing is ready, the dry-run reports <code>not-created</code>.
-              Otherwise it writes a plan and prints the <code>planId</code> a human
-              can approve.
+              This demo uses <code>--ttl 0m</code>, so the dry-run writes a plan and prints
+              the <code>planId</code> a human can approve. When nothing is ready, the
+              dry-run reports <code>not-created</code>.
             </p>
           </section>
 
@@ -122,7 +122,7 @@ artshelf trash list --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
               Physical deletion needs a separate reviewed purge plan.
             </p>
             <pre><code><span class="c"># preview which trashed files are old enough to purge</span>
-artshelf trash purge --older-than 7d --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
+artshelf trash purge --older-than 0m --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
             <p>Then execute with the purge <code>planId</code> the dry-run reported.</p>
             <pre><code><span class="c"># delete for real, but only with the reviewed purge plan id</span>
 artshelf trash purge --execute \
