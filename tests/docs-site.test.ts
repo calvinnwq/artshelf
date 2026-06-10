@@ -471,8 +471,9 @@ test("portable skill description exposes the completion gate", () => {
 test("agent install guidance prompts for paths and avoids unsupported install methods", () => {
   const portableSkill = read("skills/artshelf/SKILL.md");
   const installPage = read("docs/install.html");
+  const installGuide = read("INSTALL.md");
 
-  for (const text of [portableSkill, installPage]) {
+  for (const text of [portableSkill, installPage, installGuide]) {
     assert.match(text, /ask|Ask/);
     assert.match(text, /repo path|where the user wants|where to clone|where the Artshelf repo/);
     assert.match(text, /install, copy, or reference (?:the )?portable skill|installing a skill|portable skill/);
@@ -487,6 +488,18 @@ test("agent install guidance prompts for paths and avoids unsupported install me
 
   assert.match(installPage, /Recommended [Aa]gent [Ss]etup/);
   assert.doesNotMatch(installPage, /Optional [Aa]gent [Ss]etup/);
+
+  // INSTALL.md drives the agent setup: the install page carries the one-line
+  // prompt and embeds the guide verbatim so the two cannot drift apart.
+  assert.match(
+    installPage,
+    /Follow the instructions in https:\/\/github\.com\/calvinnwq\/artshelf\/blob\/main\/INSTALL\.md to set up Artshelf in this workspace\./
+  );
+  const embedded = installGuide.trim().replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  assert.ok(installPage.includes(embedded), "install page embeds INSTALL.md verbatim");
+  assert.match(installGuide, /[Aa]sk the user (?:whether|where)/);
+  assert.match(installGuide, /scripts\/render-review-report\.mjs/);
+  assert.match(installGuide, /[Nn]ever schedule/);
 });
 
 test("public docs describe current behavior without future-plan setup language", () => {
