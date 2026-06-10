@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Agent usage · Artshelf</title>
-    <meta name="description" content="How agents use Artshelf safely: Create, Monitor, Review, Clean.">
+    <meta name="description" content="How agents use Artshelf safely: Create, Monitor, Review, Clean, Purge.">
     <script>(function(){var stored=null;try{stored=localStorage.getItem("artshelf-docs-theme");}catch(e){}var dark=false;try{dark=matchMedia("(prefers-color-scheme: dark)").matches;}catch(e){}document.documentElement.dataset.theme=stored||(dark?"dark":"light");})();</script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -35,9 +35,9 @@
       <main id="content" class="article-col">
         <article>
           <p class="kicker"><span class="n">04</span>Agents · Overview</p>
-          <h1>Create, monitor, review, clean.</h1>
+          <h1>Create, monitor, review, clean, purge.</h1>
           <p class="lede">
-            An agent's whole relationship with Artshelf fits in four stages. Each stage
+            An agent's whole relationship with Artshelf fits in five stages. Each stage
             has its own page with the exact commands; this page is the contract that
             ties them together.
           </p>
@@ -63,14 +63,18 @@
               <a class="ledger-row" href="agent-clean.html">
                 <span class="n">4.4</span>
                 <span class="stage">Clean</span>
-                <span class="what"><span class="cmdline">artshelf cleanup --execute --plan-id &lt;id&gt;</span>Run the one plan the human approved, clear old trash with its own reviewed purge plan, resolve confirmed ids, and verify the next review is quiet.</span>
+                <span class="what"><span class="cmdline">artshelf cleanup --execute --plan-id &lt;id&gt;</span>Run the one plan the human approved, resolve confirmed ids, and verify the next review is quiet.</span>
+              </a>
+              <a class="ledger-row" href="agent-purge.html">
+                <span class="n">4.5</span>
+                <span class="stage">Purge</span>
+                <span class="what"><span class="cmdline">artshelf trash purge --execute --plan-id &lt;id&gt;</span>Clear old trash through its own separately reviewed purge plan. Physical deletion never piggybacks on the cleanup plan that trashed the file.</span>
               </a>
             </div>
             <p>
-              Trash rides the same loop. Monitor lists what sits in Artshelf trash,
-              Review previews an age-based purge plan, and Clean executes only the
-              reviewed purge plan id. Clearing trash never piggybacks on the cleanup
-              plan that trashed the file.
+              Clean trashes; Purge deletes. Cleanup quarantines artifacts into Artshelf
+              trash, and only a separate, separately reviewed purge plan removes them for
+              good — a second approval boundary before destructive deletion.
             </p>
           </section>
 

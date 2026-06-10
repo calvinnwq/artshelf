@@ -20,7 +20,8 @@
             { n: "4.1", t: "Create", h: "agent-create.html" },
             { n: "4.2", t: "Monitor", h: "agent-monitor.html" },
             { n: "4.3", t: "Review", h: "agent-review.html" },
-            { n: "4.4", t: "Clean", h: "agent-clean.html" }
+            { n: "4.4", t: "Clean", h: "agent-clean.html" },
+            { n: "4.5", t: "Purge", h: "agent-purge.html" }
           ]
         },
         { t: "Agent skill", h: "https://github.com/calvinnwq/artshelf/tree/main/skills/artshelf", ext: true }
