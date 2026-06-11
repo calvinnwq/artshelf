@@ -40,7 +40,7 @@
             Artshelf v1 keeps the API narrow: put entries in a ledger, query existing
             records, write a cleanup plan, and use separate reviewed plan ids for
             cleanup execution and trash purge. Every command below is tagged read-only,
-            writes ledger, writes registry, or approval-gated.
+            writes ledger, writes registry, npm install, or approval-gated.
           </p>
 
           <section class="cmd">
@@ -130,6 +130,24 @@ artshelf doctor [--json]</code></pre>
           </section>
 
           <section class="cmd">
+            <div class="cmd-head"><h2>artshelf update</h2><span class="cmd-flag plan">npm install</span></div>
+            <pre><code><span class="c"># install the latest published npm package</span>
+artshelf update [--json]</code></pre>
+            <p>
+              Normal commands may print a non-blocking notice to stderr when npm has a
+              newer published version. <code>artshelf update</code> runs
+              <code>npm install -g artshelf@latest</code> and is for npm global installs
+              only. pnpm global installs should update with
+              <code>pnpm add -g artshelf@latest</code>. Source installs should update by
+              pulling, rebuilding, and linking the checkout. Notices are cached in
+              <code>~/.artshelf/update-check.json</code>; set
+              <code>ARTSHELF_NO_UPDATE_CHECK=1</code> to disable automatic checks for
+              no-network scripts and scheduled jobs. Read-only command labels refer
+              to ledger and artifact mutation, not this optional update-check cache.
+            </p>
+          </section>
+
+          <section class="cmd">
             <div class="cmd-head"><h2>artshelf cleanup</h2><span class="cmd-flag approval">approval-gated</span></div>
             <pre><code><span class="c"># preview cleanup and register a reviewed plan</span>
 artshelf cleanup --dry-run [--all] [--json]
@@ -184,6 +202,12 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
               <tr><td>--json</td><td>emit machine-readable JSON</td></tr>
               <tr><td>ARTSHELF_REGISTRY</td><td>override the default ledger registry path</td></tr>
               <tr><td>ARTSHELF_NOW</td><td>override current time for retention and due calculations</td></tr>
+              <tr><td>ARTSHELF_NO_UPDATE_CHECK=1</td><td>disable automatic npm update checks</td></tr>
+              <tr><td>ARTSHELF_UPDATE_CACHE</td><td>override the update-check cache path</td></tr>
+              <tr><td>ARTSHELF_UPDATE_CHECK_TTL_MS</td><td>override the update-check cache TTL</td></tr>
+              <tr><td>ARTSHELF_NPM_REGISTRY_URL</td><td>override the npm latest-version endpoint</td></tr>
+              <tr><td>ARTSHELF_UPDATE_DRY_RUN=1</td><td>print the npm update command without running it</td></tr>
+              <tr><td>ARTSHELF_LATEST_VERSION</td><td>override the latest-version value for tests</td></tr>
             </table>
           </section>
 
@@ -208,7 +232,8 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
               repo it defaults to <code>~/.artshelf/ledger.jsonl</code>. A user-level registry at
               <code>~/.artshelf/ledgers.json</code> is the discovery index for <code>--all</code>
               review, status, cleanup dry-run, and trash-list; project records stay in their own
-              repo-local ledgers.
+              repo-local ledgers. Automatic update checks cache their last npm result at
+              <code>~/.artshelf/update-check.json</code> by default.
             </p>
             <div class="callout" data-kind="boundary">
               <span class="callout-label">Hard boundary</span>

@@ -284,6 +284,45 @@ ledger exits non-zero. Due entries are normal operational state and do not chang
 the exit code. With single `--ledger`, a not-yet-created ledger reports empty
 counts.
 
+### `artshelf update`
+
+Checks the latest published npm version and, for npm global installs, updates the
+package with npm.
+
+```bash
+artshelf update
+artshelf update --json
+```
+
+Rules:
+
+- Normal commands may perform a best-effort npm update check after command
+  handling and print a non-blocking notice to stderr when a newer version is
+  available.
+- Read-only command guarantees refer to ledger and artifact mutation; automatic
+  update-check cache writes are separate and can be disabled.
+- Update notices must never pollute JSON stdout.
+- Automatic checks cache successful and failed latest-version lookups at
+  `~/.artshelf/update-check.json` by default, with a 24-hour TTL.
+- `ARTSHELF_NO_UPDATE_CHECK=1` disables automatic checks for scheduled jobs,
+  tests, and no-network environments.
+- `ARTSHELF_UPDATE_CACHE` overrides the update-cache path,
+  `ARTSHELF_UPDATE_CHECK_TTL_MS` overrides the cache TTL, and
+  `ARTSHELF_NPM_REGISTRY_URL` overrides the npm latest-version endpoint.
+- `ARTSHELF_LATEST_VERSION` overrides the discovered latest version for tests.
+- `ARTSHELF_UPDATE_DRY_RUN=1` makes `artshelf update` report the npm command it
+  would run without invoking npm.
+- `artshelf update` forces a fresh latest-version check and does not run the
+  automatic post-command notice check.
+- If the current version is already current, update exits 0 and reports that no
+  update was installed.
+- When an update is available, `artshelf update` runs
+  `npm install -g artshelf@latest`; `--json` captures npm stdout/stderr and
+  returns npm's exit code.
+- `artshelf update` is for npm global installs only. pnpm global installs should
+  use `pnpm add -g artshelf@latest`; source installs should pull, rebuild, and
+  link the checkout again.
+
 ### `artshelf cleanup --dry-run`
 
 Creates a cleanup plan when there are executable cleanup entries, but does not
@@ -450,6 +489,10 @@ V1 also supports a user-level registry of known ledgers:
 - Retention and due calculations use wall-clock time by default. `ARTSHELF_NOW`
   overrides it for tests and controlled runs; legacy `SHELF_NOW` is read only
   when `ARTSHELF_NOW` is unset.
+- Automatic npm update checks cache their latest-version result at
+  `~/.artshelf/update-check.json` by default. `ARTSHELF_NO_UPDATE_CHECK=1`
+  disables automatic checks, `ARTSHELF_UPDATE_CACHE` overrides the cache path,
+  and `ARTSHELF_UPDATE_CHECK_TTL_MS` overrides the cache TTL.
 - `put` registers the ledger it writes to.
 - `ledgers add` registers an existing ledger explicitly.
 - `--all` reads registered ledgers as one review surface.
@@ -632,6 +675,9 @@ artshelf trash list --all --json
 artshelf trash purge --older-than <ttl> --dry-run --ledger <path> --json
 ```
 
+Set `ARTSHELF_NO_UPDATE_CHECK=1` for scheduled jobs that must avoid npm network
+checks and update-cache writes.
+
 `artshelf review --all --json` is the read-only all-ledger triage surface;
 scheduled reports should include its aggregate `summary` and `nextAction` when
 whole-machine review is needed.
@@ -683,6 +729,8 @@ human review.
 - CLI reports a read-only daily dashboard through `artshelf status`, with
   `--all --json` suitable for cron and human output short enough to paste into
   a chat; status never creates plans, receipts, or records.
+- CLI can check for npm package updates, print non-blocking stderr notices, and
+  update npm global installs through `artshelf update`.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf

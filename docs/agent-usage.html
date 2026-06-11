@@ -82,7 +82,7 @@
             <h2>Operating principles</h2>
             <dl class="def-rows">
               <div><dt>agents remember</dt><dd>use the portable skill so final, status, and handoff turns check artifacts</dd></div>
-              <div><dt>crons only read</dt><dd>scheduled jobs may validate, review, dry-run, and report, but never execute</dd></div>
+              <div><dt>crons only read</dt><dd>scheduled jobs may validate, review, dry-run, and report, but never execute; set <code>ARTSHELF_NO_UPDATE_CHECK=1</code> when they must avoid npm network checks and update-cache writes</dd></div>
               <div><dt>humans approve</dt><dd>mutation needs exact approval targets: ledger path, reviewed plan id, or record id list</dd></div>
             </dl>
           </section>

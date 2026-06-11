@@ -115,7 +115,7 @@ function specSection(title: string): string {
 function artshelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
     encoding: "utf8",
-    env: { ...process.env, ARTSHELF_REGISTRY: TEST_REGISTRY, ...(now ? { ARTSHELF_NOW: now } : {}) }
+    env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_REGISTRY: TEST_REGISTRY, ...(now ? { ARTSHELF_NOW: now } : {}) }
   });
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }

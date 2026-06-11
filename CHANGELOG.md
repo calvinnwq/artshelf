@@ -56,6 +56,8 @@
   deterministic footnote guidance for `artshelf put --json` registrations.
 - Split the agent docs into Create, Monitor, Review, Clean, and Purge workflow
   pages backed by shared docs-site chrome, search, and navigation.
+- Added `artshelf update` plus cached npm update notices, with
+  `ARTSHELF_NO_UPDATE_CHECK=1` for no-network scheduled jobs.
 
 ## [0.7.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.6.0...artshelf-v0.7.0) (2026-06-10)
 

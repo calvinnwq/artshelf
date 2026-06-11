@@ -69,12 +69,25 @@ npm link
 
 <span class="c"># verify whichever you picked</span>
 artshelf --version
-artshelf doctor</code></pre>
+artshelf doctor
+
+<span class="c"># later, for npm installs only</span>
+artshelf update</code></pre>
             <p>
               <code>npm link</code> connects the local checkout to your global npm bin, so
               later rebuilds update the <code>artshelf</code> command. To remove an npm
               install, run <code>npm uninstall -g artshelf</code>; for a source install,
               run <code>npm unlink -g artshelf</code>.
+            </p>
+            <p>
+              Artshelf checks npm occasionally and prints update notices to stderr, so
+              scripted JSON output stays clean. <code>artshelf update</code> is for npm
+              global installs only and runs <code>npm install -g artshelf@latest</code>.
+              pnpm global installs should update with
+              <code>pnpm add -g artshelf@latest</code>; source installs should update
+              by pulling, rebuilding, and linking again. Set
+              <code>ARTSHELF_NO_UPDATE_CHECK=1</code> for scheduled jobs that must
+              avoid network and update-cache writes.
             </p>
           </section>
 
@@ -127,6 +140,18 @@ artshelf --version
 artshelf doctor
 ```
 
+If Artshelf says a newer version is available and you used npm, update the npm
+install and verify again:
+
+```bash
+artshelf update
+artshelf --version
+artshelf doctor
+```
+
+If you used pnpm, update with `pnpm add -g artshelf@latest` instead.
+For source installs, pull, rebuild, and run `npm link` again.
+
 Only use a source install when the user asks for one, and ask the user where
 to clone the repo first instead of assuming a repo path:
 
@@ -176,9 +201,10 @@ artshelf ledgers list --json
 
 Ask the user whether they want a scheduled review job before creating one.
 If they approve, schedule a read-only review job (daily works well) in your
-host runtime that runs:
+host runtime that disables update checks and runs:
 
 ```bash
+ARTSHELF_NO_UPDATE_CHECK=1 \
 artshelf review --all --json
 ```
 
