@@ -42,12 +42,31 @@ test("help and version are useful", () => {
 
   const trashHelp = artshelf(["help", "trash"]);
   assert.equal(trashHelp.status, 0);
-  assert.match(trashHelp.stdout, /artshelf trash purge --execute --plan-id <id>/);
-  assert.match(trashHelp.stdout, /--ledger <path>/);
+  assert.match(trashHelp.stdout, /Inspect and purge Artshelf trash\./);
+  assert.match(trashHelp.stdout, /Usage:\n\s+artshelf trash \[command\]/);
+  assert.match(trashHelp.stdout, /Available Commands:/);
+  assert.match(trashHelp.stdout, /\n\s+list\s+List records currently held in Artshelf trash/);
+  assert.match(trashHelp.stdout, /\n\s+purge\s+Plan or execute approved permanent trash deletion/);
+  assert.match(trashHelp.stdout, /Flags:\n\s+-h, --help\s+help for trash/);
+  assert.match(trashHelp.stdout, /Use "artshelf trash <command> --help" for more information about a command\./);
 
   const ledgersHelp = artshelf(["help", "ledgers"]);
   assert.equal(ledgersHelp.status, 0);
-  assert.match(ledgersHelp.stdout, /artshelf ledgers list/);
+  assert.match(ledgersHelp.stdout, /Manage the ledger registry\./);
+  assert.match(ledgersHelp.stdout, /Usage:\n\s+artshelf ledgers \[command\]/);
+  assert.match(ledgersHelp.stdout, /Available Commands:/);
+  assert.match(ledgersHelp.stdout, /\n\s+list\s+List and validate registered ledgers/);
+  assert.match(ledgersHelp.stdout, /\n\s+add\s+Register an existing ledger file/);
+  assert.match(ledgersHelp.stdout, /Flags:\n\s+-h, --help\s+help for ledgers/);
+  assert.match(ledgersHelp.stdout, /Use "artshelf ledgers <command> --help" for more information about a command\./);
+
+  const trashShorthandHelp = artshelf(["trash", "--help"]);
+  assert.equal(trashShorthandHelp.status, 0);
+  assert.match(trashShorthandHelp.stdout, /Inspect and purge Artshelf trash\./);
+
+  const ledgersShorthandHelp = artshelf(["ledgers", "--help"]);
+  assert.equal(ledgersShorthandHelp.status, 0);
+  assert.match(ledgersShorthandHelp.stdout, /Manage the ledger registry\./);
 
   const updateHelp = artshelf(["help", "update"]);
   assert.equal(updateHelp.status, 0);
@@ -108,29 +127,50 @@ test("focused help covers due, validate, and nested trash/ledgers commands", () 
   const trashList = artshelf(["trash", "list", "--help"]);
   assert.equal(trashList.status, 0, trashList.stderr);
   assert.match(trashList.stdout, /artshelf trash list/);
+  assert.match(trashList.stdout, /Options:\n/);
+  assert.match(trashList.stdout, /\s+--ledger <path>/);
+  assert.match(trashList.stdout, /\s+--all/);
+  assert.match(trashList.stdout, /\s+--json/);
   assert.doesNotMatch(trashList.stdout, /artshelf trash purge/);
 
   const trashPurge = artshelf(["trash", "purge", "--help"]);
   assert.equal(trashPurge.status, 0, trashPurge.stderr);
   assert.match(trashPurge.stdout, /artshelf trash purge --execute --plan-id <id>/);
   assert.match(trashPurge.stdout, /--older-than <ttl>/);
+  assert.match(trashPurge.stdout, /Options:\n/);
+  assert.match(trashPurge.stdout, /\s+--older-than <ttl>/);
+  assert.match(trashPurge.stdout, /\s+--dry-run/);
+  assert.match(trashPurge.stdout, /\s+--execute/);
+  assert.match(trashPurge.stdout, /\s+--plan-id <id>/);
+  assert.match(trashPurge.stdout, /\s+--ledger <path>/);
+  assert.match(trashPurge.stdout, /\s+--json/);
   assert.doesNotMatch(trashPurge.stdout, /artshelf trash list/);
 
   const ledgersList = artshelf(["ledgers", "list", "--help"]);
   assert.equal(ledgersList.status, 0, ledgersList.stderr);
   assert.match(ledgersList.stdout, /artshelf ledgers list/);
   assert.match(ledgersList.stdout, /--plain/);
+  assert.match(ledgersList.stdout, /Options:\n/);
+  assert.match(ledgersList.stdout, /\s+--plain/);
+  assert.match(ledgersList.stdout, /\s+--registry <path>/);
+  assert.match(ledgersList.stdout, /\s+--json/);
   assert.doesNotMatch(ledgersList.stdout, /artshelf ledgers add/);
 
   const ledgersAdd = artshelf(["ledgers", "add", "--help"]);
   assert.equal(ledgersAdd.status, 0, ledgersAdd.stderr);
   assert.match(ledgersAdd.stdout, /artshelf ledgers add --ledger <path>/);
+  assert.match(ledgersAdd.stdout, /Options:\n/);
+  assert.match(ledgersAdd.stdout, /\s+--ledger <path>/);
+  assert.match(ledgersAdd.stdout, /\s+--name <name>/);
+  assert.match(ledgersAdd.stdout, /\s+--scope /);
+  assert.match(ledgersAdd.stdout, /\s+--json/);
   assert.doesNotMatch(ledgersAdd.stdout, /artshelf ledgers list/);
 
   // `artshelf help <command> <subcommand>` routes to the same nested help.
   const helpTrashPurge = artshelf(["help", "trash", "purge"]);
   assert.equal(helpTrashPurge.status, 0);
   assert.match(helpTrashPurge.stdout, /artshelf trash purge --execute/);
+  assert.match(helpTrashPurge.stdout, /Options:\n/);
   assert.doesNotMatch(helpTrashPurge.stdout, /artshelf trash list/);
 });
 

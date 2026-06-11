@@ -1473,31 +1473,37 @@ Global --all mode is dry-run only.
   }
 
   if (command === "trash") {
-    process.stdout.write(`Usage:
-  artshelf trash list [--ledger <path>] [--all] [--json]
-  artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
-  artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
+    process.stdout.write(`Inspect and purge Artshelf trash.
 
-Trash is approval-first. Use list to inspect what is currently in Artshelf trash and
-dry-run purge to generate a reviewed plan id for age-based deletion. Purge
-requires either --dry-run or --execute. Execute requires a reviewed plan id, and
-trash purge is always scoped to one --ledger; --all is not supported for purge
-(only for trash list).
-Trash receipt artifacts are registered when purge executes. Completed receipts are
-refused on repeat execute; started receipts from interrupted purges may be resumed
-and reconciled. Purged records are resolved and no longer reappear as trashed.
+Usage:
+  artshelf trash [command]
+
+Available Commands:
+  list      List records currently held in Artshelf trash
+  purge     Plan or execute approved permanent trash deletion
+
+Flags:
+  -h, --help   help for trash
+
+Use "artshelf trash <command> --help" for more information about a command.
 `);
     return;
   }
 
   if (command === "ledgers") {
-    process.stdout.write(`Usage:
-  artshelf ledgers list [--plain] [--registry <path>] [--json]
-  artshelf ledgers add --ledger <path> [--name <name>] [--scope repo|user|other] [--registry <path>] [--json]
+    process.stdout.write(`Manage the ledger registry.
 
-The ledger registry is a global index of known ledgers. It gives Artshelf one read-only entry point without moving project records into one global ledger.
-By default \`list\` validates each registered ledger and reports ok/missing/invalid status, entry counts, and warning/error counts so agents can spot stale registry entries without a separate validate pass; it exits non-zero when the registry or any registered ledger is broken.
-Use \`--plain\` for the fast path that lists registered ledgers without reading them.
+Usage:
+  artshelf ledgers [command]
+
+Available Commands:
+  list      List and validate registered ledgers
+  add       Register an existing ledger file
+
+Flags:
+  -h, --help   help for ledgers
+
+Use "artshelf ledgers <command> --help" for more information about a command.
 `);
     return;
   }
@@ -1645,9 +1651,14 @@ ledger.
     process.stdout.write(`Usage:
   artshelf trash list [--ledger <path>] [--all] [--registry <path>] [--json]
 
-Trash list shows records currently held in Artshelf trash without deleting
-anything. With --all it reports trashed records across every registered ledger.
-Trash list is read-only.
+Options:
+  --ledger <path>          Use a specific ledger file
+  --all                     Include records from all registered ledgers
+  --registry <path>         Registry path used with --all
+  --json                    Emit machine-readable output
+
+Trash list shows records currently held in Artshelf trash without deleting anything.
+With --all it reports trashed records across every registered ledger.
 `);
     return;
   }
@@ -1657,11 +1668,19 @@ Trash list is read-only.
   artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
   artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
 
-Trash purge permanently deletes aged trash from a reviewed plan. Dry-run turns
---older-than into a reviewed purge plan id; execute deletes only that one reviewed
-plan id. Purge is always scoped to a single --ledger; --all is not supported for
-purge. Completed receipts are refused on repeat execute; an interrupted purge may
-be resumed and reconciled.
+Options:
+  --older-than <ttl>        Purge trashed records older than this duration
+  --dry-run                 Build a reviewed purge plan and output a plan id
+  --execute                 Execute a reviewed purge plan
+  --plan-id <id>            Execute only this reviewed purge plan
+  --ledger <path>           Target one specific ledger
+  --json                    Emit machine-readable output
+
+Trash purge permanently deletes aged trash from a reviewed plan. --dry-run turns
+--older-than into a reviewed purge plan id; --execute deletes only that one reviewed
+plan id. Purge is always scoped to one --ledger; --all is not supported for purge.
+Completed receipts are refused on repeat execute; an interrupted purge may be resumed
+and reconciled.
 `);
     return;
   }
@@ -1669,6 +1688,11 @@ be resumed and reconciled.
   if (command === "ledgers list") {
     process.stdout.write(`Usage:
   artshelf ledgers list [--plain] [--registry <path>] [--json]
+
+Options:
+  --plain                  Skip ledger validation and list registrations directly
+  --registry <path>        Registry path to use
+  --json                   Emit machine-readable output
 
 Ledgers list validates every registered ledger and reports ok/missing/invalid
 status, entry counts, and warnings so agents can spot stale registry entries
@@ -1682,6 +1706,13 @@ any registered ledger is broken.
   if (command === "ledgers add") {
     process.stdout.write(`Usage:
   artshelf ledgers add --ledger <path> [--name <name>] [--scope repo|user|other] [--registry <path>] [--json]
+
+Options:
+  --ledger <path>          Register this ledger file
+  --name <name>            Override the ledger display name
+  --scope <scope>          Registry scope: repo, user, or other
+  --registry <path>        Registry path to update
+  --json                   Emit machine-readable output
 
 Ledgers add registers an existing ledger file in the global registry so --all
 commands and the registry index can find it. The ledger file must already exist.
