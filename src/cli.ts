@@ -79,7 +79,7 @@ async function main(argv: string[]): Promise<number> {
     }
 
     if (parsed.command === "help" || parsed.command === "--help" || parsed.command === "-h" || boolFlag(parsed, "help")) {
-      printHelp(parsed.command === "help" ? parsed.positionals[0] : parsed.command);
+      printHelp(resolveHelpKey(parsed));
       return maybeNotifyUpdateAndReturn(0, parsed);
     }
 
@@ -181,6 +181,10 @@ function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
 function handleLedgers(parsed: ParsedArgs, json: boolean): number {
   const action = parsed.positionals[0] ?? "list";
   const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
+  if (action === "help") {
+    printHelp("ledgers");
+    return 0;
+  }
   if (action === "add") {
     const ledgerPath = normalizeLedgerPath(requiredStringFlag(parsed, "ledger"));
     if (!existsSync(ledgerPath)) throw new Error(`Ledger does not exist: ${ledgerPath}`);
@@ -1051,6 +1055,14 @@ function parseArgs(argv: string[]): ParsedArgs {
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (!arg) continue;
+    if (arg === "-h") {
+      flags.set("help", true);
+      continue;
+    }
+    if (arg === "-v") {
+      flags.set("version", true);
+      continue;
+    }
     if (!arg.startsWith("--")) {
       positionals.push(arg);
       continue;
@@ -1318,7 +1330,121 @@ function printReview(results: ReviewResult[]): void {
   }
 }
 
-function printHelp(command?: string): void {
+// Static help metadata. Keep the top-level help generated from this table so the
+// grouped command list, summaries, and the `artshelf <command> --help` pointer
+// stay in one place instead of drifting across hand-written usage strings.
+type HelpGroupName = "Create" | "Inspect" | "Review" | "Clean" | "System";
+
+const COMMAND_GROUPS: ReadonlyArray<{
+  group: HelpGroupName;
+  commands: ReadonlyArray<{ name: string; summary: string }>;
+}> = [
+  {
+    group: "Create",
+    commands: [{ name: "put", summary: "Record an artifact with a reason and retention" }]
+  },
+  {
+    group: "Inspect",
+    commands: [
+      { name: "list", summary: "List ledger records" },
+      { name: "find", summary: "Find records by path, owner, label, or status" },
+      { name: "get", summary: "Show one record by id" },
+      { name: "due", summary: "Show due, manual-review, and missing-path records" },
+      { name: "status", summary: "Summarize ledger and registry counts" }
+    ]
+  },
+  {
+    group: "Review",
+    commands: [
+      { name: "validate", summary: "Check ledger shape and report warnings" },
+      { name: "review", summary: "Preview validate, due, and cleanup plans (read-only)" }
+    ]
+  },
+  {
+    group: "Clean",
+    commands: [
+      { name: "cleanup", summary: "Plan and execute approved cleanups" },
+      { name: "trash", summary: "Inspect and purge Artshelf trash" },
+      { name: "resolve", summary: "Mark a record manually resolved" }
+    ]
+  },
+  {
+    group: "System",
+    commands: [
+      { name: "ledgers", summary: "Manage the ledger registry" },
+      { name: "doctor", summary: "Report Artshelf health on this machine" },
+      { name: "update", summary: "Update the Artshelf CLI" }
+    ]
+  }
+];
+
+// Commands with subcommands that carry their own focused help. Used to route
+// `artshelf <command> <subcommand> --help` to a nested help key.
+const NESTED_HELP = new Map<string, Set<string>>([
+  ["trash", new Set(["list", "purge"])],
+  ["ledgers", new Set(["list", "add"])]
+]);
+
+function resolveHelpKey(parsed: ParsedArgs): string {
+  // `artshelf help [command [subcommand]]`
+  if (parsed.command === "help") {
+    return joinHelpKey(parsed.positionals[0], parsed.positionals[1]);
+  }
+  // `artshelf [--help|-h]` with no command resolves to the top-level help.
+  if (!parsed.command || parsed.command === "--help" || parsed.command === "-h") {
+    return "";
+  }
+  // `artshelf <command> [subcommand] --help`
+  return joinHelpKey(parsed.command, parsed.positionals[0]);
+}
+
+function joinHelpKey(command?: string, subcommand?: string): string {
+  if (!command) return "";
+  const subcommands = NESTED_HELP.get(command);
+  if (subcommands && subcommand && subcommands.has(subcommand)) {
+    return `${command} ${subcommand}`;
+  }
+  return command;
+}
+
+function renderTopLevelHelp(): string {
+  const names = COMMAND_GROUPS.flatMap((entry) => entry.commands.map((command) => command.name));
+  const width = Math.max(...names.map((name) => name.length)) + 2;
+  const lines: string[] = [
+    `Artshelf ${VERSION} — approval-first retention for the temporary files agents leave behind.`,
+    "",
+    "Usage:",
+    "  artshelf <command> [options]",
+    "",
+    "Available Commands:"
+  ];
+  for (const { group, commands } of COMMAND_GROUPS) {
+    lines.push(`  ${group}`);
+    for (const command of commands) {
+      lines.push(`    ${command.name.padEnd(width)}${command.summary}`);
+    }
+  }
+  lines.push(
+    "",
+    "Global Options:",
+    "  -h, --help     Show help for artshelf or a specific command",
+    "  -v, --version  Show the Artshelf version",
+    "",
+    "Output:",
+    "  --json       Emit machine-readable JSON on commands that return data",
+    "",
+    "Scope (command-specific):",
+    "  --ledger <path>     Target an explicit JSONL ledger",
+    "  --registry <path>   Target an explicit ledger registry",
+    "  --all               Read every registered ledger (on commands that support it)",
+    "",
+    `Use "artshelf <command> --help" for more information about a command.`,
+    ""
+  );
+  return lines.join("\n");
+}
+
+function printHelp(command = ""): void {
   if (command === "put") {
     process.stdout.write(`Usage:
   artshelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review) [options]
@@ -1354,31 +1480,37 @@ Global --all mode is dry-run only.
   }
 
   if (command === "trash") {
-    process.stdout.write(`Usage:
-  artshelf trash list [--ledger <path>] [--all] [--json]
-  artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
-  artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
+    process.stdout.write(`Inspect and purge Artshelf trash.
 
-Trash is approval-first. Use list to inspect what is currently in Artshelf trash and
-dry-run purge to generate a reviewed plan id for age-based deletion. Purge
-requires either --dry-run or --execute. Execute requires a reviewed plan id, and
-trash purge is always scoped to one --ledger; --all is not supported for purge
-(only for trash list).
-Trash receipt artifacts are registered when purge executes. Completed receipts are
-refused on repeat execute; started receipts from interrupted purges may be resumed
-and reconciled. Purged records are resolved and no longer reappear as trashed.
+Usage:
+  artshelf trash [command]
+
+Available Commands:
+  list      List records currently held in Artshelf trash
+  purge     Plan or execute approved permanent trash deletion
+
+Flags:
+  -h, --help   help for trash
+
+Use "artshelf trash <command> --help" for more information about a command.
 `);
     return;
   }
 
   if (command === "ledgers") {
-    process.stdout.write(`Usage:
-  artshelf ledgers list [--plain] [--registry <path>] [--json]
-  artshelf ledgers add --ledger <path> [--name <name>] [--scope repo|user|other] [--registry <path>] [--json]
+    process.stdout.write(`Manage the ledger registry.
 
-The ledger registry is a global index of known ledgers. It gives Artshelf one read-only entry point without moving project records into one global ledger.
-By default \`list\` validates each registered ledger and reports ok/missing/invalid status, entry counts, and warning/error counts so agents can spot stale registry entries without a separate validate pass; it exits non-zero when the registry or any registered ledger is broken.
-Use \`--plain\` for the fast path that lists registered ledgers without reading them.
+Usage:
+  artshelf ledgers [command]
+
+Available Commands:
+  list      List and validate registered ledgers
+  add       Register an existing ledger file
+
+Flags:
+  -h, --help   help for ledgers
+
+Use "artshelf ledgers <command> --help" for more information about a command.
 `);
     return;
   }
@@ -1497,50 +1629,105 @@ installs should update by pulling, rebuilding, and linking the checkout.
     return;
   }
 
-  process.stdout.write(`Artshelf ${VERSION}
+  if (command === "due") {
+    process.stdout.write(`Usage:
+  artshelf due [--ledger <path>] [--json]
+  artshelf due --all [--registry <path>] [--json]
 
-Usage:
-  artshelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review)
-  artshelf ledgers list [--plain] [--json]
-  artshelf ledgers add --ledger <path> [--name <name>] [--json]
-  artshelf list [--json]
-  artshelf list --all [--json]
-  artshelf list --status active [--json]
-  artshelf find --path <path> [--json]
-  artshelf find --all --owner <name> [--json]
-  artshelf get <id> [--json]
-  artshelf get <id> --all [--json]
-  artshelf due [--json]
-  artshelf due --all [--json]
-  artshelf validate [--json]
-  artshelf validate --all [--json]
-  artshelf review [--json]
-  artshelf review --all [--json]
-  artshelf doctor [--json]
-  artshelf status [--json]
-  artshelf status --all [--json]
-  artshelf update [--json]
-  artshelf cleanup --dry-run [--json]
-  artshelf cleanup --dry-run --all [--json]
-  artshelf cleanup --execute --plan-id <id> [--json]
-  artshelf trash list [--all] [--ledger <path>] [--json]
+Due lists records whose retention has elapsed or that need attention: due,
+manual-review, and missing-path entries. Kept entries are hidden in human output.
+Due is read-only and never moves files or writes plans.
+`);
+    return;
+  }
+
+  if (command === "validate") {
+    process.stdout.write(`Usage:
+  artshelf validate [--ledger <path>] [--json]
+  artshelf validate --all [--registry <path>] [--json]
+
+Validate checks ledger shape and reports errors and warnings, such as records
+that point at missing artifact paths, without changing anything. A clean ledger
+exits 0; shape errors exit non-zero. With --all it validates every registered
+ledger.
+`);
+    return;
+  }
+
+  if (command === "trash list") {
+    process.stdout.write(`Usage:
+  artshelf trash list [--ledger <path>] [--all] [--registry <path>] [--json]
+
+Options:
+  --ledger <path>          Use a specific ledger file
+  --all                     Include records from all registered ledgers
+  --registry <path>         Registry path used with --all
+  --json                    Emit machine-readable output
+
+Trash list shows records currently held in Artshelf trash without deleting anything.
+With --all it reports trashed records across every registered ledger.
+`);
+    return;
+  }
+
+  if (command === "trash purge") {
+    process.stdout.write(`Usage:
   artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
   artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
-  artshelf resolve <id> --status resolved --reason <text> [--json]
 
-Global options:
-  --ledger <path>        Use an explicit JSONL ledger
-  --registry <path>      Use an explicit ledger registry
-  --all                  Read all registered ledgers for supported commands
-  --json                 Emit machine-readable JSON
-  --help                 Show help
-  --version              Show version
+Options:
+  --older-than <ttl>        Purge trashed records older than this duration
+  --dry-run                 Build a reviewed purge plan and output a plan id
+  --execute                 Execute a reviewed purge plan
+  --plan-id <id>            Execute only this reviewed purge plan
+  --ledger <path>           Target one specific ledger
+  --json                    Emit machine-readable output
 
-Examples:
-  artshelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch
-  artshelf cleanup --dry-run --json
-  artshelf cleanup --execute --plan-id plan_20260601_120000_ab12
+Trash purge permanently deletes aged trash from a reviewed plan. --dry-run turns
+--older-than into a reviewed purge plan id; --execute deletes only that one reviewed
+plan id. Purge is always scoped to one --ledger; --all is not supported for purge.
+Completed receipts are refused on repeat execute; an interrupted purge may be resumed
+and reconciled.
 `);
+    return;
+  }
+
+  if (command === "ledgers list") {
+    process.stdout.write(`Usage:
+  artshelf ledgers list [--plain] [--registry <path>] [--json]
+
+Options:
+  --plain                  Skip ledger validation and list registrations directly
+  --registry <path>        Registry path to use
+  --json                   Emit machine-readable output
+
+Ledgers list validates every registered ledger and reports ok/missing/invalid
+status, entry counts, and warnings so agents can spot stale registry entries
+without a separate validate pass. Use --plain for the fast path that lists
+registered ledgers without reading them. It exits non-zero when the registry or
+any registered ledger is broken.
+`);
+    return;
+  }
+
+  if (command === "ledgers add") {
+    process.stdout.write(`Usage:
+  artshelf ledgers add --ledger <path> [--name <name>] [--scope repo|user|other] [--registry <path>] [--json]
+
+Options:
+  --ledger <path>          Register this ledger file
+  --name <name>            Override the ledger display name
+  --scope <scope>          Registry scope: repo, user, or other
+  --registry <path>        Registry path to update
+  --json                   Emit machine-readable output
+
+Ledgers add registers an existing ledger file in the global registry so --all
+commands and the registry index can find it. The ledger file must already exist.
+`);
+    return;
+  }
+
+  process.stdout.write(renderTopLevelHelp());
 }
 
 main(process.argv.slice(2))
