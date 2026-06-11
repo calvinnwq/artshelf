@@ -1,51 +1,46 @@
-# Artshelf
+<div align="center">
 
-Artshelf is a tiny CLI for putting temporary artifacts, backups, and run outputs
-somewhere accountable, with an expiry tag and a cleanup plan.
+# 🗃️ Artshelf
 
-It is built for agents first. Coding agents, workflow runners, and review bots
-create files in `tmp/`, repo folders, or backup locations and then lose context.
-Artshelf gives them a small, auditable contract: record why an artifact exists
-when it is created, monitor the ledgers later, present a review packet, and clean
-only from explicit approvals.
+**Accountable retention for the temporary files agents leave behind.**
 
-Artshelf centers on four approval-first workflows: **register a temp artifact** the
-moment it is created, **review everything safely** before anything moves,
-**approve cleanup safely** from a reviewed plan, and **purge old trash
-explicitly** from a separate reviewed plan. The reference sections further down
-stay out of the way until you need them.
+[![npm version](https://img.shields.io/npm/v/artshelf.svg)](https://www.npmjs.com/package/artshelf) [![npm downloads](https://img.shields.io/npm/dm/artshelf.svg)](https://www.npmjs.com/package/artshelf) [![CI](https://github.com/calvinnwq/artshelf/actions/workflows/ci.yml/badge.svg)](https://github.com/calvinnwq/artshelf/actions/workflows/ci.yml) [![docs](https://img.shields.io/badge/docs-site-blue.svg)](https://calvinnwq.github.io/artshelf/) [![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE) [![X @calvinnwq](https://img.shields.io/badge/X-%40calvinnwq-black?logo=x)](https://x.com/calvinnwq)
 
-## Status
+[**Docs**](https://calvinnwq.github.io/artshelf/) · [Quickstart](#quickstart) · [Spec](SPEC.md) · [Agent setup](INSTALL.md)
 
-Artshelf is an early v1 MVP. The CLI is distributed under the unscoped
-`artshelf` package name. The existing local/source install path remains supported
-as a fallback.
+</div>
 
-## Install
+Agents make a mess. Coding agents, workflow runners, and review bots scatter
+debug dumps, backups, and run outputs across `tmp/` and your repo — then forget
+them. The clutter piles up, and nobody remembers what's safe to delete.
 
-The intended install path is agent-led: ask your agent to install Artshelf,
-verify it, install or reference the portable skill, and offer to schedule a
-read-only review job in the host runtime. Humans can still run the commands
-below directly.
+Artshelf makes that mess accountable. Every artifact is logged with a reason, an
+expiry, and a cleanup plan the moment it's created. Later you review the ledger,
+preview a cleanup, and execute only an approved plan — approval-first, trash
+before delete, `--json` everywhere. No daemon, no surprise deletions, no guessing
+from a filesystem scan.
 
-Install the npm package:
+> **Status:** early v1 MVP, published to npm as the unscoped `artshelf` package.
+
+## Quickstart
+
+Install globally — all methods end with the same `artshelf` command (requires
+Node.js 22+):
 
 ```bash
+# npm
 npm install -g artshelf
-artshelf --version
-artshelf doctor
-```
 
-With pnpm:
-
-```bash
+# pnpm
 pnpm add -g artshelf
+
+# verify
 artshelf --version
 artshelf doctor
 ```
 
-Source install remains the fallback path: clone the repo, build it, and link the
-CLI with `npm link`.
+<details>
+<summary>Install from source</summary>
 
 ```bash
 git clone https://github.com/calvinnwq/artshelf.git
@@ -58,200 +53,74 @@ artshelf --version
 artshelf doctor
 ```
 
-To remove the linked command later:
+`npm link` connects the checkout to your global npm bin, so later rebuilds update
+the command. Remove an npm install with `npm uninstall -g artshelf`; a source
+install with `npm unlink -g artshelf`.
+</details>
 
-```bash
-npm uninstall -g artshelf
-npm unlink -g artshelf
+### Recommended agent setup
+
+Artshelf is agent-operated, so let your agent finish the job. Paste this one line
+into your coding agent:
+
+```text
+Follow the instructions in https://github.com/calvinnwq/artshelf/blob/main/INSTALL.md to set up Artshelf in this workspace.
 ```
 
-For agent setup, the agent should prompt before optional integration steps:
+It will install the CLI, copy the portable skill (with its bundled review-report
+renderer), register any existing project ledgers, and — only with your approval —
+schedule a **read-only** daily review. Scheduled jobs review and report only;
+cleanup and purge execution always come back to you. See [INSTALL.md](INSTALL.md)
+for the full steps.
 
-- install CLI from npm, or use a source checkout
-- install/copy/reference the whole `skills/artshelf` directory
-- register existing project ledgers
-- schedule a read-only review job in the host runtime
-- choose where review packets should be delivered
+## How it works
 
-Agents should drive the selected setup steps explicitly and verify with
-`artshelf doctor`.
+The whole lifecycle is five steps, and every step that touches files is gated on
+a reviewed plan a human approved:
 
-## Core Workflows
+| Step | What happens | Command |
+|------|--------------|---------|
+| **1. Register** | Record an artifact the moment it is created, while the reason is fresh. Returns an id. | `artshelf put <path> --reason "…" --ttl 3d --kind scratch --cleanup trash` |
+| **2. Monitor** | Read-only checks across all known ledgers — moves nothing. | `artshelf status --all --json` · `artshelf due --all` |
+| **3. Review** | Preview a cleanup plan. A real plan id appears only once entries are due. | `artshelf review --all` · `artshelf cleanup --dry-run` |
+| **4. Clean** | Execute exactly the reviewed plan id, after approval. Trashes, never deletes. | `artshelf cleanup --execute --plan-id <id>` |
+| **5. Purge** | Permanently remove old trashed artifacts via a *separate* reviewed plan. | `artshelf trash purge --older-than 30d --dry-run` → `--execute --plan-id <id>` |
 
-Artshelf is built around four approval-first workflows. Start here; the reference
-sections below are there when you need them, not before.
+Trash is the holding area between steps 4 and 5: cleanup quarantines artifacts
+into Artshelf's local trash (`artshelf trash list`), and only a separately
+reviewed purge removes them for good — a second approval boundary before
+destructive deletion.
 
-### 1. Register a temp artifact
+## Safety model
 
-Record an artifact the moment it is created, while the reason is still fresh:
+- **Ledger-first**, not filesystem-scan-first — every artifact is a recorded decision.
+- **Dry-run before mutation**, and execute only from a reviewed plan id.
+- **No daemon, no auto-execute, no global execute** — `--all` is read-only or
+  dry-run reporting; cleanup and purge refuse it.
+- **No fresh-plan-then-execute shortcut** — review the plan, then run that plan.
+- **Trash before delete** — `cleanup=delete` stays refused; physical deletion
+  needs its own reviewed trash purge. No silent deletion, ever.
+- **`--json` on every command**, so agents can act on structured output.
 
-```bash
-artshelf put tmp/run-output --reason "debug parser output" --ttl 3d --kind scratch --cleanup trash
-```
+## Reference
 
-Artshelf returns an id. Capture it anywhere restart or cleanup context matters.
-
-### 2. Review everything safely
-
-Inspect the ledger and preview cleanup without moving anything:
-
-```bash
-artshelf list
-artshelf status
-artshelf due
-artshelf cleanup --dry-run
-```
-
-Because this example keeps the artifact for three days, an immediate dry-run
-reports `not-created` and writes no plan. A dry-run returns a real plan id only
-after `due` shows cleanup entries.
-
-### 3. Approve cleanup safely
-
-Execute only from a reviewed plan id, and only after a human approves it:
-
-```bash
-artshelf cleanup --execute --plan-id plan_20260601_120000_ab12
-```
-
-There is no auto-execute, no global execute, and no fresh-plan-then-execute
-shortcut. Execution writes a receipt and updates the touched ledger records.
-
-### 4. Purge old trash explicitly
-
-Cleanup execution with `cleanup=trash` moves artifacts into Artshelf's local trash
-folder. Those trashed records remain discoverable (`artshelf trash list`) for review
-and should only be physically removed through a separately reviewed trash purge
-plan:
-
-```bash
-artshelf trash purge --older-than 30d --dry-run --json
-artshelf trash purge --execute --plan-id purge_20260601_120000_ab12
-```
-
-This adds a separate approval boundary between quarantine and destructive deletion.
-
-## Ideal Agent Loop
-
-Agents should use Artshelf as a small lifecycle around their own work:
-
-1. **Create**: when a durable temp artifact, backup, debug output, report, or
-   quarantine folder is created, run lookup-before-put, then `artshelf put`, and
-   include the Artshelf id in the task summary or handoff.
-2. **Monitor**: run scheduled read-only checks such as `artshelf status --all --json`,
-   `artshelf review --all --json`, and `artshelf trash list --all --json`.
-3. **Review**: turn attention into a compact `ArtshelfReviewReport` decision
-   packet with registry health, affected ledgers, grouped candidates, exact
-   approval targets, and a clear safety line.
-4. **Clean**: after explicit approval for the reviewed ledger and plan id, run
-   cleanup or resolve, then verify the next review is quiet or explain what
-   remains.
-
-## Explicit Ledgers
-
-By default, Artshelf writes repo-local `.artshelf/ledger.jsonl` inside a git repo and
-`~/.artshelf/ledger.jsonl` outside one. Use `--ledger <path>` and an isolated
-`--registry <path>` for tests, demos, and unusual workflows:
-
-```bash
-artshelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/artshelf-ledger.jsonl --registry /tmp/artshelf-registry.json --json
-artshelf list --ledger /tmp/artshelf-ledger.jsonl
-```
-
-Artshelf also keeps a small global registry of known ledgers at
-`~/.artshelf/ledgers.json`. Override it with `--registry <path>` or
-`ARTSHELF_REGISTRY`. `put` registers its ledger automatically, and you can
-register an existing ledger explicitly:
-
-```bash
-artshelf ledgers list
-artshelf ledgers add --ledger /path/to/repo/.artshelf/ledger.jsonl --name my-repo
-```
-
-`artshelf ledgers list` validates each registered ledger by default — reporting
-ok/missing/invalid status with entry counts, and exiting non-zero when the
-registry or any ledger is broken — so it doubles as a stale-entry check. Add
-`--plain` for the fast listing that skips validation.
-
-Use `--all` for one read-only discovery entry point across registered ledgers:
-
-```bash
-artshelf review --all --json
-artshelf status --all --json
-artshelf due --all --json
-artshelf trash list --all --json
-artshelf find --all --owner <agent-or-runtime> --json
-```
-
-`artshelf review --all` adds an aggregate triage summary (affected ledgers, due,
-manual-review, missing-path, executable, and skipped counts plus preview plan
-ids) and states the next safe action, while staying read-only.
-
-Use global dry-run cleanup when you want Artshelf to write cleanup plans for
-registered ledgers with cleanup entries, without moving files:
-
-```bash
-artshelf cleanup --dry-run --all --json
-```
-
-Global execution is intentionally refused. To mutate files, review a dry-run
-plan, then execute it against the specific ledger that produced it.
-Repeated dry-runs with the same executable cleanup entries reuse the existing
-plan id and refresh its timestamp instead of creating duplicate plan files.
-
-## Safety Model
-
-- Ledger-first, not filesystem-scan-first.
-- Dry-run before mutation.
-- Execute only from a reviewed plan id.
-- No daemon or auto-execute path.
-- No global execute; cleanup execute and trash purge refuse `--all`.
-  `--all` is read-only or dry-run reporting only.
-- No fresh-plan-then-execute shortcut.
-- Trash/review by default, not delete.
-- No silent deletion; `cleanup=delete` stays refused, and trash purge needs its own reviewed plan.
-- Agent-friendly JSON output from every command.
-- Small enough to actually use.
-
-V1 only moves `cleanup=trash` entries into Artshelf's local trash folder. Entries
-marked `cleanup=review` become `review-required`, and `cleanup=delete` is
-refused as `cleanup-refused`; physical deletion only happens through a separate
-reviewed `artshelf trash purge --execute` plan.
-
-Dry-run cleanup writes a plan only when there are executable cleanup entries.
-No-op dry-runs report `not-created` and avoid writing plan files. When Artshelf does
-write a plan, it also records that plan in the ledger as an Artshelf-owned artifact.
-
-After `cleanup --execute`, Artshelf writes a receipt, records the receipt as a
-Artshelf-owned artifact, and updates touched ledger records. Handled records stop
-appearing in `due` and later dry-run cleanup plans, while `artshelf list` still
-keeps the audit trail visible.
-
-## Commands
+<details>
+<summary>All commands</summary>
 
 ```bash
 artshelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
-artshelf ledgers list
-artshelf ledgers list --plain
+artshelf ledgers list [--plain]
 artshelf ledgers add --ledger <path>
-artshelf list
-artshelf list --all
-artshelf list --status active
+artshelf list [--all] [--status active]
 artshelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id>
 artshelf find --all --owner <agent-or-runtime>
-artshelf get <id>
-artshelf get <id> --all
-artshelf due
-artshelf due --all
-artshelf validate
-artshelf validate --all
-artshelf review
-artshelf review --all
+artshelf get <id> [--all]
+artshelf due [--all]
+artshelf validate [--all]
+artshelf review [--all]
+artshelf status [--all]
 artshelf doctor
-artshelf status
-artshelf status --all
-artshelf cleanup --dry-run
-artshelf cleanup --dry-run --all
+artshelf cleanup --dry-run [--all]
 artshelf cleanup --execute --plan-id <id>
 artshelf trash list [--all] [--ledger <path>] [--json]
 artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
@@ -259,68 +128,86 @@ artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
 artshelf resolve <id> --status resolved --reason "inspected and no longer needed"
 ```
 
-Use `artshelf help` or `artshelf help <command>` for command details. All core
-commands support `--json`.
+Use `artshelf help` or `artshelf help <command>` for details. All core commands
+support `--json`.
+</details>
 
-See the [docs site](https://calvinnwq.github.io/artshelf/) for install,
-quickstart, agent usage, and CLI reference. The source repo also keeps the
-[v1 spec](SPEC.md) and [agent usage guide](docs/agent-usage.md).
+<details>
+<summary>Explicit ledgers and <code>--all</code> discovery</summary>
 
-## Agent Skill
+By default, Artshelf writes repo-local `.artshelf/ledger.jsonl` inside a git repo
+and `~/.artshelf/ledger.jsonl` outside one. Use `--ledger <path>` and an isolated
+`--registry <path>` for tests, demos, and unusual workflows:
 
-The package includes an agent-facing skill at `skills/artshelf`. Agents
-that support local skills can copy or reference this directory to learn when to call
-`artshelf put`, how to report deterministic Artshelf footnotes after JSON
-registration, why `artshelf find` / `artshelf get` are the read-only idempotency
-lookup surface, why `cleanup --execute` requires explicit approval for a
-reviewed plan id, how to render dry-run cleanup and trash purge plans as
-review-report decision packets, how to review trashed records with
-`artshelf trash list` before a separately approved trash purge, and when
-`artshelf resolve <id> --status resolved --reason <text>` may mark confirmed
-handled, missing, or no-longer-needed records without moving or deleting files.
+```bash
+artshelf put /tmp/parser-output --reason "parser fixture" --ttl 1d --ledger /tmp/artshelf-ledger.jsonl --registry /tmp/artshelf-registry.json --json
+artshelf list --ledger /tmp/artshelf-ledger.jsonl
+```
 
-The same skill ships in the npm package alongside
-`scripts/render-review-report.mjs`,
+Artshelf keeps a small global registry of known ledgers at
+`~/.artshelf/ledgers.json` (override with `--registry <path>` or
+`ARTSHELF_REGISTRY`). `put` registers its ledger automatically; register an
+existing one with `artshelf ledgers add --ledger <path> --name <project>`.
+`artshelf ledgers list` validates each registered ledger by default (ok/missing/invalid
+status with counts, non-zero exit when broken), so it doubles as a stale-entry
+check; add `--plain` to skip validation.
+
+Use `--all` for one read-only discovery entry point across registered ledgers
+(`review`, `status`, `due`, `trash list`, `find`). `artshelf cleanup --dry-run --all`
+writes plans for ledgers with executable entries without moving files. Global
+execution is intentionally refused: to mutate files, review a dry-run plan, then
+execute it against the specific ledger that produced it.
+</details>
+
+<details>
+<summary>Agent skill</summary>
+
+The package includes an agent-facing skill at `skills/artshelf`. Agents that
+support local skills can copy or reference this directory to learn when to call
+`artshelf put`, how to report deterministic footnotes after JSON registration,
+why `artshelf find` / `artshelf get` are the read-only idempotency lookup surface,
+why `cleanup --execute` requires an approved reviewed plan id, how to render
+dry-run cleanup and trash purge plans as review-report decision packets, and when
+`artshelf resolve <id> --status resolved --reason <text>` may mark a record handled
+without moving or deleting files.
+
+The skill ships in the npm package alongside `scripts/render-review-report.mjs`,
 `schemas/artshelf-review-report.schema.json`, and the canonical
-`examples/artshelf-review-report.json` packet. From a source checkout, use the
-whole `skills/artshelf` directory directly. Agents should ask where the user
-wants Artshelf cloned before installing or linking it.
+`examples/artshelf-review-report.json` packet. Copy the whole `skills/artshelf`
+directory so the renderer, schema, and examples travel together.
+</details>
 
-## Development
+<details>
+<summary>Development</summary>
 
 ```bash
 pnpm install
-pnpm check
+pnpm check          # build + test
+pnpm docs:serve     # preview docs at http://127.0.0.1:8080/
 ```
 
-Preview the static docs site locally:
+Release Please owns version bumps, changelog, tags, and releases. When a Release
+Please PR merges, the release workflow validates with `pnpm check` and publishes
+`artshelf` to npm through npm Trusted Publishing — no long-lived npm token in
+GitHub secrets. During tests or one-off runs, pass both `--ledger <path>` and
+`--registry <path>` to keep entries out of default Artshelf storage.
+</details>
 
-```bash
-pnpm docs:serve
-```
+## Learn more
 
-Then open <http://127.0.0.1:8080/>.
-
-Release Please owns version bumps, changelog updates, tags, and GitHub releases.
-When a Release Please PR is merged and a release is created, the release workflow
-validates the package with `pnpm check` and publishes `artshelf` to npm through
-npm Trusted Publishing. The npm package must have this repository's release
-workflow configured as a trusted publisher; no long-lived npm token is expected
-in GitHub secrets.
-
-During tests or one-off runs, pass both `--ledger <path>` and `--registry <path>`
-to keep entries and registry updates out of default Artshelf storage.
+- **[Docs site](https://calvinnwq.github.io/artshelf/)** — install, quickstart, agent usage, and CLI reference.
+- **[v1 spec](SPEC.md)** — the full behavioral contract.
+- **[Agent usage guide](docs/agent-usage.md)** — deeper agent integration notes.
 
 ## Contributing
 
 Artshelf is small on purpose. Keep new behavior ledger-first, previewable, and
 covered by tests. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-## Support And Security
+## Support and security
 
 Use [GitHub issues](https://github.com/calvinnwq/artshelf/issues) for bugs and
-feature ideas. See
-[SUPPORT.md](SUPPORT.md) and [SECURITY.md](SECURITY.md).
+feature ideas. See [SUPPORT.md](SUPPORT.md) and [SECURITY.md](SECURITY.md).
 
 ## License
 

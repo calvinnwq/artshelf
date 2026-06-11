@@ -13,6 +13,7 @@ const DOC_PAGES = [
   "docs/agent-monitor.html",
   "docs/agent-review.html",
   "docs/agent-clean.html",
+  "docs/agent-purge.html",
   "docs/reference.html"
 ];
 
@@ -45,7 +46,7 @@ test("navigation manifest covers every page in numbered reading order", () => {
     const name = page.replace("docs/", "");
     assert.match(js, new RegExp(`h: "${name.replace(".", "\\.")}"`), name);
   }
-  for (const n of ["01", "02", "03", "04", "4.1", "4.2", "4.3", "4.4", "05"]) {
+  for (const n of ["01", "02", "03", "04", "4.1", "4.2", "4.3", "4.4", "4.5", "05"]) {
     assert.match(js, new RegExp(`n: "${n.replace(".", "\\.")}"`), n);
   }
   assert.match(js, /setAttribute\("aria-current", "page"\)/);
@@ -153,7 +154,7 @@ test("agent workflow navigation is a visible child hierarchy", () => {
 
   assert.match(
     js,
-    /t: "Agent usage", h: "agent-usage\.html",\s*children: \[\s*\{ n: "4\.1", t: "Create", h: "agent-create\.html" \},\s*\{ n: "4\.2", t: "Monitor", h: "agent-monitor\.html" \},\s*\{ n: "4\.3", t: "Review", h: "agent-review\.html" \},\s*\{ n: "4\.4", t: "Clean", h: "agent-clean\.html" \}\s*\]/
+    /t: "Agent usage", h: "agent-usage\.html",\s*children: \[\s*\{ n: "4\.1", t: "Create", h: "agent-create\.html" \},\s*\{ n: "4\.2", t: "Monitor", h: "agent-monitor\.html" \},\s*\{ n: "4\.3", t: "Review", h: "agent-review\.html" \},\s*\{ n: "4\.4", t: "Clean", h: "agent-clean\.html" \},\s*\{ n: "4\.5", t: "Purge", h: "agent-purge\.html" \}\s*\]/
   );
   assert.match(css, /\.sidebar \.children\s*\{[\s\S]*?border-left: 1px solid var\(--rule\)/);
   assert.doesNotMatch(css, /\.sidebar \.children\s*\{[^}]*display: none/);
@@ -198,6 +199,7 @@ test("docs site uses ledger visual components instead of dense prose only", () =
   assert.match(read("docs/agent-create.html"), /data-kind="boundary"/);
   assert.match(read("docs/agent-monitor.html"), /class="stamp readonly"/);
   assert.match(read("docs/agent-clean.html"), /class="boundary-list"/);
+  assert.match(read("docs/agent-purge.html"), /class="boundary-list"/);
   assert.match(read("docs/reference.html"), /class="cmd-head"/);
 });
 
@@ -774,27 +776,39 @@ test("overview keeps the hard safety boundaries visible", () => {
   assert.ok(loopIdx > firstCommandIdx, "the first command should lead the loop section");
 });
 
-test("agent docs define the Create Monitor Review Clean loop", () => {
-  const docsAndSkill = [
-    read("README.md"),
+test("agent docs define the Create Monitor Review Clean Purge loop", () => {
+  const readme = read("README.md");
+  const agentDocs = [
     read("docs/agent-usage.md"),
-    read("docs/agent-usage.html"),
-    read("skills/artshelf/SKILL.md")
+    read("docs/agent-usage.html")
   ];
+  const portableSkill = read("skills/artshelf/SKILL.md");
 
-  for (const text of docsAndSkill) {
+  for (const stage of ["Register", "Monitor", "Review", "Clean", "Purge"]) {
+    assert.match(readme, new RegExp(stage));
+  }
+
+  for (const text of agentDocs) {
     assert.match(text, /Create/);
     assert.match(text, /Monitor/);
     assert.match(text, /Review/);
     assert.match(text, /Clean/);
+    assert.match(text, /Purge/);
     assert.match(text, /ArtshelfReviewReport/);
     assert.match(text, /exact approval targets?|reviewed ledger and plan id|reviewed plan/);
   }
+  assert.match(portableSkill, /Create/);
+  assert.match(portableSkill, /Monitor/);
+  assert.match(portableSkill, /Review/);
+  assert.match(portableSkill, /Clean/);
+  assert.match(portableSkill, /trash purge/);
+  assert.match(portableSkill, /ArtshelfReviewReport/);
+  assert.match(portableSkill, /exact approval targets?|reviewed ledger and plan id|reviewed plan/);
 
   const overview = read("docs/index.html");
   assert.match(overview, /approval-first artifact retention/);
   assert.match(overview, /A shelf for temporary work/);
-  assert.match(overview, /Create[\s\S]*Monitor[\s\S]*Review[\s\S]*Clean/);
+  assert.match(overview, /Create[\s\S]*Monitor[\s\S]*Review[\s\S]*Clean[\s\S]*Purge/);
 });
 
 test("agent workflow page splits the loop into focused subpages", () => {
@@ -803,15 +817,18 @@ test("agent workflow page splits the loop into focused subpages", () => {
   const monitor = read("docs/agent-monitor.html");
   const review = read("docs/agent-review.html");
   const clean = read("docs/agent-clean.html");
+  const purge = read("docs/agent-purge.html");
 
   assert.match(hub, /href="agent-create\.html"[\s\S]*Create/);
   assert.match(hub, /href="agent-monitor\.html"[\s\S]*Monitor/);
   assert.match(hub, /href="agent-review\.html"[\s\S]*Review/);
   assert.match(hub, /href="agent-clean\.html"[\s\S]*Clean/);
+  assert.match(hub, /href="agent-purge\.html"[\s\S]*Purge/);
   assert.match(create, /<h1>Register artifacts while intent is fresh\.<\/h1>/);
   assert.match(monitor, /<h1>Surface attention without touching artifacts\.<\/h1>/);
   assert.match(review, /<h1>Turn raw counts into a decision packet\.<\/h1>/);
   assert.match(clean, /<h1>Execute only what was reviewed and approved\.<\/h1>/);
+  assert.match(purge, /<h1>Delete for real, from its own reviewed plan\.<\/h1>/);
 });
 
 test("agent workflow hub stays summary-only", () => {
@@ -824,13 +841,13 @@ test("agent workflow hub stays summary-only", () => {
     assert.match(text, /Monitor/);
     assert.match(text, /Review/);
     assert.match(text, /Clean/);
+    assert.match(text, /Purge/);
     assert.match(text, /ArtshelfReviewReport/);
     assert.doesNotMatch(text, /Review [Pp]lan [Rr]eport [Ss]chema/);
     assert.doesNotMatch(text, /Daily [Rr]eview [Ww]orkflow/);
     assert.doesNotMatch(text, /npm install -g artshelf/);
     assert.doesNotMatch(text, /pnpm add -g artshelf/);
     assert.doesNotMatch(text, /git clone https:\/\/github\.com\/calvinnwq\/artshelf\.git/);
-    assert.doesNotMatch(text, /artshelf trash purge --execute/);
     assert.doesNotMatch(text, /Artshelf footnote: registered/);
   }
 
@@ -852,6 +869,7 @@ test("docs and portable skill stay workflow-agnostic", () => {
     read("docs/agent-monitor.html"),
     read("docs/agent-review.html"),
     read("docs/agent-clean.html"),
+    read("docs/agent-purge.html"),
     read("docs/reference.html"),
     read("skills/artshelf/SKILL.md")
   ].join("\n");
@@ -869,9 +887,11 @@ test("README and quickstart lead with the core workflow", () => {
   const quickstart = read("docs/quickstart.html");
 
   const readmeWorkflows = [
-    "Register a temp artifact",
-    "Review everything safely",
-    "Approve cleanup safely"
+    "Register",
+    "Monitor",
+    "Review",
+    "Clean",
+    "Purge"
   ];
   const quickstartWorkflows = [
     "Create something temporary",
@@ -881,31 +901,27 @@ test("README and quickstart lead with the core workflow", () => {
     "Purge trash separately"
   ];
 
-  // README centers a dedicated core-workflows section that names all three.
-  assert.match(readme, /##\s+Core Workflows/);
+  // README centers a dedicated lifecycle section that names all five stages.
+  assert.match(readme, /##\s+How it works/);
   for (const workflow of readmeWorkflows) {
-    assert.ok(readme.includes(workflow), `README is missing core workflow "${workflow}"`);
+    assert.match(readme, new RegExp(`\\| \\*\\*\\d+\\. ${workflow}\\*\\* \\|`), `README is missing workflow "${workflow}"`);
   }
 
-  // The core workflows lead: they precede the reference-heavy sections.
-  const coreIdx = readme.indexOf("## Core Workflows");
-  const ledgersIdx = readme.indexOf("## Explicit Ledgers");
-  const commandsIdx = readme.indexOf("## Commands");
-  assert.ok(coreIdx > -1, "README should have a Core Workflows section");
+  // The lifecycle leads: it precedes the reference-heavy details.
+  const coreIdx = readme.indexOf("## How it works");
+  const referenceIdx = readme.indexOf("## Reference");
+  assert.ok(coreIdx > -1, "README should have a How it works section");
   assert.ok(
-    ledgersIdx > coreIdx,
-    "Core Workflows should lead the Explicit Ledgers reference"
-  );
-  assert.ok(
-    commandsIdx > coreIdx,
-    "Core Workflows should lead the Commands reference"
+    referenceIdx > coreIdx,
+    "How it works should lead the reference section"
   );
 
   // Reference detail stays available, just below the first-run lead.
-  assert.match(readme, /## Explicit Ledgers/);
-  assert.match(readme, /## Commands/);
+  assert.match(readme, /## Reference/);
+  assert.match(readme, /<summary>All commands<\/summary>/);
+  assert.match(readme, /<summary>Explicit ledgers and <code>--all<\/code> discovery<\/summary>/);
 
-  // The three workflows appear in README in their canonical order.
+  // The workflow stages appear in README in their canonical order.
   let readmeCursor = -1;
   for (const workflow of readmeWorkflows) {
     const idx = readme.indexOf(workflow);

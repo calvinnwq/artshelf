@@ -11,7 +11,7 @@ mutation.
 
 ## Workflow Summary
 
-Use Artshelf as a four-stage loop around agent work:
+Use Artshelf as a five-stage loop around agent work:
 
 1. **Create**: register durable temp artifacts with lookup-before-put and
    `artshelf put`, or state the skip reason.
@@ -19,10 +19,12 @@ Use Artshelf as a four-stage loop around agent work:
    paths, and trash state.
 3. **Review**: turn raw output into an `ArtshelfReviewReport` decision packet
    with exact approval targets.
-4. **Clean**: execute approved plans, clear trash only from a separate
-   reviewed purge plan, resolve confirmed ids, then verify quiet.
+4. **Clean**: execute approved cleanup plans (which trash, never delete),
+   resolve confirmed ids, then verify quiet.
+5. **Purge**: clear old trash only from a separate, separately reviewed purge
+   plan; physical deletion never piggybacks on the cleanup plan.
 
-This maps to the product loop: **Create -> Monitor -> Review -> Clean**.
+This maps to the product loop: **Create -> Monitor -> Review -> Clean -> Purge**.
 
 ## Child Pages
 
@@ -34,8 +36,10 @@ The browsable docs split the workflow into focused child pages:
   and preview plans.
 - [Review](agent-review.html): decision packet schema, classifications, and
   exact approval wording.
-- [Clean](agent-clean.html): approval-only cleanup, trash purge, resolve,
-  receipts, and verify-quiet checks.
+- [Clean](agent-clean.html): approval-only cleanup, resolve, receipts, and
+  verify-quiet checks.
+- [Purge](agent-purge.html): separately reviewed trash purge that physically
+  deletes, with its own approval target and receipts.
 
 ## Operating Principles
 

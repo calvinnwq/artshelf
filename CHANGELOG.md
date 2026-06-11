@@ -54,8 +54,8 @@
 - Added packaged `ArtshelfReviewReport` schema, canonical example files, and a
   portable renderer script for deterministic agent review reports, plus
   deterministic footnote guidance for `artshelf put --json` registrations.
-- Split the agent docs into Create, Monitor, Review, and Clean workflow pages
-  backed by shared docs-site chrome, search, and navigation.
+- Split the agent docs into Create, Monitor, Review, Clean, and Purge workflow
+  pages backed by shared docs-site chrome, search, and navigation.
 
 ## [0.7.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.6.0...artshelf-v0.7.0) (2026-06-10)
 
