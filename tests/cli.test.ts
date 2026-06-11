@@ -14,9 +14,12 @@ test("help and version are useful", () => {
   const help = artshelf(["help"]);
   assert.equal(help.status, 0);
   assert.match(help.stdout, new RegExp(`Artshelf ${escapeRegExp(PACKAGE_VERSION)}`));
-  assert.match(help.stdout, /artshelf cleanup --dry-run/);
-  assert.match(help.stdout, /artshelf trash list \[--all\] \[--ledger <path>\] \[--json\]/);
-  assert.match(help.stdout, /artshelf trash purge --older-than <ttl> --dry-run \[--ledger <path>\] \[--json\]/);
+  // Top-level help is short and grouped: it points to per-command help instead of
+  // dumping every command variant (NGX-389).
+  assert.match(help.stdout, /Available Commands:/);
+  assert.match(help.stdout, /Use "artshelf <command> --help" for more information about a command\./);
+  assert.doesNotMatch(help.stdout, /artshelf trash purge --older-than/);
+  assert.doesNotMatch(help.stdout, /artshelf cleanup --dry-run --all/);
 
   const putHelp = artshelf(["put", "--help"]);
   assert.equal(putHelp.status, 0);
@@ -54,6 +57,81 @@ test("help and version are useful", () => {
   const version = artshelf(["--version"]);
   assert.equal(version.status, 0);
   assert.equal(version.stdout, `artshelf ${PACKAGE_VERSION}\n`);
+});
+
+test("top-level help groups commands and reclassifies scope flags", () => {
+  const help = artshelf(["help"]);
+  assert.equal(help.status, 0);
+
+  // One short product description and a compact usage line.
+  assert.match(help.stdout, /Usage:\n\s+artshelf <command> \[options\]/);
+
+  // Commands are grouped and listed by name with a one-line summary.
+  for (const group of ["Create", "Inspect", "Review", "Clean", "System"]) {
+    assert.match(help.stdout, new RegExp(`\\n\\s+${group}\\n`), `missing command group ${group}`);
+  }
+  assert.match(help.stdout, /\n\s+put\s+\S/);
+  assert.match(help.stdout, /\n\s+due\s+\S/);
+  assert.match(help.stdout, /\n\s+validate\s+\S/);
+  assert.match(help.stdout, /\n\s+trash\s+\S/);
+
+  // Only --help/--version are global; --json is presented as an output mode.
+  assert.match(help.stdout, /Global Options:[\s\S]*--help[\s\S]*--version/);
+  assert.match(help.stdout, /Output:\n\s+--json\s+Emit machine-readable JSON/);
+
+  // --ledger/--registry/--all are reclassified as command-specific scope flags,
+  // not universal global options.
+  assert.match(help.stdout, /Scope \(command-specific\):/);
+  assert.match(help.stdout, /--ledger <path>/);
+  assert.match(help.stdout, /--registry <path>/);
+  const globalBlock = help.stdout.slice(
+    help.stdout.indexOf("Global Options:"),
+    help.stdout.indexOf("Output:")
+  );
+  assert.doesNotMatch(globalBlock, /--ledger|--registry|--all/);
+});
+
+test("focused help covers due, validate, and nested trash/ledgers commands", () => {
+  const due = artshelf(["due", "--help"]);
+  assert.equal(due.status, 0, due.stderr);
+  assert.match(due.stdout, /artshelf due \[--ledger <path>\] \[--json\]/);
+  assert.match(due.stdout, /artshelf due --all/);
+  assert.doesNotMatch(due.stdout, /Available Commands:/);
+
+  const validate = artshelf(["validate", "--help"]);
+  assert.equal(validate.status, 0, validate.stderr);
+  assert.match(validate.stdout, /artshelf validate \[--ledger <path>\] \[--json\]/);
+  assert.match(validate.stdout, /artshelf validate --all/);
+  assert.doesNotMatch(validate.stdout, /Available Commands:/);
+
+  // Nested commands get their own focused help instead of the whole trash family.
+  const trashList = artshelf(["trash", "list", "--help"]);
+  assert.equal(trashList.status, 0, trashList.stderr);
+  assert.match(trashList.stdout, /artshelf trash list/);
+  assert.doesNotMatch(trashList.stdout, /artshelf trash purge/);
+
+  const trashPurge = artshelf(["trash", "purge", "--help"]);
+  assert.equal(trashPurge.status, 0, trashPurge.stderr);
+  assert.match(trashPurge.stdout, /artshelf trash purge --execute --plan-id <id>/);
+  assert.match(trashPurge.stdout, /--older-than <ttl>/);
+  assert.doesNotMatch(trashPurge.stdout, /artshelf trash list/);
+
+  const ledgersList = artshelf(["ledgers", "list", "--help"]);
+  assert.equal(ledgersList.status, 0, ledgersList.stderr);
+  assert.match(ledgersList.stdout, /artshelf ledgers list/);
+  assert.match(ledgersList.stdout, /--plain/);
+  assert.doesNotMatch(ledgersList.stdout, /artshelf ledgers add/);
+
+  const ledgersAdd = artshelf(["ledgers", "add", "--help"]);
+  assert.equal(ledgersAdd.status, 0, ledgersAdd.stderr);
+  assert.match(ledgersAdd.stdout, /artshelf ledgers add --ledger <path>/);
+  assert.doesNotMatch(ledgersAdd.stdout, /artshelf ledgers list/);
+
+  // `artshelf help <command> <subcommand>` routes to the same nested help.
+  const helpTrashPurge = artshelf(["help", "trash", "purge"]);
+  assert.equal(helpTrashPurge.status, 0);
+  assert.match(helpTrashPurge.stdout, /artshelf trash purge --execute/);
+  assert.doesNotMatch(helpTrashPurge.stdout, /artshelf trash list/);
 });
 
 test("commands surface an available update on stderr without breaking JSON stdout", () => {
@@ -1731,7 +1809,7 @@ test("doctor human output summarizes health and cleanup safety", () => {
 
 test("doctor help explains the command", () => {
   const main = artshelf(["help"]);
-  assert.match(main.stdout, /artshelf doctor/);
+  assert.match(main.stdout, /\bdoctor\b/);
 
   const help = artshelf(["help", "doctor"]);
   assert.equal(help.status, 0);
@@ -1913,7 +1991,7 @@ test("status human output is compact enough to paste into Discord", () => {
 
 test("status help explains the command", () => {
   const main = artshelf(["help"]);
-  assert.match(main.stdout, /artshelf status/);
+  assert.match(main.stdout, /\bstatus\b/);
 
   const help = artshelf(["help", "status"]);
   assert.equal(help.status, 0);
