@@ -315,11 +315,16 @@ test("reference docs classify scope and output flags instead of one global optio
   assert.match(reference, /<h2>Scope flags \(command-specific\)<\/h2>/);
   const scopeSection = reference.slice(
     reference.indexOf("Scope flags (command-specific)"),
-    reference.indexOf("Scope flags (command-specific)") + 700
+    reference.indexOf("<h2>Environment</h2>")
   );
   assert.match(scopeSection, /--ledger/);
   assert.match(scopeSection, /--registry/);
   assert.match(scopeSection, /--all/);
+  assert.match(scopeSection, /<code>list<\/code>/);
+  assert.match(scopeSection, /<code>get<\/code>/);
+  assert.match(scopeSection, /<code>validate<\/code>/);
+  assert.match(scopeSection, /<code>cleanup --dry-run<\/code>/);
+  assert.match(scopeSection, /<code>trash list<\/code>/);
 
   // Only --help/--version remain documented as truly global flags.
   assert.match(reference, /<h2>Global flags<\/h2>/);
