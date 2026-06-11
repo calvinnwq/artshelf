@@ -573,12 +573,17 @@ function handleTrashPurge(parsed: ParsedArgs, ledgerPath: string, json: boolean)
 }
 
 function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const agent = boolFlag(parsed, "agent");
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
     const results = registeredLedgersOrThrow(registryPath).map((ledger) => reviewLedger(ledger));
     const ok = results.every((entry) => entry.validate.ok);
     const summary = summarizeReview(results);
     const nextAction = reviewNextAction(summary);
+    if (agent) {
+      printCompactJson(buildReviewAgentPacketAll(results, summary, registryPath));
+      return ok ? 0 : 1;
+    }
     if (json) {
       printJson({ ok, registryPath, summary, nextAction, ledgers: results });
       return ok ? 0 : 1;
@@ -587,6 +592,10 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     return ok ? 0 : 1;
   }
   const result = reviewLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
+  if (agent) {
+    printCompactJson(buildReviewAgentPacketSingle(result, ledgerPath));
+    return result.validate.ok ? 0 : 1;
+  }
   if (json) {
     printJson({ ok: result.validate.ok, ledger: result });
     return result.validate.ok ? 0 : 1;
@@ -1515,6 +1524,202 @@ function printReview(results: ReviewResult[]): void {
   }
 }
 
+// Agent render: a compact, deterministic decision packet for `review`. It reuses
+// the `ArtshelfReviewReport` vocabulary (classification → readyForApproval /
+// needsReviewFirst / blocked decision groups, safety flags) without binding to
+// that full schema, mirroring how status/doctor each carry a command-specific
+// shape under the shared convention (single compact line, `--agent` precedence
+// over `--json`, no agent-only fields leaking into `--json`).
+//
+// Safety is the design constraint: `review` is read-only. It never mints or
+// writes a cleanup plan, and its preview plan id is timestamp+random (see
+// makePlanId) and must never be executed from. So the only exact, plan-less
+// approval target review can safely emit is `resolve missing` (ledger-only, ids
+// known). Cleanup-eligible records stay needs-review-first and point at the
+// `cleanup --dry-run` that mints a reviewed plan; the exact cleanup approval
+// target is produced there, never leaked from a preview here.
+type ReviewDecision = {
+  label: string;
+  itemIds: string[];
+  actionType: "cleanup" | "resolve-missing" | "inspect" | "fix-registry";
+  approvalTarget: string | null;
+  reason: string;
+  nextStep: string;
+};
+
+type ReviewAgentGroups = {
+  readyForApproval: ReviewDecision[];
+  needsReviewFirst: ReviewDecision[];
+  blocked: ReviewDecision[];
+};
+
+type ReviewAgentPacket = {
+  schemaVersion: 1;
+  command: "review";
+  scope: "all" | "single";
+  health: "ok" | "attention";
+  ledgerPath?: string;
+  registry?: { path: string; exists: boolean };
+  ledgers?: { total: number; ok: number; stale: number; invalid: number };
+  counts: { due: number; manualReview: number; missingPath: number; executable: number; skipped: number };
+  decisionSummary: { readyForApproval: number; needsReviewFirst: number; blocked: number };
+  readyForApproval: ReviewDecision[];
+  needsReviewFirst: ReviewDecision[];
+  blocked: ReviewDecision[];
+  safety: { dryRunOnly: boolean; executeAllRefused: boolean; noExecuteRan: boolean; noResolveRan: boolean; noDeleteRan: boolean };
+  nextAction: string;
+  verification: string;
+};
+
+// review is read-only, so every safety guarantee holds unconditionally.
+const REVIEW_SAFETY = {
+  dryRunOnly: true,
+  executeAllRefused: true,
+  noExecuteRan: true,
+  noResolveRan: true,
+  noDeleteRan: true
+} as const;
+
+// Classify each registered ledger's records into decision groups. Order is
+// fixed (registry order, then a stable per-ledger sub-order) so the packet is
+// byte-for-byte deterministic.
+function buildReviewDecisions(results: ReviewResult[]): ReviewAgentGroups {
+  const readyForApproval: ReviewDecision[] = [];
+  const needsReviewFirst: ReviewDecision[] = [];
+  const blocked: ReviewDecision[] = [];
+
+  for (const result of results) {
+    const { ledger, validate, due } = result;
+    if (!validate.ok) {
+      const status = existsSync(ledger.path) ? "invalid" : "missing";
+      blocked.push({
+        label: `Repair ${ledger.name} ledger (${status})`,
+        itemIds: [],
+        actionType: "fix-registry",
+        approvalTarget: null,
+        reason: validate.errors[0] ?? `registered ledger is ${status}`,
+        nextStep: `re-register or fix ${ledger.path}, then re-run \`artshelf review --all\``
+      });
+      continue;
+    }
+
+    const missingPath = due.filter((entry) => entry.dueStatus === "missing-path");
+    const trashSafe = due.filter((entry) => entry.dueStatus === "due" && entry.cleanup === "trash");
+    const inspectItems = due.filter(
+      (entry) =>
+        entry.dueStatus === "manual-review" ||
+        (entry.dueStatus === "due" && (entry.cleanup === "review" || entry.cleanup === "delete"))
+    );
+
+    // Ready for approval: missing-path records resolve ledger-only with an exact,
+    // plan-less approval target. Resolution updates the ledger and never touches
+    // files, so it is the one action review can hand an agent directly.
+    if (missingPath.length > 0) {
+      const ids = missingPath.map((entry) => entry.id).sort();
+      readyForApproval.push({
+        label: `Resolve ${ids.length} missing-path record(s) in ${ledger.name}`,
+        itemIds: ids,
+        actionType: "resolve-missing",
+        approvalTarget: `approve artshelf resolve missing ledger ${ledger.path} ids ${ids.join(" ")}`,
+        reason: "the recorded path is already missing",
+        nextStep: "confirm the artifact is no longer needed, then approve the ledger-only resolve"
+      });
+    }
+
+    // Trash-safe records are cleanup-eligible, but review never mints a plan, so
+    // they carry no approval target: the next step is the dry-run that produces
+    // the reviewed plan id to approve.
+    if (trashSafe.length > 0) {
+      const ids = trashSafe.map((entry) => entry.id).sort();
+      needsReviewFirst.push({
+        label: `Plan cleanup for ${ids.length} trash-eligible artifact(s) in ${ledger.name}`,
+        itemIds: ids,
+        actionType: "cleanup",
+        approvalTarget: null,
+        reason: "disposable artifacts are due but no reviewed cleanup plan exists yet",
+        nextStep: `run \`artshelf cleanup --dry-run --ledger ${ledger.path} --json\`, then approve \`approve artshelf cleanup ledger ${ledger.path} plan <plan-id>\``
+      });
+    }
+
+    // manual-review and cleanup=review records need a human decision before any
+    // cleanup; cleanup=delete is refused outright. None carry an approval target.
+    if (inspectItems.length > 0) {
+      const ids = inspectItems.map((entry) => entry.id).sort();
+      const hasDelete = inspectItems.some((entry) => entry.cleanup === "delete");
+      needsReviewFirst.push({
+        label: `Inspect ${ids.length} record(s) in ${ledger.name} before cleanup`,
+        itemIds: ids,
+        actionType: "inspect",
+        approvalTarget: null,
+        reason: hasDelete
+          ? "records need manual review; cleanup=delete is refused and never deletes files"
+          : "records are held for manual review before any cleanup",
+        nextStep: "inspect each path, then keep, change retention, resolve, or set cleanup=trash and plan a cleanup"
+      });
+    }
+  }
+
+  return { readyForApproval, needsReviewFirst, blocked };
+}
+
+function reviewCounts(summary: ReviewSummary): ReviewAgentPacket["counts"] {
+  return {
+    due: summary.due,
+    manualReview: summary.manualReview,
+    missingPath: summary.missingPath,
+    executable: summary.executable,
+    skipped: summary.skipped
+  };
+}
+
+function buildReviewAgentPacketAll(results: ReviewResult[], summary: ReviewSummary, registryPath: string): ReviewAgentPacket {
+  const groups = buildReviewDecisions(results);
+  return {
+    schemaVersion: 1,
+    command: "review",
+    scope: "all",
+    health: summary.invalid + summary.stale > 0 ? "attention" : "ok",
+    registry: { path: registryPath, exists: existsSync(registryPath) },
+    ledgers: { total: summary.ledgers, ok: summary.ok, stale: summary.stale, invalid: summary.invalid },
+    counts: reviewCounts(summary),
+    decisionSummary: {
+      readyForApproval: groups.readyForApproval.length,
+      needsReviewFirst: groups.needsReviewFirst.length,
+      blocked: groups.blocked.length
+    },
+    readyForApproval: groups.readyForApproval,
+    needsReviewFirst: groups.needsReviewFirst,
+    blocked: groups.blocked,
+    safety: REVIEW_SAFETY,
+    nextAction: reviewNextAction(summary),
+    verification: "artshelf review --all --agent"
+  };
+}
+
+function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: string): ReviewAgentPacket {
+  const summary = summarizeReview([result]);
+  const groups = buildReviewDecisions([result]);
+  return {
+    schemaVersion: 1,
+    command: "review",
+    scope: "single",
+    health: summary.invalid + summary.stale > 0 ? "attention" : "ok",
+    ledgerPath,
+    counts: reviewCounts(summary),
+    decisionSummary: {
+      readyForApproval: groups.readyForApproval.length,
+      needsReviewFirst: groups.needsReviewFirst.length,
+      blocked: groups.blocked.length
+    },
+    readyForApproval: groups.readyForApproval,
+    needsReviewFirst: groups.needsReviewFirst,
+    blocked: groups.blocked,
+    safety: REVIEW_SAFETY,
+    nextAction: reviewNextAction(summary),
+    verification: `artshelf review --agent --ledger ${ledgerPath}`
+  };
+}
+
 // Static help metadata. Keep the top-level help generated from this table so the
 // grouped command list, summaries, and the `artshelf <command> --help` pointer
 // stay in one place instead of drifting across hand-written usage strings.
@@ -1752,11 +1957,22 @@ Resolved records stay in the audit trail but no longer participate in due or cle
 
   if (command === "review") {
     process.stdout.write(`Usage:
-  artshelf review [--ledger <path>] [--json]
-  artshelf review --all [--registry <path>] [--json]
+  artshelf review [--ledger <path>] [--json|--agent]
+  artshelf review --all [--registry <path>] [--json|--agent]
 
-Review runs validate, due, and cleanup plan preview without moving files or writing a plan.
-With --all, review adds aggregate triage counts and the next safe action.
+Review runs validate, due, and cleanup plan preview without moving files or
+writing a plan. With --all, review adds aggregate triage counts and the next
+safe action.
+
+Render modes:
+  (default)  Human summary of validation, triage counts, and the next safe action.
+  --json     Full read-only audit report (backward-compatible).
+  --agent    Compact single-line JSON decision packet for agents: health, triage
+             counts, and classified decision groups (ready for approval, needs
+             review first, blocked) with exact approval targets where they are
+             safe. Review is read-only, so cleanup approval targets are minted by
+             \`cleanup --dry-run\`, never leaked from a preview plan id.
+             Token-efficient; --agent takes precedence over --json.
 `);
     return;
   }
