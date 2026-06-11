@@ -65,6 +65,23 @@
   reclassified `--ledger`, `--registry`, and `--all` as command-specific scope
   flags instead of global options.
 
+## [0.9.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.8.0...artshelf-v0.9.0) (2026-06-11)
+
+
+### Features
+
+* **cli:** rewrite help with grouped commands, focused per-command help, and short flags ([7310638](https://github.com/calvinnwq/artshelf/commit/73106385ce3e3d037921cdb4ff534614d024244f))
+* **cli:** rewrite top-level help with grouped commands, focused per-command help, and subcommand routing ([c8dea22](https://github.com/calvinnwq/artshelf/commit/c8dea2255628915eb629c5cc4cbc2ef1ec31c3a7))
+
+
+### Bug Fixes
+
+* **cli:** advertise short help flag ([825c4ae](https://github.com/calvinnwq/artshelf/commit/825c4ae38aa61209f22c702a82f51b93c5ea3d09))
+* **cli:** advertise short version flag ([23ca99b](https://github.com/calvinnwq/artshelf/commit/23ca99b0ba7c596a8df89ec3c0384286c55d2a96))
+* **cli:** polish nested help output ([109255d](https://github.com/calvinnwq/artshelf/commit/109255dfa3baa50c6aae837190adb19cfa7249b8))
+* **cli:** support ledgers help subcommand ([18723ce](https://github.com/calvinnwq/artshelf/commit/18723ce384fbdeed33fe066ad0093093d30dc5a5))
+* **cli:** support short help flag ([081b50f](https://github.com/calvinnwq/artshelf/commit/081b50f67a5e0821341aca4f98ab3244ab316338))
+
 ## [0.8.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.7.0...artshelf-v0.8.0) (2026-06-11)
 
 
