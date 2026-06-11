@@ -120,8 +120,8 @@ destructive deletion.
 
 ```bash
 artshelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
-artshelf ledgers list [--plain]
-artshelf ledgers add --ledger <path>
+artshelf ledgers list [--plain] [--json]
+artshelf ledgers add --ledger <path> [--name <project>] [--scope repo|user|other] [--json]
 artshelf list [--all] [--status active]
 artshelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id>
 artshelf find --all --owner <agent-or-runtime>
@@ -133,15 +133,18 @@ artshelf status [--all]
 artshelf doctor
 artshelf update [--json]
 artshelf cleanup --dry-run [--all]
-artshelf cleanup --execute --plan-id <id>
+artshelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
 artshelf trash list [--all] [--ledger <path>] [--json]
 artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
 artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]
-artshelf resolve <id> --status resolved --reason "inspected and no longer needed"
+artshelf resolve <id> --status resolved --reason "inspected and no longer needed" [--ledger <path>] [--json]
 ```
 
-Use `artshelf help` or `artshelf help <command>` for details. All core commands
-support `--json`.
+Use `artshelf help` for a grouped command list, then `artshelf <command> --help`
+or `artshelf help <command>` for focused details. Nested commands such as
+`artshelf trash purge --help` and `artshelf ledgers add --help` show only that
+subcommand. All core commands support `--json`; `--ledger`, `--registry`, and
+`--all` are scope flags only on commands that list them.
 </details>
 
 <details>
@@ -159,7 +162,7 @@ artshelf list --ledger /tmp/artshelf-ledger.jsonl
 Artshelf keeps a small global registry of known ledgers at
 `~/.artshelf/ledgers.json` (override with `--registry <path>` or
 `ARTSHELF_REGISTRY`). `put` registers its ledger automatically; register an
-existing one with `artshelf ledgers add --ledger <path> --name <project>`.
+existing one with `artshelf ledgers add --ledger <path> --name <project> --json`.
 `artshelf ledgers list` validates each registered ledger by default (ok/missing/invalid
 status with counts, non-zero exit when broken), so it doubles as a stale-entry
 check; add `--plain` to skip validation.

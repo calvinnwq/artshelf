@@ -36,6 +36,32 @@ somewhere accountable, with an expiry tag and a cleanup plan.
 
 ## V1 CLI
 
+### Help and option presentation
+
+Top-level help is compact and points readers to focused command help.
+
+```bash
+artshelf help
+artshelf --help
+artshelf <command> --help
+artshelf help <command>
+artshelf <command> <subcommand> --help
+artshelf help <command> <subcommand>
+```
+
+Rules:
+
+- `artshelf help`, `artshelf --help`, and `artshelf -h` show a grouped command
+  list with one-line summaries instead of dumping every command variant.
+- Command groups are `Create`, `Inspect`, `Review`, `Clean`, and `System`.
+- `artshelf <command> --help` and `artshelf help <command>` show focused help
+  for that command.
+- Nested help is supported for `trash list`, `trash purge`, `ledgers list`, and
+  `ledgers add`.
+- Top-level help presents `--help` and `--version` as global options, `--json`
+  as the output mode, and `--ledger`, `--registry`, and `--all` as
+  command-specific scope flags.
+
 ### `artshelf put`
 
 Records an existing file or directory in the ledger.
@@ -362,8 +388,8 @@ plan id.
 Executes a previously generated cleanup plan.
 
 ```bash
-artshelf cleanup --execute --plan-id <id>
-artshelf cleanup --execute --plan-id <id> --json
+artshelf cleanup --execute --plan-id <id> [--ledger <path>]
+artshelf cleanup --execute --plan-id <id> [--ledger <path>] --json
 ```
 
 Rules:

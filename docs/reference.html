@@ -42,6 +42,13 @@
             cleanup execution and trash purge. Every command below is tagged read-only,
             writes ledger, writes registry, npm install, or approval-gated.
           </p>
+          <p>
+            Run <code>artshelf help</code> for the grouped command list. Use
+            <code>artshelf &lt;command&gt; --help</code> or
+            <code>artshelf help &lt;command&gt;</code> for focused help; nested commands
+            such as <code>artshelf trash purge --help</code> and
+            <code>artshelf ledgers add --help</code> show only that subcommand.
+          </p>
 
           <section class="cmd">
             <div class="cmd-head"><h2>artshelf put</h2><span class="cmd-flag plan">writes ledger</span></div>
@@ -153,7 +160,7 @@ artshelf update [--json]</code></pre>
 artshelf cleanup --dry-run [--all] [--json]
 
 <span class="c"># execute exactly one reviewed plan (approval only)</span>
-artshelf cleanup --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;]</code></pre>
+artshelf cleanup --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]</code></pre>
             <p>
               <code>--dry-run</code> creates and registers a cleanup plan without moving files;
               no-op dry-runs report <code>not-created</code>, and matching dry-runs reuse the
