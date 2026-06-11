@@ -46,9 +46,61 @@ test("help and version are useful", () => {
   assert.equal(ledgersHelp.status, 0);
   assert.match(ledgersHelp.stdout, /artshelf ledgers list/);
 
+  const updateHelp = artshelf(["help", "update"]);
+  assert.equal(updateHelp.status, 0);
+  assert.match(updateHelp.stdout, /artshelf update/);
+  assert.match(updateHelp.stdout, /npm install -g artshelf@latest/);
+
   const version = artshelf(["--version"]);
   assert.equal(version.status, 0);
   assert.equal(version.stdout, `artshelf ${PACKAGE_VERSION}\n`);
+});
+
+test("commands surface an available update on stderr without breaking JSON stdout", () => {
+  const fixture = fixtureDir();
+  const cache = join(fixture, "update-cache.json");
+  const result = artshelf(["status", "--ledger", ledgerPath(fixture), "--json"], undefined, {
+    ARTSHELF_NO_UPDATE_CHECK: undefined,
+    ARTSHELF_LATEST_VERSION: "99.0.0",
+    ARTSHELF_UPDATE_CACHE: cache
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).ok, true);
+  assert.match(result.stderr, new RegExp(`A new version of artshelf is available: v${escapeRegExp(PACKAGE_VERSION)} -> v99\\.0\\.0`));
+  assert.match(result.stderr, /Run "artshelf update" to update/);
+});
+
+test("commands stay quiet when the current version is the latest", () => {
+  const fixture = fixtureDir();
+  const result = artshelf(["--version"], undefined, {
+    ARTSHELF_NO_UPDATE_CHECK: undefined,
+    ARTSHELF_LATEST_VERSION: PACKAGE_VERSION,
+    ARTSHELF_UPDATE_CACHE: join(fixture, "update-cache.json")
+  });
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, `artshelf ${PACKAGE_VERSION}\n`);
+  assert.equal(result.stderr, "");
+});
+
+test("update dry-run reports the npm update command", () => {
+  const result = artshelf(["update"], undefined, {
+    ARTSHELF_LATEST_VERSION: "99.0.0",
+    ARTSHELF_UPDATE_DRY_RUN: "1"
+  });
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, new RegExp(`A new version of artshelf is available: v${escapeRegExp(PACKAGE_VERSION)} -> v99\\.0\\.0`));
+  assert.match(result.stdout, /Dry run: would run "npm install -g artshelf@latest"/);
+  assert.equal(result.stderr, "");
+
+  const json = artshelf(["update", "--json"], undefined, {
+    ARTSHELF_LATEST_VERSION: "99.0.0",
+    ARTSHELF_UPDATE_DRY_RUN: "1"
+  });
+  assert.equal(json.status, 0, json.stderr);
+  const body = JSON.parse(json.stdout);
+  assert.equal(body.ok, true);
+  assert.equal(body.dryRun, true);
+  assert.deepEqual(body.command, ["npm", "install", "-g", "artshelf@latest"]);
 });
 
 test("unknown flags fail with a usage hint", () => {
@@ -1803,10 +1855,16 @@ test("status help explains the command", () => {
   assert.match(help.stdout, /--json/);
 });
 
-function artshelf(args: string[], now?: string): { status: number; stdout: string; stderr: string } {
+function artshelf(args: string[], now?: string, extraEnv: Record<string, string | undefined> = {}): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
     encoding: "utf8",
-    env: { ...process.env, ARTSHELF_REGISTRY: TEST_REGISTRY, ...(now ? { ARTSHELF_NOW: now } : {}) }
+    env: {
+      ...process.env,
+      ARTSHELF_NO_UPDATE_CHECK: "1",
+      ARTSHELF_REGISTRY: TEST_REGISTRY,
+      ...(now ? { ARTSHELF_NOW: now } : {}),
+      ...extraEnv
+    }
   });
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
@@ -1814,7 +1872,7 @@ function artshelf(args: string[], now?: string): { status: number; stdout: strin
 function shelfAsync(args: string[], now?: string): Promise<{ status: number; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
     const child = spawn(process.execPath, [CLI.pathname, ...args], {
-      env: { ...process.env, ARTSHELF_REGISTRY: TEST_REGISTRY, ...(now ? { ARTSHELF_NOW: now } : {}) }
+      env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_REGISTRY: TEST_REGISTRY, ...(now ? { ARTSHELF_NOW: now } : {}) }
     });
     let stdout = "";
     let stderr = "";

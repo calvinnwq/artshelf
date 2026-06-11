@@ -37,6 +37,9 @@ pnpm add -g artshelf
 # verify
 artshelf --version
 artshelf doctor
+
+# later
+artshelf update
 ```
 
 <details>
@@ -57,6 +60,11 @@ artshelf doctor
 the command. Remove an npm install with `npm uninstall -g artshelf`; a source
 install with `npm unlink -g artshelf`.
 </details>
+
+Artshelf checks npm occasionally and prints a non-blocking notice to stderr when
+a newer published version is available. Run `artshelf update` to upgrade an npm
+install with `npm install -g artshelf@latest`; source installs still update by
+pulling, rebuilding, and linking the checkout.
 
 ### Recommended agent setup
 
@@ -120,6 +128,7 @@ artshelf validate [--all]
 artshelf review [--all]
 artshelf status [--all]
 artshelf doctor
+artshelf update
 artshelf cleanup --dry-run [--all]
 artshelf cleanup --execute --plan-id <id>
 artshelf trash list [--all] [--ledger <path>] [--json]

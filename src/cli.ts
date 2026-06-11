@@ -1,5 +1,8 @@
 #!/usr/bin/env node
-import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import {
   appendPreparedRecord,
   createCleanupPlan,
@@ -27,6 +30,9 @@ import type { LedgerRegistryEntry } from "./registry.js";
 import type { CleanupPlan, DueEntry, ArtshelfRecord } from "./types.js";
 
 const VERSION = readPackageVersion();
+const PACKAGE_NAME = "artshelf";
+const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
+const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 const BOOLEAN_FLAGS = new Set(["all", "json", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
   "cleanup",
@@ -61,57 +67,84 @@ type ParsedArgs = {
   flags: Map<string, string | boolean | string[]>;
 };
 
-function main(argv: string[]): number {
+async function main(argv: string[]): Promise<number> {
   try {
     const parsed = parseArgs(argv);
+    let status = 0;
+    let shouldCheckForUpdate = true;
 
     if (parsed.command === "--version" || parsed.command === "-v" || boolFlag(parsed, "version")) {
       process.stdout.write(`artshelf ${VERSION}\n`);
-      return 0;
+      return maybeNotifyUpdateAndReturn(0, parsed);
     }
 
     if (parsed.command === "help" || parsed.command === "--help" || parsed.command === "-h" || boolFlag(parsed, "help")) {
       printHelp(parsed.command === "help" ? parsed.positionals[0] : parsed.command);
-      return 0;
+      return maybeNotifyUpdateAndReturn(0, parsed);
     }
 
     switch (parsed.command) {
       case "put":
-        return handlePut(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handlePut(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "ledgers":
-        return handleLedgers(parsed, boolFlag(parsed, "json"));
+        status = handleLedgers(parsed, boolFlag(parsed, "json"));
+        break;
       case "list":
-        return handleList(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleList(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "find":
-        return handleFind(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleFind(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "get":
-        return handleGet(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleGet(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "due":
-        return handleDue(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleDue(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "validate":
-        return handleValidate(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleValidate(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "cleanup":
-        return handleCleanup(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleCleanup(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "trash":
-        return handleTrash(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleTrash(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "review":
-        return handleReview(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleReview(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "doctor":
-        return handleDoctor(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleDoctor(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "status":
-        return handleStatus(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleStatus(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
       case "resolve":
-        return handleResolve(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        status = handleResolve(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+        break;
+      case "update":
+        shouldCheckForUpdate = false;
+        status = await handleUpdate(parsed, boolFlag(parsed, "json"));
+        break;
       case undefined:
         printHelp();
-        return 0;
+        status = 0;
+        break;
       default:
         throw new Error(`Unknown command: ${parsed.command}`);
     }
+    if (!shouldCheckForUpdate) return status;
+    return maybeNotifyUpdateAndReturn(status, parsed);
   } catch (error) {
     process.stderr.write(`artshelf: ${(error as Error).message}\nRun \`artshelf help\` for usage.\n`);
     return 1;
   }
+}
+
+async function maybeNotifyUpdateAndReturn(status: number, parsed: ParsedArgs): Promise<number> {
+  await maybeNotifyAvailableUpdate(parsed);
+  return status;
 }
 
 function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
@@ -834,6 +867,171 @@ function printStatusSingle(ledger: StatusLedger): void {
   }
 }
 
+type UpdateInfo = {
+  current: string;
+  latest: string;
+  updateAvailable: boolean;
+};
+
+async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> {
+  if (parsed.positionals.length > 0) throw new Error("update does not accept positional arguments");
+  const info = await getUpdateInfo({ force: true });
+  if (!info) throw new Error("Could not check npm for the latest Artshelf version");
+
+  if (!info.updateAvailable) {
+    if (json) return printJson({ ok: true, updated: false, current: info.current, latest: info.latest });
+    process.stdout.write(`artshelf is already up to date: v${info.current}\n`);
+    return 0;
+  }
+
+  if (process.env.ARTSHELF_UPDATE_DRY_RUN === "1") {
+    if (json) {
+      return printJson({
+        ok: true,
+        updated: false,
+        dryRun: true,
+        current: info.current,
+        latest: info.latest,
+        command: ["npm", "install", "-g", `${PACKAGE_NAME}@latest`]
+      });
+    }
+    process.stdout.write(`A new version of artshelf is available: v${info.current} -> v${info.latest}\n`);
+    process.stdout.write(`Dry run: would run "npm install -g ${PACKAGE_NAME}@latest"\n`);
+    return 0;
+  }
+
+  if (!json) {
+    process.stdout.write(`A new version of artshelf is available: v${info.current} -> v${info.latest}\n`);
+    process.stdout.write(`Updating with "npm install -g ${PACKAGE_NAME}@latest"...\n`);
+  }
+  const result = json
+    ? spawnSync("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { encoding: "utf8" })
+    : spawnSync("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { stdio: "inherit" });
+  const status = result.status ?? 1;
+  if (json) {
+    return printJson({
+      ok: status === 0,
+      updated: status === 0,
+      current: info.current,
+      latest: info.latest,
+      stdout: typeof result.stdout === "string" ? result.stdout : "",
+      stderr: typeof result.stderr === "string" ? result.stderr : ""
+    });
+  }
+  if (status === 0) process.stdout.write(`artshelf updated to v${info.latest}\n`);
+  return status;
+}
+
+async function maybeNotifyAvailableUpdate(parsed: ParsedArgs): Promise<void> {
+  if (process.env.ARTSHELF_NO_UPDATE_CHECK === "1") return;
+  if (parsed.command === "update") return;
+  const info = await getUpdateInfo({ force: false });
+  if (!info?.updateAvailable) return;
+  process.stderr.write(`A new version of artshelf is available: v${info.current} -> v${info.latest}\n`);
+  process.stderr.write(`Run "artshelf update" to update\n`);
+}
+
+async function getUpdateInfo(options: { force: boolean }): Promise<UpdateInfo | null> {
+  const latest = await getLatestVersion(options);
+  if (!latest) return null;
+  return {
+    current: VERSION,
+    latest,
+    updateAvailable: compareVersions(latest, VERSION) > 0
+  };
+}
+
+async function getLatestVersion(options: { force: boolean }): Promise<string | null> {
+  const override = process.env.ARTSHELF_LATEST_VERSION;
+  if (override) return normalizeVersion(override);
+  if (!options.force) {
+    const cached = readUpdateCache();
+    if (cached) return cached;
+  }
+  const latest = await fetchLatestNpmVersion();
+  if (latest) writeUpdateCache(latest);
+  return latest;
+}
+
+function readUpdateCache(): string | null {
+  const ttl = Number(process.env.ARTSHELF_UPDATE_CHECK_TTL_MS ?? UPDATE_CHECK_TTL_MS);
+  if (ttl < 0) return null;
+  const cachePath = updateCachePath();
+  if (!existsSync(cachePath)) return null;
+  try {
+    const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+    if (typeof cache.latest !== "string" || typeof cache.checkedAt !== "number") return null;
+    if (Date.now() - cache.checkedAt > ttl) return null;
+    return normalizeVersion(cache.latest);
+  } catch {
+    return null;
+  }
+}
+
+function writeUpdateCache(latest: string): void {
+  try {
+    const cachePath = updateCachePath();
+    const dir = dirname(cachePath);
+    if (dir) {
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(cachePath, `${JSON.stringify({ latest, checkedAt: Date.now() }, null, 2)}\n`);
+    }
+  } catch {
+    // Update checks should never affect normal CLI behavior.
+  }
+}
+
+async function fetchLatestNpmVersion(): Promise<string | null> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 750);
+  try {
+    const response = await fetch(NPM_REGISTRY_URL, {
+      signal: controller.signal,
+      headers: { accept: "application/json", "user-agent": `artshelf/${VERSION}` }
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    if (!body || typeof body !== "object" || typeof (body as { version?: unknown }).version !== "string") return null;
+    return normalizeVersion((body as { version: string }).version);
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+function updateCachePath(): string {
+  return process.env.ARTSHELF_UPDATE_CACHE ?? join(homedir(), ".artshelf", "update-check.json");
+}
+
+function normalizeVersion(version: string): string {
+  return version.trim().replace(/^v/i, "");
+}
+
+function compareVersions(left: string, right: string): number {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+  for (let index = 0; index < Math.max(a.numbers.length, b.numbers.length); index += 1) {
+    const diff = (a.numbers[index] ?? 0) - (b.numbers[index] ?? 0);
+    if (diff !== 0) return diff;
+  }
+  if (a.prerelease === b.prerelease) return 0;
+  if (!a.prerelease) return 1;
+  if (!b.prerelease) return -1;
+  return a.prerelease.localeCompare(b.prerelease);
+}
+
+function parseVersion(version: string): { numbers: number[]; prerelease: string } {
+  const [main = "", prerelease = ""] = normalizeVersion(version).split("-", 2);
+  return {
+    numbers: main.split(".").map((part) => {
+      const parsed = Number.parseInt(part, 10);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }),
+    prerelease
+  };
+}
+
 function parseArgs(argv: string[]): ParsedArgs {
   const [command, ...rest] = argv;
   const flags = new Map<string, string | boolean | string[]>();
@@ -1272,6 +1470,19 @@ or receipts and never mutates records. A healthy selected ledger exits 0; with
     return;
   }
 
+  if (command === "update") {
+    process.stdout.write(`Usage:
+  artshelf update [--json]
+
+Update checks compare the current CLI version with the latest published npm
+version. Normal commands may print a non-blocking update notice to stderr when a
+newer version is available. Run update to install the latest published package:
+
+  npm install -g artshelf@latest
+`);
+    return;
+  }
+
   process.stdout.write(`Artshelf ${VERSION}
 
 Usage:
@@ -1294,6 +1505,7 @@ Usage:
   artshelf doctor [--json]
   artshelf status [--json]
   artshelf status --all [--json]
+  artshelf update [--json]
   artshelf cleanup --dry-run [--json]
   artshelf cleanup --dry-run --all [--json]
   artshelf cleanup --execute --plan-id <id> [--json]
@@ -1317,4 +1529,11 @@ Examples:
 `);
 }
 
-process.exitCode = main(process.argv.slice(2));
+main(process.argv.slice(2))
+  .then((status) => {
+    process.exitCode = status;
+  })
+  .catch((error) => {
+    process.stderr.write(`artshelf: ${(error as Error).message}\nRun \`artshelf help\` for usage.\n`);
+    process.exitCode = 1;
+  });

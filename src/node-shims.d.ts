@@ -9,6 +9,15 @@ declare const process: {
   stderr: { write(value: string): void };
 };
 
+declare class AbortController {
+  readonly signal: any;
+  abort(): void;
+}
+
+declare function fetch(url: string, init?: any): Promise<{ ok: boolean; json(): Promise<unknown> }>;
+declare function setTimeout(callback: () => void, ms: number): any;
+declare function clearTimeout(timeout: any): void;
+
 declare const Buffer: {
   from(value: string): { toString(encoding: string): string };
 };

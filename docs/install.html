@@ -69,12 +69,20 @@ npm link
 
 <span class="c"># verify whichever you picked</span>
 artshelf --version
-artshelf doctor</code></pre>
+artshelf doctor
+
+<span class="c"># later, for npm installs</span>
+artshelf update</code></pre>
             <p>
               <code>npm link</code> connects the local checkout to your global npm bin, so
               later rebuilds update the <code>artshelf</code> command. To remove an npm
               install, run <code>npm uninstall -g artshelf</code>; for a source install,
               run <code>npm unlink -g artshelf</code>.
+            </p>
+            <p>
+              Artshelf checks npm occasionally and prints update notices to stderr, so
+              scripted JSON output stays clean. <code>artshelf update</code> runs
+              <code>npm install -g artshelf@latest</code>.
             </p>
           </section>
 
@@ -123,6 +131,15 @@ If the command is missing, install it from npm and verify again:
 
 ```bash
 npm install -g artshelf      # or: pnpm add -g artshelf
+artshelf --version
+artshelf doctor
+```
+
+If Artshelf says a newer version is available, update the npm install and verify
+again:
+
+```bash
+artshelf update
 artshelf --version
 artshelf doctor
 ```

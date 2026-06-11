@@ -130,6 +130,18 @@ artshelf doctor [--json]</code></pre>
           </section>
 
           <section class="cmd">
+            <div class="cmd-head"><h2>artshelf update</h2><span class="cmd-flag plan">npm install</span></div>
+            <pre><code><span class="c"># install the latest published npm package</span>
+artshelf update [--json]</code></pre>
+            <p>
+              Normal commands may print a non-blocking notice to stderr when npm has a
+              newer published version. <code>artshelf update</code> runs
+              <code>npm install -g artshelf@latest</code>. Source installs should update
+              by pulling, rebuilding, and linking the checkout.
+            </p>
+          </section>
+
+          <section class="cmd">
             <div class="cmd-head"><h2>artshelf cleanup</h2><span class="cmd-flag approval">approval-gated</span></div>
             <pre><code><span class="c"># preview cleanup and register a reviewed plan</span>
 artshelf cleanup --dry-run [--all] [--json]
