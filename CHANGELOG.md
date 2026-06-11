@@ -59,6 +59,13 @@
 - Added `artshelf update` plus cached npm update notices, with
   `ARTSHELF_NO_UPDATE_CHECK=1` for no-network scheduled jobs.
 
+## [0.8.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.7.0...artshelf-v0.8.0) (2026-06-11)
+
+
+### Features
+
+* **cli:** add update command ([#35](https://github.com/calvinnwq/artshelf/issues/35)) ([c55f689](https://github.com/calvinnwq/artshelf/commit/c55f689d1a58a10430d1ea00a1dea5de408e5ac2))
+
 ## [0.7.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.6.0...artshelf-v0.7.0) (2026-06-10)
 
 
