@@ -58,9 +58,12 @@ Rules:
   for that command.
 - Nested help is supported for `trash list`, `trash purge`, `ledgers list`, and
   `ledgers add`.
-- Top-level help presents `--help` and `--version` as global options, `--json`
-  as the output mode, and `--ledger`, `--registry`, and `--all` as
-  command-specific scope flags.
+- `artshelf trash help` and `artshelf ledgers help` are aliases for the focused
+  help of those commands, matching `artshelf help trash` and `artshelf help ledgers`.
+- Top-level help presents `-h, --help` and `-v, --version` as global options,
+  `--json` as the output mode, and `--ledger`, `--registry`, and `--all` as
+  command-specific scope flags. The short `-h` and `-v` forms work both at the
+  top level and after a command.
 
 ### `artshelf put`
 

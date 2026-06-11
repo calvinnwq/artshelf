@@ -58,6 +58,12 @@
   pages backed by shared docs-site chrome, search, and navigation.
 - Added `artshelf update` plus cached npm update notices, with
   `ARTSHELF_NO_UPDATE_CHECK=1` for no-network scheduled jobs.
+- Rewrote `artshelf help` into a compact, grouped command list (Create, Inspect,
+  Review, Clean, System) with one-line summaries and focused per-command help,
+  added nested help for `trash`/`ledgers` subcommands plus `artshelf trash help`
+  and `artshelf ledgers help` aliases, advertised short `-h`/`-v` flags, and
+  reclassified `--ledger`, `--registry`, and `--all` as command-specific scope
+  flags instead of global options.
 
 ## [0.8.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.7.0...artshelf-v0.8.0) (2026-06-11)
 
