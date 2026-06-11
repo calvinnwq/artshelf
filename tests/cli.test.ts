@@ -124,6 +124,29 @@ test("update json returns the installer exit code on failure", () => {
   assert.match(body.stderr, /fake stderr/);
 });
 
+test("update reports npm spawn errors", () => {
+  const fixture = fixtureDir();
+  const bin = join(fixture, "bin");
+  mkdirSync(bin, { recursive: true });
+
+  const json = artshelf(["update", "--json"], undefined, {
+    ARTSHELF_LATEST_VERSION: "99.0.0",
+    PATH: bin
+  });
+  assert.equal(json.status, 1);
+  const body = JSON.parse(json.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.updated, false);
+  assert.match(body.stderr, /spawnSync npm/);
+
+  const human = artshelf(["update"], undefined, {
+    ARTSHELF_LATEST_VERSION: "99.0.0",
+    PATH: bin
+  });
+  assert.equal(human.status, 1);
+  assert.match(human.stderr, /Update failed: spawnSync npm/);
+});
+
 test("failed update checks are cached for the TTL", () => {
   const fixture = fixtureDir();
   const cache = join(fixture, "update-cache.json");

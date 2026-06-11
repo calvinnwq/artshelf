@@ -908,19 +908,28 @@ async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> 
     ? spawnSync("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { encoding: "utf8" })
     : spawnSync("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { stdio: "inherit" });
   const status = result.status ?? 1;
+  const spawnError = result.error instanceof Error ? result.error.message : "";
   if (json) {
+    const stderr = typeof result.stderr === "string" ? result.stderr : "";
     printJson({
       ok: status === 0,
       updated: status === 0,
       current: info.current,
       latest: info.latest,
       stdout: typeof result.stdout === "string" ? result.stdout : "",
-      stderr: typeof result.stderr === "string" ? result.stderr : ""
+      stderr: appendOutputMessage(stderr, spawnError)
     });
     return status;
   }
+  if (spawnError) process.stderr.write(`Update failed: ${spawnError}\n`);
   if (status === 0) process.stdout.write(`artshelf updated to v${info.latest}\n`);
   return status;
+}
+
+function appendOutputMessage(output: string, message: string): string {
+  if (!message) return output;
+  if (!output) return message;
+  return `${output}${output.endsWith("\n") ? "" : "\n"}${message}`;
 }
 
 async function maybeNotifyAvailableUpdate(parsed: ParsedArgs): Promise<void> {
