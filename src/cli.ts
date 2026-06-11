@@ -33,7 +33,7 @@ const VERSION = readPackageVersion();
 const PACKAGE_NAME = "artshelf";
 const NPM_REGISTRY_URL = process.env.ARTSHELF_NPM_REGISTRY_URL ?? `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
-const BOOLEAN_FLAGS = new Set(["all", "json", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
+const BOOLEAN_FLAGS = new Set(["all", "json", "agent", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
   "cleanup",
   "kind",
@@ -745,8 +745,13 @@ type StatusReport = {
 };
 
 function handleStatus(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+  const agent = boolFlag(parsed, "agent");
   if (boolFlag(parsed, "all")) {
     const report = buildStatusReport(normalizeRegistryPath(stringFlag(parsed, "registry")));
+    if (agent) {
+      printCompactJson(buildStatusAgentPacketAll(report));
+      return report.ok ? 0 : 1;
+    }
     if (json) {
       printJson(report);
       return report.ok ? 0 : 1;
@@ -755,6 +760,10 @@ function handleStatus(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     return report.ok ? 0 : 1;
   }
   const ledger = statusLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
+  if (agent) {
+    printCompactJson(buildStatusAgentPacketSingle(ledger, ledgerPath));
+    return ledger.ok ? 0 : 1;
+  }
   if (json) {
     printJson({ ok: ledger.ok, ledger });
     return ledger.ok ? 0 : 1;
@@ -845,6 +854,100 @@ function sumStatusCounts(ledgers: StatusLedger[], key: keyof StatusCounts): numb
 
 function formatStatusCounts(counts: StatusCounts): string {
   return `active ${counts.active} · due ${counts.due} · manual-review ${counts.manualReview} · missing ${counts.missingPath} · kept ${counts.kept} · pending ${counts.pendingCleanup}`;
+}
+
+// Agent render: a compact, deterministic decision packet for `status`. It keeps
+// the audited counts intact while naming the actionable categories, the exact
+// blockers, the next safe action, and the command an agent can re-run to verify.
+// Existing `--json` stays the full audit report; this is a separate surface.
+type StatusAgentPacket = {
+  schemaVersion: 1;
+  command: "status";
+  scope: "all" | "single";
+  health: "ok" | "attention";
+  ledgerPath?: string;
+  registry?: { path: string; exists: boolean; ok: boolean; error: string | null };
+  ledgers?: { total: number; ok: number; stale: number; invalid: number };
+  counts: StatusCounts;
+  attention: string[];
+  blockers: string[];
+  nextAction: string;
+  verification: string;
+};
+
+// Actionable categories only — active and kept are healthy states, never
+// attention. Order is fixed so the packet is byte-for-byte deterministic.
+const STATUS_ATTENTION_CATEGORIES: ReadonlyArray<keyof StatusCounts> = ["due", "manualReview", "missingPath", "pendingCleanup"];
+
+function statusAttention(counts: StatusCounts): string[] {
+  return STATUS_ATTENTION_CATEGORIES.filter((key) => counts[key] > 0);
+}
+
+function statusNextAction(blockers: string[], counts: StatusCounts, scope: "all" | "single"): string {
+  if (blockers.length > 0) {
+    const verify = scope === "all" ? "artshelf status --all" : "artshelf status";
+    return `repair ${blockers.length} broken ledger(s) above, then re-run \`${verify}\``;
+  }
+  const review = scope === "all" ? "artshelf review --all" : "artshelf review";
+  if (counts.pendingCleanup > 0 || counts.due > 0) {
+    return `run \`${review}\` to preview cleanup plans; nothing is auto-executed`;
+  }
+  if (counts.manualReview > 0) {
+    return `run \`${review}\` to inspect manual-review records; nothing is auto-executed`;
+  }
+  if (counts.missingPath > 0) {
+    return "inspect missing-path records and `artshelf resolve` the ones no longer needed; nothing is auto-executable";
+  }
+  return "nothing due — no broken ledgers and no due, manual-review, missing-path, or pending cleanup entries";
+}
+
+function buildStatusAgentPacketAll(report: StatusReport): StatusAgentPacket {
+  const blockers: string[] = [];
+  if (report.registryError) blockers.push(`registry unreadable: ${report.registryError}`);
+  for (const ledger of report.ledgers) {
+    if (ledger.status !== "ok") {
+      blockers.push(`${ledger.name} ${ledger.status}${ledger.errors.length ? `: ${ledger.errors[0]}` : ""}`);
+    }
+  }
+  const counts: StatusCounts = {
+    active: report.totals.active,
+    due: report.totals.due,
+    manualReview: report.totals.manualReview,
+    missingPath: report.totals.missingPath,
+    kept: report.totals.kept,
+    pendingCleanup: report.totals.pendingCleanup
+  };
+  return {
+    schemaVersion: 1,
+    command: "status",
+    scope: "all",
+    health: report.ok ? "ok" : "attention",
+    registry: { path: report.registryPath, exists: report.registryExists, ok: report.registryOk, error: report.registryError },
+    ledgers: { total: report.totals.ledgers, ok: report.totals.ok, stale: report.totals.stale, invalid: report.totals.invalid },
+    counts,
+    attention: statusAttention(counts),
+    blockers,
+    nextAction: statusNextAction(blockers, counts, "all"),
+    verification: "artshelf status --all --agent"
+  };
+}
+
+function buildStatusAgentPacketSingle(ledger: StatusLedger, ledgerPath: string): StatusAgentPacket {
+  const blockers: string[] = ledger.ok
+    ? []
+    : [`${ledger.status}${ledger.errors.length ? `: ${ledger.errors[0]}` : ""}`];
+  return {
+    schemaVersion: 1,
+    command: "status",
+    scope: "single",
+    health: ledger.ok ? "ok" : "attention",
+    ledgerPath,
+    counts: ledger.counts,
+    attention: statusAttention(ledger.counts),
+    blockers,
+    nextAction: statusNextAction(blockers, ledger.counts, "single"),
+    verification: `artshelf status --agent --ledger ${ledgerPath}`
+  };
 }
 
 function printStatusAll(report: StatusReport): void {
@@ -1113,6 +1216,13 @@ function arrayFlag(parsed: ParsedArgs, name: string): string[] {
 
 function printJson(value: unknown): number {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  return 0;
+}
+
+// Agent/compact surface: a single minified JSON line. The default `--json`
+// stays pretty-printed for audit/debug; agent packets optimize for tokens.
+function printCompactJson(value: unknown): number {
+  process.stdout.write(`${JSON.stringify(value)}\n`);
   return 0;
 }
 
@@ -1596,8 +1706,8 @@ broken registry or registered ledger exits non-zero with actionable errors.
 
   if (command === "status") {
     process.stdout.write(`Usage:
-  artshelf status [--ledger <path>] [--json]
-  artshelf status --all [--registry <path>] [--json]
+  artshelf status [--ledger <path>] [--json|--agent]
+  artshelf status --all [--registry <path>] [--json|--agent]
 
 Status is the lightweight daily "what is going on?" view. Without --all, it
 reports counts for the selected or default ledger only. With --all, it adds
@@ -1605,10 +1715,16 @@ registry health, total ledgers, and aggregated counts across registered ledgers.
 Counts include active artifacts, kept, due, manual-review, missing-path, and
 pending cleanup entries.
 
-Human output is short enough to paste into a chat; \`artshelf status --all --json\`
-is suitable for cron and reporting. Status is read-only: it never creates plans
-or receipts and never mutates records. A healthy selected ledger exits 0; with
---all, a broken registry or any stale or invalid registered ledger exits non-zero.
+Render modes:
+  (default)  Human summary, short enough to paste into a chat.
+  --json     Full audit report (backward-compatible; suitable for cron/reporting).
+  --agent    Compact single-line JSON decision packet for agents: health, counts,
+             attention categories, blockers, next action, and a verify command.
+             Token-efficient; --agent takes precedence over --json.
+
+Status is read-only: it never creates plans or receipts and never mutates
+records. A healthy selected ledger exits 0; with --all, a broken registry or any
+stale or invalid registered ledger exits non-zero.
 `);
     return;
   }

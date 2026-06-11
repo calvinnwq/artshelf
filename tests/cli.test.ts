@@ -2079,6 +2079,111 @@ test("status help explains the command", () => {
   assert.match(help.stdout, /artshelf status/);
   assert.match(help.stdout, /--all/);
   assert.match(help.stdout, /--json/);
+  assert.match(help.stdout, /--agent/);
+});
+
+test("status --all --agent emits a compact deterministic agent packet alongside full --json", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+  const twoLedger = join(fixture, "two", ".artshelf", "ledger.jsonl");
+  const dueArtifact = join(fixture, "due.txt");
+  const reviewArtifact = join(fixture, "review.txt");
+  const keptArtifact = join(fixture, "kept.txt");
+  writeFileSync(dueArtifact, "due");
+  writeFileSync(reviewArtifact, "review");
+  writeFileSync(keptArtifact, "kept");
+
+  artshelf(["put", dueArtifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", oneLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", reviewArtifact, "--reason", "needs eyes", "--manual-review", "--ledger", twoLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", keptArtifact, "--reason", "still kept", "--retain-until", "2026-06-10T00:00:00Z", "--ledger", twoLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["status", "--all", "--registry", registry, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+
+  // Token-efficient: a single compact JSON line, never pretty-printed.
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+  assert.ok(!result.stdout.includes("\n  "), "agent packet must not be pretty-printed");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.command, "status");
+  assert.equal(packet.scope, "all");
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.registry.path, registry);
+  assert.equal(packet.registry.exists, true);
+  assert.equal(packet.registry.ok, true);
+  assert.equal(packet.registry.error, null);
+  assert.deepEqual(packet.ledgers, { total: 2, ok: 2, stale: 0, invalid: 0 });
+
+  // Counts mirror the audited --json totals exactly.
+  assert.deepEqual(packet.counts, { active: 3, due: 1, manualReview: 1, missingPath: 0, kept: 1, pendingCleanup: 2 });
+
+  // Attention names the nonzero actionable categories only, in a stable order.
+  assert.deepEqual(packet.attention, ["due", "manualReview", "pendingCleanup"]);
+  assert.deepEqual(packet.blockers, []);
+  assert.match(packet.nextAction, /review --all/);
+  assert.equal(packet.verification, "artshelf status --all --agent");
+
+  // Backward compatibility: full --json still emits the pretty audit report unchanged.
+  const fullJson = artshelf(["status", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(fullJson.status, 0, fullJson.stderr);
+  assert.ok(fullJson.stdout.includes("\n  "), "--json stays pretty-printed");
+  const fullBody = JSON.parse(fullJson.stdout);
+  assert.equal(fullBody.totals.active, 3);
+  assert.equal(fullBody.totals.pendingCleanup, 2);
+  assert.equal(fullBody.attention, undefined, "full --json must not grow agent-only fields");
+});
+
+test("status --all --agent surfaces broken ledgers as blockers and exits non-zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = artshelf(["status", "--all", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "attention");
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 1);
+  assert.equal(packet.blockers.length, 2);
+  assert.ok(packet.blockers.some((line: string) => /stale/.test(line)));
+  assert.ok(packet.blockers.some((line: string) => /bad/.test(line)));
+  assert.match(packet.nextAction, /repair/i);
+});
+
+test("status --agent reports a single ledger packet without registry aggregates", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const due = join(fixture, "due.txt");
+  writeFileSync(due, "due");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["status", "--ledger", ledger, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.scope, "single");
+  assert.equal(packet.ledgerPath, ledger);
+  assert.equal(packet.registry, undefined);
+  assert.equal(packet.ledgers, undefined);
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.counts.due, 1);
+  assert.equal(packet.counts.pendingCleanup, 1);
+  assert.deepEqual(packet.attention, ["due", "pendingCleanup"]);
+  assert.equal(packet.verification, `artshelf status --agent --ledger ${ledger}`);
 });
 
 function artshelf(args: string[], now?: string, extraEnv: Record<string, string | undefined> = {}): { status: number; stdout: string; stderr: string } {
