@@ -34,6 +34,7 @@ artshelf doctor
 ```
 
 If you used pnpm, update with `pnpm add -g artshelf@latest` instead.
+For source installs, pull, rebuild, and run `npm link` again.
 
 Only use a source install when the user asks for one, and ask the user where
 to clone the repo first instead of assuming a repo path:
@@ -84,9 +85,10 @@ artshelf ledgers list --json
 
 Ask the user whether they want a scheduled review job before creating one.
 If they approve, schedule a read-only review job (daily works well) in your
-host runtime that runs:
+host runtime that disables update checks and runs:
 
 ```bash
+ARTSHELF_NO_UPDATE_CHECK=1 \
 artshelf review --all --json
 ```
 

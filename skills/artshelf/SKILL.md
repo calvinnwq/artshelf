@@ -34,7 +34,6 @@ Check for the CLI first:
 ```bash
 artshelf --version
 artshelf doctor
-artshelf help put
 ```
 
 If missing, install from npm when appropriate:
@@ -43,6 +42,9 @@ If missing, install from npm when appropriate:
 npm install -g artshelf
 artshelf doctor
 ```
+
+Update npm globals with `artshelf update` when a notice appears; use
+`pnpm add -g artshelf@latest` for pnpm or pull/rebuild/`npm link` for source.
 
 For source installs, ask where to clone the repo. Do not hard-code a personal
 repo path or create a custom shim.
@@ -58,8 +60,7 @@ artshelf doctor
 ```
 
 Install, copy, or reference this portable skill only after the user chooses the
-integration path. Offer to schedule read-only review job delivery in the host
-runtime.
+integration path. Offer to schedule read-only review job delivery in the host runtime.
 
 ## Create
 
@@ -109,8 +110,8 @@ artshelf ledgers add --ledger <repo>/.artshelf/ledger.jsonl --name <project> --s
 
 ### Scheduled Review
 
-Scheduled jobs are review/report only. Reports should name the ledger path and
-plan id when attention exists. They may run:
+Scheduled jobs are review/report only. Set `ARTSHELF_NO_UPDATE_CHECK=1` for no
+npm network/cache writes. Reports should name the ledger path and plan ids. They may run:
 
 ```bash
 artshelf validate --json

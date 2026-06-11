@@ -12,7 +12,8 @@ pnpm check
 
 Use both `--ledger <path>` and `--registry <path>` in examples and tests so you
 do not write to your default repo-local/user-global ledger or registry by
-accident.
+accident. Set `ARTSHELF_NO_UPDATE_CHECK=1` when a test or example must avoid
+npm network checks and update-cache writes.
 
 ## Pull Requests
 

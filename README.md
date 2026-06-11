@@ -65,7 +65,9 @@ Artshelf checks npm occasionally and prints a non-blocking notice to stderr when
 a newer published version is available. Run `artshelf update` only for npm
 global installs; it upgrades with `npm install -g artshelf@latest`. pnpm global
 installs should update with `pnpm add -g artshelf@latest`, and source installs
-still update by pulling, rebuilding, and linking the checkout.
+still update by pulling, rebuilding, and linking the checkout. Set
+`ARTSHELF_NO_UPDATE_CHECK=1` for scheduled jobs that must avoid network and
+update-cache writes.
 
 ### Recommended agent setup
 
@@ -129,7 +131,7 @@ artshelf validate [--all]
 artshelf review [--all]
 artshelf status [--all]
 artshelf doctor
-artshelf update
+artshelf update [--json]
 artshelf cleanup --dry-run [--all]
 artshelf cleanup --execute --plan-id <id>
 artshelf trash list [--all] [--ledger <path>] [--json]

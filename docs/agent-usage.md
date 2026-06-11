@@ -44,7 +44,8 @@ The browsable docs split the workflow into focused child pages:
 ## Operating Principles
 
 - Agents remember with the portable skill.
-- Scheduled checks read and report only.
+- Scheduled checks read and report only; set `ARTSHELF_NO_UPDATE_CHECK=1` when
+  they must avoid npm network checks and update-cache writes.
 - Review output is a decision packet, not raw counts.
 - Approval names the exact ledger, plan id, or record ids.
 - Every approved action ends with a read-only verification.
