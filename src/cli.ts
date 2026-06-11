@@ -181,6 +181,10 @@ function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean): numbe
 function handleLedgers(parsed: ParsedArgs, json: boolean): number {
   const action = parsed.positionals[0] ?? "list";
   const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
+  if (action === "help") {
+    printHelp("ledgers");
+    return 0;
+  }
   if (action === "add") {
     const ledgerPath = normalizeLedgerPath(requiredStringFlag(parsed, "ledger"));
     if (!existsSync(ledgerPath)) throw new Error(`Ledger does not exist: ${ledgerPath}`);

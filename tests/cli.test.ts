@@ -77,6 +77,10 @@ test("help and version are useful", () => {
   assert.equal(ledgersShortHelp.status, 0);
   assert.match(ledgersShortHelp.stdout, /Manage the ledger registry\./);
 
+  const ledgersHelpSubcommand = artshelf(["ledgers", "help"]);
+  assert.equal(ledgersHelpSubcommand.status, 0);
+  assert.match(ledgersHelpSubcommand.stdout, /Manage the ledger registry\./);
+
   const updateHelp = artshelf(["help", "update"]);
   assert.equal(updateHelp.status, 0);
   assert.match(updateHelp.stdout, /artshelf update/);
