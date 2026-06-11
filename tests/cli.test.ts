@@ -14,6 +14,7 @@ test("help and version are useful", () => {
   const help = artshelf(["help"]);
   assert.equal(help.status, 0);
   assert.match(help.stdout, new RegExp(`Artshelf ${escapeRegExp(PACKAGE_VERSION)}`));
+  assert.match(help.stdout, /-h, --help\s+Show help for artshelf or a specific command/);
   // Top-level help is short and grouped: it points to per-command help instead of
   // dumping every command variant (NGX-389).
   assert.match(help.stdout, /Available Commands:/);

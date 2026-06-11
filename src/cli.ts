@@ -1419,8 +1419,8 @@ function renderTopLevelHelp(): string {
   lines.push(
     "",
     "Global Options:",
-    "  --help       Show help for artshelf or a specific command",
-    "  --version    Show the Artshelf version",
+    "  -h, --help     Show help for artshelf or a specific command",
+    "  --version      Show the Artshelf version",
     "",
     "Output:",
     "  --json       Emit machine-readable JSON on commands that return data",
