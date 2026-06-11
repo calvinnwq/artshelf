@@ -70,7 +70,7 @@ artshelf ledgers list [--plain] [--json]</code></pre>
           <section class="cmd">
             <div class="cmd-head"><h2>artshelf ledgers add</h2><span class="cmd-flag plan">writes registry</span></div>
             <pre><code><span class="c"># register an existing ledger for --all review</span>
-artshelf ledgers add --ledger &lt;path&gt; [--name &lt;project&gt;] [--scope repo|user|other]</code></pre>
+artshelf ledgers add --ledger &lt;path&gt; [--name &lt;project&gt;] [--scope repo|user|other] [--json]</code></pre>
             <p>
               <code>add</code> registers an existing ledger so Artshelf can review it through one
               entry point; scope is inferred from the path when omitted.
@@ -188,18 +188,51 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
 
           <section class="cmd">
             <div class="cmd-head"><h2>artshelf resolve</h2><span class="cmd-flag plan">writes ledger</span></div>
-            <pre><code>artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code></pre>
+            <pre><code>artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt; [--json]</code></pre>
             <p>Mark a handled, missing, or no-longer-needed record as manually resolved. Updates the ledger only; never moves or deletes files.</p>
           </section>
 
           <section>
-            <h2>Global options</h2>
+            <h2>Global flags</h2>
+            <p>Only these apply to every command.</p>
             <table class="opts">
               <tr><th>option</th><th>meaning</th></tr>
-              <tr><td>--ledger &lt;path&gt;</td><td>use an explicit JSONL ledger</td></tr>
-              <tr><td>--registry &lt;path&gt;</td><td>use an explicit ledger registry</td></tr>
-              <tr><td>--all</td><td>read all registered ledgers for supported commands</td></tr>
-              <tr><td>--json</td><td>emit machine-readable JSON</td></tr>
+              <tr><td>--help</td><td>show help for artshelf or a specific command</td></tr>
+              <tr><td>--version</td><td>show the Artshelf version</td></tr>
+            </table>
+          </section>
+
+          <section>
+            <h2>Output mode</h2>
+            <p>
+              <code>--json</code> is the agent contract: it switches commands that return data,
+              records, plans, receipts, or health output to machine-readable JSON on stdout.
+              Update notices and other diagnostics stay on stderr and never corrupt JSON output.
+            </p>
+            <table class="opts">
+              <tr><th>option</th><th>meaning</th></tr>
+              <tr><td>--json</td><td>emit machine-readable JSON on commands that return data</td></tr>
+            </table>
+          </section>
+
+          <section>
+            <h2>Scope flags (command-specific)</h2>
+            <p>
+              These select which ledger or registry a command reads or writes. They are not
+              universal global flags; each only applies to the commands that support it.
+            </p>
+            <table class="opts">
+              <tr><th>option</th><th>meaning</th></tr>
+              <tr><td>--ledger &lt;path&gt;</td><td>target an explicit JSONL ledger</td></tr>
+              <tr><td>--registry &lt;path&gt;</td><td>target an explicit ledger registry</td></tr>
+              <tr><td>--all</td><td>read every registered ledger on commands that support discovery (<code>review</code>, <code>status</code>, <code>due</code>, <code>trash list</code>, <code>find</code>)</td></tr>
+            </table>
+          </section>
+
+          <section>
+            <h2>Environment</h2>
+            <table class="opts">
+              <tr><th>variable</th><th>meaning</th></tr>
               <tr><td>ARTSHELF_REGISTRY</td><td>override the default ledger registry path</td></tr>
               <tr><td>ARTSHELF_NOW</td><td>override current time for retention and due calculations</td></tr>
               <tr><td>ARTSHELF_NO_UPDATE_CHECK=1</td><td>disable automatic npm update checks</td></tr>

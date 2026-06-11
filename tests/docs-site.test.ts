@@ -300,6 +300,62 @@ test("docs site explains cleanup approval boundary", () => {
   assert.match(pages, /artshelf trash purge --execute --plan-id &lt;id&gt; \[--ledger/);
 });
 
+test("reference docs classify scope and output flags instead of one global options bucket", () => {
+  const reference = read("docs/reference.html");
+
+  // The flat "Global options" bucket that mixed scope flags, --json, and env
+  // vars is gone; flags are grouped by what they actually do.
+  assert.doesNotMatch(reference, /<h2>Global options<\/h2>/);
+
+  // --json is presented as a machine-readable output mode, not boilerplate.
+  assert.match(reference, /<h2>Output mode<\/h2>/);
+  assert.match(reference, /--json/);
+
+  // --ledger/--registry/--all are command-specific scope flags, not universal globals.
+  assert.match(reference, /<h2>Scope flags \(command-specific\)<\/h2>/);
+  const scopeSection = reference.slice(
+    reference.indexOf("Scope flags (command-specific)"),
+    reference.indexOf("Scope flags (command-specific)") + 700
+  );
+  assert.match(scopeSection, /--ledger/);
+  assert.match(scopeSection, /--registry/);
+  assert.match(scopeSection, /--all/);
+
+  // Only --help/--version remain documented as truly global flags.
+  assert.match(reference, /<h2>Global flags<\/h2>/);
+  const globalSection = reference.slice(
+    reference.indexOf("<h2>Global flags</h2>"),
+    reference.indexOf("<h2>Global flags</h2>") + 400
+  );
+  assert.match(globalSection, /--help/);
+  assert.match(globalSection, /--version/);
+
+  // Environment variables stay documented under their own heading.
+  assert.match(reference, /<h2>Environment<\/h2>/);
+  assert.match(reference, /ARTSHELF_REGISTRY/);
+  assert.match(reference, /ARTSHELF_NO_UPDATE_CHECK/);
+});
+
+test("reference docs and SPEC document --json on every machine-readable command", () => {
+  const reference = read("docs/reference.html");
+  const spec = read("SPEC.md");
+
+  // SPEC's ledgers section returned data agents parse but never showed --json,
+  // unlike the CLI focused help and the agent skill. Document it for list and add.
+  const specLedgers = spec.slice(
+    spec.indexOf("### `artshelf ledgers`"),
+    spec.indexOf("### `artshelf list`")
+  );
+  assert.match(specLedgers, /artshelf ledgers list --json/);
+  assert.match(specLedgers, /artshelf ledgers add .*--json/);
+
+  // reference.html dedicated command snippets must not drop --json where the
+  // command returns data: ledgers add and resolve previously omitted it while
+  // ledgers list and the other data commands carried it.
+  assert.match(reference, /artshelf ledgers add[^<]*\[--json\]/);
+  assert.match(reference, /artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt; \[--json\]/);
+});
+
 test("docs menu keeps the reference section focused on user-facing pages", () => {
   for (const page of DOC_PAGES) {
     const html = read(page);

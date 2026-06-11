@@ -79,8 +79,9 @@ Lists or registers known Artshelf ledgers.
 
 ```bash
 artshelf ledgers list
+artshelf ledgers list --json
 artshelf ledgers list --plain
-artshelf ledgers add --ledger <path> --name <project> --scope repo
+artshelf ledgers add --ledger <path> --name <project> --scope repo --json
 ```
 
 Rules:
