@@ -1051,6 +1051,10 @@ function parseArgs(argv: string[]): ParsedArgs {
   for (let index = 0; index < rest.length; index += 1) {
     const arg = rest[index];
     if (!arg) continue;
+    if (arg === "-h") {
+      flags.set("help", true);
+      continue;
+    }
     if (!arg.startsWith("--")) {
       positionals.push(arg);
       continue;
@@ -1433,11 +1437,6 @@ function renderTopLevelHelp(): string {
 }
 
 function printHelp(command = ""): void {
-  if (!command) {
-    process.stdout.write(renderTopLevelHelp());
-    return;
-  }
-
   if (command === "put") {
     process.stdout.write(`Usage:
   artshelf put <path> --reason <text> (--ttl <ttl>|--retain-until <date>|--manual-review) [options]
