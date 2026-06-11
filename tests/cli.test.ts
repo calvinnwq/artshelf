@@ -67,7 +67,7 @@ test("commands surface an available update on stderr without breaking JSON stdou
   assert.equal(result.status, 0, result.stderr);
   assert.equal(JSON.parse(result.stdout).ok, true);
   assert.match(result.stderr, new RegExp(`A new version of artshelf is available: v${escapeRegExp(PACKAGE_VERSION)} -> v99\\.0\\.0`));
-  assert.match(result.stderr, /Run "artshelf update" to update/);
+  assert.match(result.stderr, /Run "artshelf update" to update npm installs/);
 });
 
 test("commands stay quiet when the current version is the latest", () => {
@@ -101,6 +101,50 @@ test("update dry-run reports the npm update command", () => {
   assert.equal(body.ok, true);
   assert.equal(body.dryRun, true);
   assert.deepEqual(body.command, ["npm", "install", "-g", "artshelf@latest"]);
+});
+
+test("update json returns the installer exit code on failure", () => {
+  const fixture = fixtureDir();
+  const bin = join(fixture, "bin");
+  mkdirSync(bin, { recursive: true });
+  const npm = join(bin, "npm");
+  writeFileSync(npm, "#!/bin/sh\nprintf 'fake stdout\\n'\nprintf 'fake stderr\\n' >&2\nexit 17\n");
+  chmodSync(npm, 0o755);
+
+  const result = artshelf(["update", "--json"], undefined, {
+    ARTSHELF_LATEST_VERSION: "99.0.0",
+    PATH: `${bin}:${process.env.PATH ?? ""}`
+  });
+
+  assert.equal(result.status, 17);
+  const body = JSON.parse(result.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.updated, false);
+  assert.match(body.stdout, /fake stdout/);
+  assert.match(body.stderr, /fake stderr/);
+});
+
+test("failed update checks are cached for the TTL", () => {
+  const fixture = fixtureDir();
+  const cache = join(fixture, "update-cache.json");
+  const env = {
+    ARTSHELF_NO_UPDATE_CHECK: undefined,
+    ARTSHELF_NPM_REGISTRY_URL: "http://127.0.0.1:1/artshelf/latest",
+    ARTSHELF_UPDATE_CACHE: cache,
+    ARTSHELF_UPDATE_CHECK_TTL_MS: "60000"
+  };
+
+  const first = artshelf(["--version"], undefined, env);
+  assert.equal(first.status, 0, first.stderr);
+  const failedCache = JSON.parse(readFileSync(cache, "utf8"));
+  assert.equal(failedCache.latest, null);
+  assert.equal(typeof failedCache.checkedAt, "number");
+
+  const checkedAt = Date.now();
+  writeFileSync(cache, `${JSON.stringify({ latest: null, checkedAt }, null, 2)}\n`);
+  const second = artshelf(["--version"], undefined, env);
+  assert.equal(second.status, 0, second.stderr);
+  assert.equal(JSON.parse(readFileSync(cache, "utf8")).checkedAt, checkedAt);
 });
 
 test("unknown flags fail with a usage hint", () => {

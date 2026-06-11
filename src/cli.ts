@@ -31,7 +31,7 @@ import type { CleanupPlan, DueEntry, ArtshelfRecord } from "./types.js";
 
 const VERSION = readPackageVersion();
 const PACKAGE_NAME = "artshelf";
-const NPM_REGISTRY_URL = `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
+const NPM_REGISTRY_URL = process.env.ARTSHELF_NPM_REGISTRY_URL ?? `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
 const BOOLEAN_FLAGS = new Set(["all", "json", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
@@ -909,7 +909,7 @@ async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> 
     : spawnSync("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { stdio: "inherit" });
   const status = result.status ?? 1;
   if (json) {
-    return printJson({
+    printJson({
       ok: status === 0,
       updated: status === 0,
       current: info.current,
@@ -917,6 +917,7 @@ async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> 
       stdout: typeof result.stdout === "string" ? result.stdout : "",
       stderr: typeof result.stderr === "string" ? result.stderr : ""
     });
+    return status;
   }
   if (status === 0) process.stdout.write(`artshelf updated to v${info.latest}\n`);
   return status;
@@ -928,7 +929,7 @@ async function maybeNotifyAvailableUpdate(parsed: ParsedArgs): Promise<void> {
   const info = await getUpdateInfo({ force: false });
   if (!info?.updateAvailable) return;
   process.stderr.write(`A new version of artshelf is available: v${info.current} -> v${info.latest}\n`);
-  process.stderr.write(`Run "artshelf update" to update\n`);
+  process.stderr.write(`Run "artshelf update" to update npm installs\n`);
 }
 
 async function getUpdateInfo(options: { force: boolean }): Promise<UpdateInfo | null> {
@@ -946,29 +947,30 @@ async function getLatestVersion(options: { force: boolean }): Promise<string | n
   if (override) return normalizeVersion(override);
   if (!options.force) {
     const cached = readUpdateCache();
-    if (cached) return cached;
+    if (cached) return cached.latest;
   }
   const latest = await fetchLatestNpmVersion();
-  if (latest) writeUpdateCache(latest);
+  writeUpdateCache(latest);
   return latest;
 }
 
-function readUpdateCache(): string | null {
+function readUpdateCache(): { latest: string | null } | null {
   const ttl = Number(process.env.ARTSHELF_UPDATE_CHECK_TTL_MS ?? UPDATE_CHECK_TTL_MS);
   if (ttl < 0) return null;
   const cachePath = updateCachePath();
   if (!existsSync(cachePath)) return null;
   try {
     const cache = JSON.parse(readFileSync(cachePath, "utf8"));
-    if (typeof cache.latest !== "string" || typeof cache.checkedAt !== "number") return null;
+    if (cache.latest !== null && typeof cache.latest !== "string") return null;
+    if (typeof cache.checkedAt !== "number") return null;
     if (Date.now() - cache.checkedAt > ttl) return null;
-    return normalizeVersion(cache.latest);
+    return { latest: cache.latest === null ? null : normalizeVersion(cache.latest) };
   } catch {
     return null;
   }
 }
 
-function writeUpdateCache(latest: string): void {
+function writeUpdateCache(latest: string | null): void {
   try {
     const cachePath = updateCachePath();
     const dir = dirname(cachePath);
@@ -1476,9 +1478,12 @@ or receipts and never mutates records. A healthy selected ledger exits 0; with
 
 Update checks compare the current CLI version with the latest published npm
 version. Normal commands may print a non-blocking update notice to stderr when a
-newer version is available. Run update to install the latest published package:
+newer version is available. Run update to upgrade npm global installs only:
 
   npm install -g artshelf@latest
+
+pnpm global installs should update with pnpm add -g artshelf@latest; source
+installs should update by pulling, rebuilding, and linking the checkout.
 `);
     return;
   }

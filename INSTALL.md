@@ -24,14 +24,16 @@ artshelf --version
 artshelf doctor
 ```
 
-If Artshelf says a newer version is available, update the npm install and verify
-again:
+If Artshelf says a newer version is available and you used npm, update the npm
+install and verify again:
 
 ```bash
 artshelf update
 artshelf --version
 artshelf doctor
 ```
+
+If you used pnpm, update with `pnpm add -g artshelf@latest` instead.
 
 Only use a source install when the user asks for one, and ask the user where
 to clone the repo first instead of assuming a repo path:

@@ -136,8 +136,10 @@ artshelf update [--json]</code></pre>
             <p>
               Normal commands may print a non-blocking notice to stderr when npm has a
               newer published version. <code>artshelf update</code> runs
-              <code>npm install -g artshelf@latest</code>. Source installs should update
-              by pulling, rebuilding, and linking the checkout.
+              <code>npm install -g artshelf@latest</code> and is for npm global installs
+              only. pnpm global installs should update with
+              <code>pnpm add -g artshelf@latest</code>. Source installs should update by
+              pulling, rebuilding, and linking the checkout.
             </p>
           </section>
 

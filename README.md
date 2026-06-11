@@ -38,7 +38,7 @@ pnpm add -g artshelf
 artshelf --version
 artshelf doctor
 
-# later
+# later, for npm installs
 artshelf update
 ```
 
@@ -62,9 +62,10 @@ install with `npm unlink -g artshelf`.
 </details>
 
 Artshelf checks npm occasionally and prints a non-blocking notice to stderr when
-a newer published version is available. Run `artshelf update` to upgrade an npm
-install with `npm install -g artshelf@latest`; source installs still update by
-pulling, rebuilding, and linking the checkout.
+a newer published version is available. Run `artshelf update` only for npm
+global installs; it upgrades with `npm install -g artshelf@latest`. pnpm global
+installs should update with `pnpm add -g artshelf@latest`, and source installs
+still update by pulling, rebuilding, and linking the checkout.
 
 ### Recommended agent setup
 
