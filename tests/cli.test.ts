@@ -1896,6 +1896,102 @@ test("doctor help explains the command", () => {
   assert.equal(help.status, 0);
   assert.match(help.stdout, /artshelf doctor/);
   assert.match(help.stdout, /--json/);
+  assert.match(help.stdout, /--agent/);
+});
+
+test("doctor --agent emits a compact deterministic decision packet alongside full --json", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 0, result.stderr);
+
+  // Token-efficient: a single compact JSON line, never pretty-printed.
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+  assert.ok(!result.stdout.includes("\n  "), "agent packet must not be pretty-printed");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.command, "doctor");
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.version, PACKAGE_VERSION);
+  assert.equal(typeof packet.node, "string");
+  assert.equal(packet.registry.path, registry);
+  assert.equal(packet.registry.exists, true);
+  assert.equal(packet.registry.ok, true);
+  assert.equal(packet.registry.error, null);
+  assert.deepEqual(packet.ledgers, { total: 1, ok: 1, stale: 0, invalid: 0, warnings: 0 });
+  assert.deepEqual(packet.attention, []);
+  assert.deepEqual(packet.blockers, []);
+  // Cleanup-safety posture travels with the agent packet so a model can confirm it.
+  assert.deepEqual(packet.cleanupSafety, {
+    executeRequiresLedgerAndPlanId: true,
+    globalExecuteRefused: true,
+    deleteRefusedInV1: true,
+    dryRunBeforeMutation: true
+  });
+  assert.match(packet.nextAction, /healthy/i);
+  assert.equal(packet.verification, "artshelf doctor --agent");
+
+  // Backward compatibility: full --json still emits the pretty audit report unchanged.
+  const fullJson = artshelf(["doctor", "--registry", registry, "--json"]);
+  assert.equal(fullJson.status, 0, fullJson.stderr);
+  assert.ok(fullJson.stdout.includes("\n  "), "--json stays pretty-printed");
+  const fullBody = JSON.parse(fullJson.stdout);
+  assert.equal(fullBody.summary.ledgers, 1);
+  assert.equal(fullBody.attention, undefined, "full --json must not grow agent-only fields");
+  assert.equal(fullBody.nextAction, undefined, "full --json must not grow agent-only fields");
+  assert.equal(fullBody.schemaVersion, undefined, "full --json must not grow agent-only fields");
+});
+
+test("doctor --agent surfaces broken registry entries as blockers and exits non-zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "attention");
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 1);
+  assert.deepEqual(packet.attention, ["stale", "invalid"]);
+  assert.equal(packet.blockers.length, 2);
+  assert.ok(packet.blockers.some((line: string) => /stale/.test(line)));
+  assert.ok(packet.blockers.some((line: string) => /bad/.test(line)));
+  assert.match(packet.nextAction, /repair/i);
+});
+
+test("doctor --agent flags warnings as attention while the machine stays healthy", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "vanishing", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
+  rmSync(artifact); // active record now points at a missing path -> warning, not an error
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "ok"); // warnings never fail the machine
+  assert.equal(packet.ledgers.warnings, 1);
+  assert.deepEqual(packet.attention, ["warnings"]);
+  assert.deepEqual(packet.blockers, []);
+  assert.match(packet.nextAction, /validate --all/);
 });
 
 test("status --all --json aggregates registry health and ledger counts for cron", () => {

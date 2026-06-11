@@ -629,6 +629,10 @@ type DoctorReport = {
 
 function handleDoctor(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   const report = buildDoctorReport(ledgerPath, normalizeRegistryPath(stringFlag(parsed, "registry")));
+  if (boolFlag(parsed, "agent")) {
+    printCompactJson(buildDoctorAgentPacket(report));
+    return report.ok ? 0 : 1;
+  }
   if (json) {
     printJson(report);
     return report.ok ? 0 : 1;
@@ -695,6 +699,77 @@ function buildDoctorReport(ledgerPath: string, registryPath: string): DoctorRepo
       dryRunBeforeMutation: true
     },
     errors
+  };
+}
+
+// Agent render: a compact, deterministic decision packet for `doctor`. It keeps
+// the audited registry/ledger health intact while naming the actionable
+// categories, the exact blockers, the cleanup-safety posture, the next safe
+// action, and the command an agent can re-run to verify. Existing `--json` stays
+// the full audit report; this is a separate, token-efficient surface.
+type DoctorAgentPacket = {
+  schemaVersion: 1;
+  command: "doctor";
+  health: "ok" | "attention";
+  version: string;
+  node: string;
+  ledgerPath: string;
+  registry: { path: string; exists: boolean; ok: boolean; error: string | null };
+  ledgers: { total: number; ok: number; stale: number; invalid: number; warnings: number };
+  attention: string[];
+  blockers: string[];
+  cleanupSafety: DoctorReport["cleanupSafety"];
+  nextAction: string;
+  verification: string;
+};
+
+// Actionable categories only — ok ledgers are healthy states, never attention.
+// Order is fixed so the packet is byte-for-byte deterministic. Warnings surface
+// even when health is ok (they never fail the machine), mirroring status attention.
+const DOCTOR_ATTENTION_CATEGORIES: ReadonlyArray<keyof DoctorReport["summary"]> = ["stale", "invalid", "warnings"];
+
+function doctorAttention(summary: DoctorReport["summary"]): string[] {
+  return DOCTOR_ATTENTION_CATEGORIES.filter((key) => summary[key] > 0);
+}
+
+function doctorNextAction(blockers: string[], summary: DoctorReport["summary"]): string {
+  if (blockers.length > 0) {
+    return `repair ${blockers.length} registry/ledger issue(s) above, then re-run \`artshelf doctor\``;
+  }
+  if (summary.warnings > 0) {
+    return `healthy, but ${summary.warnings} warning(s) noted — run \`artshelf validate --all\` to inspect; nothing is auto-executed`;
+  }
+  return "artshelf is healthy on this machine — cleanup safety enforced; no action needed";
+}
+
+function buildDoctorAgentPacket(report: DoctorReport): DoctorAgentPacket {
+  const blockers: string[] = [];
+  if (report.registryError) blockers.push(`registry unreadable: ${report.registryError}`);
+  for (const ledger of report.ledgers) {
+    if (ledger.status !== "ok") {
+      blockers.push(`${ledger.name} ${ledger.status}${ledger.errors.length ? `: ${ledger.errors[0]}` : ""}`);
+    }
+  }
+  return {
+    schemaVersion: 1,
+    command: "doctor",
+    health: report.ok ? "ok" : "attention",
+    version: report.version,
+    node: report.node,
+    ledgerPath: report.ledgerPath,
+    registry: { path: report.registryPath, exists: report.registryExists, ok: report.registryOk, error: report.registryError },
+    ledgers: {
+      total: report.summary.ledgers,
+      ok: report.summary.ok,
+      stale: report.summary.stale,
+      invalid: report.summary.invalid,
+      warnings: report.summary.warnings
+    },
+    attention: doctorAttention(report.summary),
+    blockers,
+    cleanupSafety: report.cleanupSafety,
+    nextAction: doctorNextAction(blockers, report.summary),
+    verification: "artshelf doctor --agent"
   };
 }
 
@@ -1688,7 +1763,7 @@ With --all, review adds aggregate triage counts and the next safe action.
 
   if (command === "doctor") {
     process.stdout.write(`Usage:
-  artshelf doctor [--registry <path>] [--ledger <path>] [--json]
+  artshelf doctor [--registry <path>] [--ledger <path>] [--json|--agent]
 
 Doctor reports whether Artshelf is healthy on this machine: CLI version, selected
 or default ledger path, selected or global registry path, registered ledger health
@@ -1696,6 +1771,14 @@ or default ledger path, selected or global registry path, registered ledger heal
 selected or default ledger and still requires a reviewed plan id; --all execute
 and cleanup=delete are refused, while physical trash purge requires a separate
 reviewed purge plan.
+
+Render modes:
+  (default)  Human summary of machine health and cleanup safety.
+  --json     Full audit report (backward-compatible; suitable for cron/reporting).
+  --agent    Compact single-line JSON decision packet for agents: health, registry
+             and registered-ledger health, blockers, cleanup-safety posture, next
+             action, and a verify command. Token-efficient; --agent takes
+             precedence over --json.
 
 Run it after install, when --all commands behave unexpectedly, or on a schedule to
 catch stale registry entries. Doctor is read-only. A healthy machine exits 0; a
