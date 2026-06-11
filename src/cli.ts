@@ -1055,6 +1055,10 @@ function parseArgs(argv: string[]): ParsedArgs {
       flags.set("help", true);
       continue;
     }
+    if (arg === "-v") {
+      flags.set("version", true);
+      continue;
+    }
     if (!arg.startsWith("--")) {
       positionals.push(arg);
       continue;
@@ -1420,7 +1424,7 @@ function renderTopLevelHelp(): string {
     "",
     "Global Options:",
     "  -h, --help     Show help for artshelf or a specific command",
-    "  --version      Show the Artshelf version",
+    "  -v, --version  Show the Artshelf version",
     "",
     "Output:",
     "  --json       Emit machine-readable JSON on commands that return data",

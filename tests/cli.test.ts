@@ -85,6 +85,14 @@ test("help and version are useful", () => {
   const version = artshelf(["--version"]);
   assert.equal(version.status, 0);
   assert.equal(version.stdout, `artshelf ${PACKAGE_VERSION}\n`);
+
+  const shortVersion = artshelf(["-v"]);
+  assert.equal(shortVersion.status, 0);
+  assert.equal(shortVersion.stdout, `artshelf ${PACKAGE_VERSION}\n`);
+
+  const commandShortVersion = artshelf(["trash", "-v"]);
+  assert.equal(commandShortVersion.status, 0);
+  assert.equal(commandShortVersion.stdout, `artshelf ${PACKAGE_VERSION}\n`);
 });
 
 test("top-level help groups commands and reclassifies scope flags", () => {
@@ -104,7 +112,7 @@ test("top-level help groups commands and reclassifies scope flags", () => {
   assert.match(help.stdout, /\n\s+trash\s+\S/);
 
   // Only --help/--version are global; --json is presented as an output mode.
-  assert.match(help.stdout, /Global Options:[\s\S]*--help[\s\S]*--version/);
+  assert.match(help.stdout, /Global Options:[\s\S]*-h, --help[\s\S]*-v, --version/);
   assert.match(help.stdout, /Output:\n\s+--json\s+Emit machine-readable JSON/);
 
   // --ledger/--registry/--all are reclassified as command-specific scope flags,
