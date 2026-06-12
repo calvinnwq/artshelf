@@ -766,7 +766,6 @@ function buildDoctorAgentPacket(report: DoctorReport): DoctorAgentPacket {
 // obvious at a glance — ✓ clear, ⚠ needs attention. Plain Unicode (no ANSI
 // color) keeps redirected/piped human output clean, and the `--agent`/`--json`
 // renders never carry glyphs (those stay machine contracts).
-const HUMAN_OK_GLYPH = "✓";
 const HUMAN_ATTENTION_GLYPH = "⚠";
 
 
@@ -1052,12 +1051,6 @@ function printStatusSingle(ledger: StatusLedger): void {
     for (const message of ledger.errors) process.stdout.write(`error: ${message}\n`);
   }
 }
-
-type UpdateInfo = {
-  current: string;
-  latest: string;
-  updateAvailable: boolean;
-};
 
 async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> {
   if (parsed.positionals.length > 0) throw new Error("update does not accept positional arguments");
@@ -1545,5 +1538,3 @@ function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: string):
     verification: `artshelf review --agent --ledger ${ledgerPath}`
   };
 }
-
-// Static help metadata. Keep the top-level help generated from this table so the
