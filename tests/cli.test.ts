@@ -2372,6 +2372,7 @@ test("status --agent reports a single ledger packet without registry aggregates"
   assert.equal(packet.counts.due, 1);
   assert.equal(packet.counts.pendingCleanup, 1);
   assert.deepEqual(packet.attention, ["due", "pendingCleanup"]);
+  assert.match(packet.nextAction, new RegExp(`artshelf review --ledger ${escapeRegExp(ledger)}`));
   assert.equal(packet.verification, `artshelf status --agent --ledger ${ledger}`);
 });
 
@@ -2547,9 +2548,9 @@ test("review --agent single-ledger next action stays single-scoped, never regist
   assert.equal(packet.scope, "single");
   assert.ok(packet.counts.executable > 0, "the due trash artifact is cleanup-eligible");
   // A single-ledger review reviewed one (unregistered) ledger, so its guidance must
-  // not point the agent at registry-wide commands that act on every ledger.
+  // not point the agent at registry-wide or default-ledger commands.
   assert.doesNotMatch(packet.nextAction, /--all/, packet.nextAction);
-  assert.match(packet.nextAction, /artshelf cleanup --dry-run`/);
+  assert.match(packet.nextAction, new RegExp(`artshelf cleanup --dry-run --ledger ${escapeRegExp(ledger)}`));
 });
 
 test("review --agent single-ledger blocked decision is single-scoped, not registry-wide", () => {
@@ -2572,6 +2573,7 @@ test("review --agent single-ledger blocked decision is single-scoped, not regist
   assert.match(blocked.nextStep, /re-run `artshelf review`/);
   assert.doesNotMatch(packet.nextAction, /--all/, packet.nextAction);
   assert.doesNotMatch(packet.nextAction, /re-register/, packet.nextAction);
+  assert.match(packet.nextAction, new RegExp(`artshelf review --ledger ${escapeRegExp(ledger)}`));
 });
 
 function artshelf(args: string[], now?: string, extraEnv: Record<string, string | undefined> = {}): { status: number; stdout: string; stderr: string } {

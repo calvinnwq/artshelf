@@ -978,12 +978,17 @@ function statusAttention(counts: StatusCounts): string[] {
   return STATUS_ATTENTION_CATEGORIES.filter((key) => counts[key] > 0);
 }
 
-function statusNextAction(blockers: string[], counts: StatusCounts, scope: "all" | "single"): string {
+function statusCommand(scope: "all" | "single", command: "status" | "review", ledgerPath?: string): string {
+  if (scope === "all") return `artshelf ${command} --all`;
+  return ledgerPath ? `artshelf ${command} --ledger ${ledgerPath}` : `artshelf ${command}`;
+}
+
+function statusNextAction(blockers: string[], counts: StatusCounts, scope: "all" | "single", ledgerPath?: string): string {
   if (blockers.length > 0) {
-    const verify = scope === "all" ? "artshelf status --all" : "artshelf status";
+    const verify = statusCommand(scope, "status", ledgerPath);
     return `repair ${blockers.length} broken ledger(s) above, then re-run \`${verify}\``;
   }
-  const review = scope === "all" ? "artshelf review --all" : "artshelf review";
+  const review = statusCommand(scope, "review", ledgerPath);
   if (counts.pendingCleanup > 0 || counts.due > 0) {
     return `run \`${review}\` to preview cleanup plans; nothing is auto-executed`;
   }
@@ -1040,7 +1045,7 @@ function buildStatusAgentPacketSingle(ledger: StatusLedger, ledgerPath: string):
     counts: ledger.counts,
     attention: statusAttention(ledger.counts),
     blockers,
-    nextAction: statusNextAction(blockers, ledger.counts, "single"),
+    nextAction: statusNextAction(blockers, ledger.counts, "single", ledgerPath),
     verification: `artshelf status --agent --ledger ${ledgerPath}`
   };
 }
@@ -1505,15 +1510,15 @@ function summarizeReview(results: ReviewResult[]): ReviewSummary {
   return summary;
 }
 
-function reviewNextAction(summary: ReviewSummary, scope: "all" | "single"): string {
+function reviewNextAction(summary: ReviewSummary, scope: "all" | "single", ledgerPath?: string): string {
   const broken = summary.invalid + summary.stale;
-  const review = scope === "all" ? "artshelf review --all" : "artshelf review";
+  const review = statusCommand(scope, "review", ledgerPath);
   if (broken > 0) {
     const repair = scope === "all" ? "re-register or fix the file" : "fix the file";
     return `repair ${broken} broken ledger(s) above (${repair}), then re-run \`${review}\``;
   }
   if (summary.executable > 0) {
-    const dryRun = scope === "all" ? "artshelf cleanup --dry-run --all" : "artshelf cleanup --dry-run";
+    const dryRun = scope === "all" ? "artshelf cleanup --dry-run --all" : `artshelf cleanup --dry-run${ledgerPath ? ` --ledger ${ledgerPath}` : ""}`;
     return `run \`${dryRun}\` to generate plans, then \`artshelf cleanup --execute --plan-id <id> --ledger <path>\` for each reviewed plan`;
   }
   if (summary.missingPath > 0) {
@@ -1734,7 +1739,7 @@ function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: string):
     needsReviewFirst: groups.needsReviewFirst,
     blocked: groups.blocked,
     safety: REVIEW_SAFETY,
-    nextAction: reviewNextAction(summary, "single"),
+    nextAction: reviewNextAction(summary, "single", ledgerPath),
     verification: `artshelf review --agent --ledger ${ledgerPath}`
   };
 }
