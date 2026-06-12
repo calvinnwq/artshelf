@@ -980,6 +980,7 @@ test("single ledger review treats a missing ledger as empty", () => {
   const body = JSON.parse(result.stdout);
   assert.equal(body.ok, true);
   assert.equal(body.ledger.validate.entries, 0);
+  assert.equal(body.ledger.ledgerExists, undefined);
   assert.equal(body.ledger.plan.entries.length, 0);
   assert.equal(body.ledger.plan.planId, "not-created");
   assert.equal(body.ledger.plan.planPath, null);
@@ -1029,6 +1030,8 @@ test("review --all --json summarizes triage counts while preserving per-ledger d
   assert.ok(one);
   assert.ok(two);
   assert.equal(one.validate.ok, true);
+  assert.equal(one.ledgerExists, undefined);
+  assert.equal(two.ledgerExists, undefined);
   assert.equal(one.plan.entries.length, 1);
   assert.equal(one.due.length, 1);
   assert.equal(two.plan.entries.length, 1);
@@ -2589,6 +2592,7 @@ test("review --all --agent emits a compact deterministic decision packet alongsi
   assert.ok(fullJson.stdout.includes("\n  "), "--json stays pretty-printed");
   const fullBody = JSON.parse(fullJson.stdout);
   assert.equal(fullBody.summary.executable, 2);
+  assert.equal(fullBody.ledgers[0].ledgerExists, undefined);
   assert.equal(fullBody.decisionSummary, undefined, "full --json must not grow agent-only fields");
   assert.equal(fullBody.readyForApproval, undefined);
 });

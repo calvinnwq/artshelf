@@ -566,7 +566,7 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     }
     const nextAction = reviewNextAction(summary, "all");
     if (json) {
-      printJson({ ok, registryPath, summary, nextAction, ledgers: results });
+      printJson({ ok, registryPath, summary, nextAction, ledgers: results.map(reviewJsonResult) });
       return ok ? 0 : 1;
     }
     printReviewAll(results, summary, nextAction, registryPath);
@@ -579,7 +579,7 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     return result.validate.ok ? 0 : 1;
   }
   if (json) {
-    printJson({ ok: result.validate.ok, ledger: result });
+    printJson({ ok: result.validate.ok, ledger: reviewJsonResult(result) });
     return result.validate.ok ? 0 : 1;
   }
   printReview([result]);
@@ -887,6 +887,11 @@ function reviewLedger(ledger: LedgerRegistryEntry, registered = true): ReviewRes
     due: dueEntries(readLedger(ledger.path)),
     plan: previewCleanupPlan(ledger.path)
   };
+}
+
+function reviewJsonResult(result: ReviewResult): Omit<ReviewResult, "ledgerExists"> {
+  const { ledgerExists: _ledgerExists, ...jsonResult } = result;
+  return jsonResult;
 }
 
 function emptyReviewPlan(ledgerPath: string): CleanupPlan {
