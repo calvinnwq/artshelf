@@ -80,6 +80,14 @@
   (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility), and a
   non-numeric TTL value falls back to the default instead of disabling expiry.
 
+## [0.10.1](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.0...artshelf-v0.10.1) (2026-06-12)
+
+
+### Bug Fixes
+
+* **cli:** shorten no-update cache TTL for update checks ([d41e49e](https://github.com/calvinnwq/artshelf/commit/d41e49e7d5da02dfaa86fb70eaa7d5e7fb3d543e))
+* **cli:** split update-check cache TTL so new releases surface sooner ([5afcfaa](https://github.com/calvinnwq/artshelf/commit/5afcfaafac4941b71f6a84c694139a64774a1d59))
+
 ## [0.10.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.9.0...artshelf-v0.10.0) (2026-06-12)
 
 
