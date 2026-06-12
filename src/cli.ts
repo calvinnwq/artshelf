@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import { readFileSync } from "node:fs";
 import { maybeNotifyAvailableUpdate, runCommand } from "./commands/index.js";
+import { formatCliError } from "./shared/errors.js";
 
 const VERSION = readPackageVersion();
 const BOOLEAN_FLAGS = new Set(["all", "json", "agent", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
@@ -63,7 +64,7 @@ async function main(argv: string[]): Promise<number> {
     if (!shouldCheckForUpdate) return status;
     return maybeNotifyUpdateAndReturn(status, parsed);
   } catch (error) {
-    process.stderr.write(`artshelf: ${(error as Error).message}\nRun \`artshelf help\` for usage.\n`);
+    process.stderr.write(formatCliError(error));
     return 1;
   }
 }
@@ -548,6 +549,6 @@ main(process.argv.slice(2))
     process.exitCode = status;
   })
   .catch((error) => {
-    process.stderr.write(`artshelf: ${(error as Error).message}\nRun \`artshelf help\` for usage.\n`);
+    process.stderr.write(formatCliError(error));
     process.exitCode = 1;
   });

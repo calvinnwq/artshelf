@@ -27,6 +27,8 @@ import {
 } from "../registry.js";
 import type { LedgerRegistryEntry } from "../registry.js";
 import type { CleanupPlan, DueEntry, ArtshelfRecord } from "../types.js";
+import { attentionGlyph } from "../renderers/attention.js";
+import { printCompactJson, printJson } from "../renderers/json.js";
 
 const BOOLEAN_FLAGS = new Set(["all", "json", "agent", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
@@ -805,9 +807,6 @@ function buildDoctorAgentPacket(report: DoctorReport): DoctorAgentPacket {
 const HUMAN_OK_GLYPH = "✓";
 const HUMAN_ATTENTION_GLYPH = "⚠";
 
-function attentionGlyph(needsAttention: boolean): string {
-  return needsAttention ? HUMAN_ATTENTION_GLYPH : HUMAN_OK_GLYPH;
-}
 
 function printDoctor(report: DoctorReport): void {
   process.stdout.write(`artshelf ${report.version} (node ${report.node})\n`);
@@ -1350,17 +1349,9 @@ function arrayFlag(parsed: ParsedArgs, name: string): string[] {
   return Array.isArray(value) ? value : [];
 }
 
-function printJson(value: unknown): number {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
-  return 0;
-}
 
 // Agent/compact surface: a single minified JSON line. The default `--json`
 // stays pretty-printed for audit/debug; agent packets optimize for tokens.
-function printCompactJson(value: unknown): number {
-  process.stdout.write(`${JSON.stringify(value)}\n`);
-  return 0;
-}
 
 function registeredLedgersOrThrow(registryPath: string): LedgerRegistryEntry[] {
   const ledgers = listRegisteredLedgers(registryPath);

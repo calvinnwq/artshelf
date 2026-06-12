@@ -77,6 +77,21 @@ test("command modules own CLI command implementations", () => {
   assert.doesNotMatch(cli, /^function handleTrash/gm);
 });
 
+
+test("renderers own shared output helpers", () => {
+  for (const file of [
+    "src/renderers/json.ts",
+    "src/renderers/attention.ts",
+    "src/shared/errors.ts"
+  ]) {
+    assert.equal(existsSync(file), true, `${file} should exist`);
+  }
+
+  const commands = read("src/commands/index.ts");
+  assert.doesNotMatch(commands, /^function printJson/gm);
+  assert.doesNotMatch(commands, /^function attentionGlyph/gm);
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
