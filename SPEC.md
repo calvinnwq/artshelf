@@ -261,7 +261,7 @@ the next action always points at an explicit follow-up command.
 
 `review`, `status`, and `doctor` share three render modes. The default human
 render leads each ledger and summary line with a `✓`/`⚠` attention glyph; `--json`
-stays the full, backward-compatible audit report; and `--agent` emits a compact,
+stays the full, backward-compatible public audit report; and `--agent` emits a compact,
 deterministic single-line JSON decision packet for agents, taking precedence over
 `--json` when both are passed. For `review`, the packet sorts records into
 ready-for-approval, needs-review-first, and blocked groups. Because review is

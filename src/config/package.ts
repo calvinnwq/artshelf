@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+import { npmRegistryUrlFromEnv } from "./env.js";
 
 export const PACKAGE_NAME = "artshelf";
 export const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
@@ -6,7 +7,7 @@ export const NO_UPDATE_CHECK_TTL_MS = 60 * 60 * 1000;
 export const VERSION = readPackageVersion();
 
 export function npmRegistryUrl(): string {
-  return process.env.ARTSHELF_NPM_REGISTRY_URL ?? `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
+  return npmRegistryUrlFromEnv(PACKAGE_NAME);
 }
 
 export function readPackageVersion(): string {

@@ -1,7 +1,13 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
+import {
+  latestVersionOverride,
+  noUpdateCheckTtlMs,
+  updateCheckTtlMs,
+  type ArtshelfEnv
+} from "../config/env.js";
 import { NO_UPDATE_CHECK_TTL_MS, UPDATE_CHECK_TTL_MS, VERSION, npmRegistryUrl } from "../config/package.js";
+import { updateCachePath } from "../config/paths.js";
 
 export type UpdateInfo = {
   current: string;
@@ -9,80 +15,114 @@ export type UpdateInfo = {
   updateAvailable: boolean;
 };
 
+type UpdateCache = { latest: string | null };
+
+export type UpdateAdapter = {
+  getUpdateInfo(options: { force: boolean }): Promise<UpdateInfo | null>;
+};
+
+export type UpdateAdapterOptions = {
+  currentVersion: string;
+  registryUrl: string;
+  env: ArtshelfEnv;
+  now: () => number;
+  cachePath: () => string;
+  fileExists: (path: string) => boolean;
+  readTextFile: (path: string) => string;
+  writeTextFile: (path: string, contents: string) => void;
+  ensureDirectory: (path: string) => void;
+  fetchLatestVersion: (registryUrl: string) => Promise<string | null>;
+};
+
 export async function getUpdateInfo(options: { force: boolean }): Promise<UpdateInfo | null> {
-  const latest = await getLatestVersion(options);
-  if (!latest) return null;
-  return {
-    current: VERSION,
-    latest,
-    updateAvailable: compareVersions(latest, VERSION) > 0
-  };
+  return createDefaultUpdateAdapter().getUpdateInfo(options);
 }
 
-async function getLatestVersion(options: { force: boolean }): Promise<string | null> {
-  const override = process.env.ARTSHELF_LATEST_VERSION;
-  if (override) return normalizeVersion(override);
-  if (!options.force) {
-    const cached = readUpdateCache();
-    if (cached) return cached.latest;
+export function createUpdateAdapter(options: UpdateAdapterOptions): UpdateAdapter {
+  async function getUpdateInfo(optionsForCheck: { force: boolean }): Promise<UpdateInfo | null> {
+    const latest = await getLatestVersion(optionsForCheck);
+    if (!latest) return null;
+    return {
+      current: options.currentVersion,
+      latest,
+      updateAvailable: compareVersions(latest, options.currentVersion) > 0
+    };
   }
-  const latest = await fetchLatestNpmVersion();
-  writeUpdateCache(latest);
-  return latest;
-}
 
-function readUpdateCache(): { latest: string | null } | null {
-  const cachePath = updateCachePath();
-  if (!existsSync(cachePath)) return null;
-  try {
-    const cache = JSON.parse(readFileSync(cachePath, "utf8"));
-    if (!("latest" in cache)) cache.latest = null;
-    if (cache.latest !== null && typeof cache.latest !== "string") return null;
-    if (typeof cache.checkedAt !== "number") return null;
-    const latest = cache.latest === null ? null : normalizeVersion(cache.latest);
-    const ttl = updateCacheTtlFor(latest);
-    if (ttl < 0) return null;
-    if (Date.now() - cache.checkedAt > ttl) return null;
-    return { latest };
-  } catch {
-    return null;
-  }
-}
-
-function updateCacheTtlFor(latest: string | null): number {
-  if (latest && compareVersions(latest, VERSION) > 0) {
-    return resolveTtlMs(process.env.ARTSHELF_UPDATE_CHECK_TTL_MS, UPDATE_CHECK_TTL_MS);
-  }
-  return resolveTtlMs(
-    process.env.ARTSHELF_NO_UPDATE_CHECK_TTL_MS ?? process.env.ARTSHELF_UPDATE_CHECK_TTL_MS,
-    NO_UPDATE_CHECK_TTL_MS
-  );
-}
-
-function resolveTtlMs(value: string | undefined, fallback: number): number {
-  if (value === undefined) return fallback;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : fallback;
-}
-
-function writeUpdateCache(latest: string | null): void {
-  try {
-    const cachePath = updateCachePath();
-    const dir = dirname(cachePath);
-    if (dir) {
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(cachePath, `${JSON.stringify({ latest, checkedAt: Date.now() }, null, 2)}\n`);
+  async function getLatestVersion(optionsForCheck: { force: boolean }): Promise<string | null> {
+    const override = latestVersionOverride(options.env);
+    if (override) return normalizeVersion(override);
+    if (!optionsForCheck.force) {
+      const cached = readUpdateCache();
+      if (cached) return cached.latest;
     }
-  } catch {
-    // Update checks should never affect normal CLI behavior.
+    const latest = await options.fetchLatestVersion(options.registryUrl);
+    writeUpdateCache(latest);
+    return latest;
   }
+
+  function readUpdateCache(): UpdateCache | null {
+    const cachePath = options.cachePath();
+    if (!options.fileExists(cachePath)) return null;
+    try {
+      const cache = JSON.parse(options.readTextFile(cachePath));
+      if (!("latest" in cache)) cache.latest = null;
+      if (cache.latest !== null && typeof cache.latest !== "string") return null;
+      if (typeof cache.checkedAt !== "number") return null;
+      const latest = cache.latest === null ? null : normalizeVersion(cache.latest);
+      const ttl = updateCacheTtlFor(latest);
+      if (ttl < 0) return null;
+      if (options.now() - cache.checkedAt > ttl) return null;
+      return { latest };
+    } catch {
+      return null;
+    }
+  }
+
+  function updateCacheTtlFor(latest: string | null): number {
+    if (latest && compareVersions(latest, options.currentVersion) > 0) {
+      return updateCheckTtlMs(options.env, UPDATE_CHECK_TTL_MS);
+    }
+    return noUpdateCheckTtlMs(options.env, NO_UPDATE_CHECK_TTL_MS);
+  }
+
+  function writeUpdateCache(latest: string | null): void {
+    try {
+      const cachePath = options.cachePath();
+      const dir = dirname(cachePath);
+      if (dir) {
+        options.ensureDirectory(dir);
+        options.writeTextFile(cachePath, `${JSON.stringify({ latest, checkedAt: options.now() }, null, 2)}\n`);
+      }
+    } catch {
+      // Update checks should never affect normal CLI behavior.
+    }
+  }
+
+  return { getUpdateInfo };
 }
 
-async function fetchLatestNpmVersion(): Promise<string | null> {
+function createDefaultUpdateAdapter(): UpdateAdapter {
+  const registryUrl = npmRegistryUrl();
+  return createUpdateAdapter({
+    currentVersion: VERSION,
+    registryUrl,
+    env: process.env,
+    now: () => Date.now(),
+    cachePath: () => updateCachePath(),
+    fileExists: existsSync,
+    readTextFile: (path) => readFileSync(path, "utf8"),
+    writeTextFile: writeFileSync,
+    ensureDirectory: (path) => mkdirSync(path, { recursive: true }),
+    fetchLatestVersion: (url) => fetchLatestNpmVersion(url)
+  });
+}
+
+async function fetchLatestNpmVersion(registryUrl: string): Promise<string | null> {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 750);
   try {
-    const response = await fetch(npmRegistryUrl(), {
+    const response = await fetch(registryUrl, {
       signal: controller.signal,
       headers: { accept: "application/json", "user-agent": `artshelf/${VERSION}` }
     });
@@ -95,10 +135,6 @@ async function fetchLatestNpmVersion(): Promise<string | null> {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-function updateCachePath(): string {
-  return process.env.ARTSHELF_UPDATE_CACHE ?? join(homedir(), ".artshelf", "update-check.json");
 }
 
 function normalizeVersion(version: string): string {

@@ -82,6 +82,9 @@ test("renderers own shared output helpers", () => {
   for (const file of [
     "src/renderers/json.ts",
     "src/renderers/attention.ts",
+    "src/renderers/status.ts",
+    "src/renderers/doctor.ts",
+    "src/renderers/review.ts",
     "src/shared/errors.ts"
   ]) {
     assert.equal(existsSync(file), true, `${file} should exist`);
@@ -90,6 +93,12 @@ test("renderers own shared output helpers", () => {
   const commands = read("src/commands/index.ts");
   assert.doesNotMatch(commands, /^function printJson/gm);
   assert.doesNotMatch(commands, /^function attentionGlyph/gm);
+  assert.doesNotMatch(commands, /^function printStatus/gm);
+  assert.doesNotMatch(commands, /^function buildStatusAgentPacket/gm);
+  assert.doesNotMatch(commands, /^function printDoctor/gm);
+  assert.doesNotMatch(commands, /^function buildDoctorAgentPacket/gm);
+  assert.doesNotMatch(commands, /^function printReview/gm);
+  assert.doesNotMatch(commands, /^function buildReviewAgentPacket/gm);
 });
 
 
@@ -97,7 +106,10 @@ test("shared CLI contracts and update adapters are explicit modules", () => {
   for (const file of [
     "src/shared/cli-types.ts",
     "src/shared/flags.ts",
+    "src/config/env.ts",
+    "src/config/paths.ts",
     "src/config/package.ts",
+    "src/adapters/process.ts",
     "src/adapters/update.ts"
   ]) {
     assert.equal(existsSync(file), true, `${file} should exist`);
@@ -108,6 +120,8 @@ test("shared CLI contracts and update adapters are explicit modules", () => {
   assert.doesNotMatch(cli, /^type ParsedArgs/gm);
   assert.doesNotMatch(commands, /^type ParsedArgs/gm);
   assert.doesNotMatch(commands, /^function getLatestVersion/gm);
+  assert.doesNotMatch(commands, /process\.env\.ARTSHELF_UPDATE_DRY_RUN/);
+  assert.doesNotMatch(commands, /spawnSync\("npm"/);
 });
 
 
@@ -120,9 +134,15 @@ test("architecture guardrails catch boundary and migration regressions", () => {
     "src/commands/index.ts",
     ...readdirSync("src/commands").filter((file) => file.endsWith(".ts") && file !== "index.ts").map((file) => `src/commands/${file}`),
     "src/adapters/update.ts",
+    "src/adapters/process.ts",
+    "src/config/env.ts",
+    "src/config/paths.ts",
     "src/config/package.ts",
     "src/renderers/attention.ts",
+    "src/renderers/doctor.ts",
     "src/renderers/json.ts",
+    "src/renderers/review.ts",
+    "src/renderers/status.ts",
     "src/shared/cli-types.ts",
     "src/shared/errors.ts",
     "src/shared/flags.ts",
