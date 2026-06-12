@@ -82,6 +82,9 @@ test("renderers own shared output helpers", () => {
   for (const file of [
     "src/renderers/json.ts",
     "src/renderers/attention.ts",
+    "src/renderers/status.ts",
+    "src/renderers/doctor.ts",
+    "src/renderers/review.ts",
     "src/shared/errors.ts"
   ]) {
     assert.equal(existsSync(file), true, `${file} should exist`);
@@ -90,6 +93,12 @@ test("renderers own shared output helpers", () => {
   const commands = read("src/commands/index.ts");
   assert.doesNotMatch(commands, /^function printJson/gm);
   assert.doesNotMatch(commands, /^function attentionGlyph/gm);
+  assert.doesNotMatch(commands, /^function printStatus/gm);
+  assert.doesNotMatch(commands, /^function buildStatusAgentPacket/gm);
+  assert.doesNotMatch(commands, /^function printDoctor/gm);
+  assert.doesNotMatch(commands, /^function buildDoctorAgentPacket/gm);
+  assert.doesNotMatch(commands, /^function printReview/gm);
+  assert.doesNotMatch(commands, /^function buildReviewAgentPacket/gm);
 });
 
 
@@ -122,7 +131,10 @@ test("architecture guardrails catch boundary and migration regressions", () => {
     "src/adapters/update.ts",
     "src/config/package.ts",
     "src/renderers/attention.ts",
+    "src/renderers/doctor.ts",
     "src/renderers/json.ts",
+    "src/renderers/review.ts",
+    "src/renderers/status.ts",
     "src/shared/cli-types.ts",
     "src/shared/errors.ts",
     "src/shared/flags.ts",

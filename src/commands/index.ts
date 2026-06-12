@@ -26,8 +26,33 @@ import {
 import type { LedgerRegistryEntry } from "../registry.js";
 import type { CleanupPlan, DueEntry, ArtshelfRecord } from "../types.js";
 import { PACKAGE_NAME, VERSION } from "../config/package.js";
-import { attentionGlyph } from "../renderers/attention.js";
+import {
+  buildDoctorAgentPacket,
+  printDoctor,
+  type DoctorLedger,
+  type DoctorReport
+} from "../renderers/doctor.js";
 import { printCompactJson, printJson } from "../renderers/json.js";
+import {
+  buildReviewAgentPacketAll,
+  buildReviewAgentPacketSingle,
+  printReview,
+  printReviewAll,
+  reviewNextAction,
+  type ReviewResult,
+  type ReviewSummary
+} from "../renderers/review.js";
+import {
+  buildStatusAgentPacketAll,
+  buildStatusAgentPacketSingle,
+  emptyStatusCounts,
+  printStatusAll,
+  printStatusSingle,
+  sumStatusCounts,
+  type StatusCounts,
+  type StatusLedger,
+  type StatusReport
+} from "../renderers/status.js";
 import { arrayFlag, boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { LEDGERS_HELP, TRASH_HELP } from "../shared/help-text.js";
 import { getUpdateInfo } from "../adapters/update.js";
@@ -535,7 +560,7 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     const ok = results.every((entry) => entry.validate.ok);
     const summary = summarizeReview(results);
     if (agent) {
-      printCompactJson(buildReviewAgentPacketAll(results, summary, registryPath));
+      printCompactJson(buildReviewAgentPacketAll(results, summary, { path: registryPath, exists: existsSync(registryPath) }));
       return ok ? 0 : 1;
     }
     const nextAction = reviewNextAction(summary, "all");
@@ -558,38 +583,6 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
   printReview([result]);
   return result.validate.ok ? 0 : 1;
 }
-
-type DoctorLedger = {
-  name: string;
-  path: string;
-  scope: LedgerRegistryEntry["scope"];
-  status: "ok" | "missing" | "invalid";
-  ok: boolean;
-  entries: number;
-  errors: string[];
-  warnings: string[];
-};
-
-type DoctorReport = {
-  ok: boolean;
-  version: string;
-  node: string;
-  ledgerPath: string;
-  ledgerExists: boolean;
-  registryPath: string;
-  registryExists: boolean;
-  registryOk: boolean;
-  registryError: string | null;
-  ledgers: DoctorLedger[];
-  summary: { ledgers: number; ok: number; stale: number; invalid: number; warnings: number };
-  cleanupSafety: {
-    executeRequiresLedgerAndPlanId: boolean;
-    globalExecuteRefused: boolean;
-    deleteRefusedInV1: boolean;
-    dryRunBeforeMutation: boolean;
-  };
-  errors: string[];
-};
 
 function handleDoctor(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   const report = buildDoctorReport(ledgerPath, normalizeRegistryPath(stringFlag(parsed, "registry")));
@@ -665,130 +658,6 @@ function buildDoctorReport(ledgerPath: string, registryPath: string): DoctorRepo
     errors
   };
 }
-
-// Agent render: a compact, deterministic decision packet for `doctor`. It keeps
-// the audited registry/ledger health intact while naming the actionable
-// categories, the exact blockers, the cleanup-safety posture, the next safe
-// action, and the command an agent can re-run to verify. Existing `--json` stays
-// the full audit report; this is a separate, token-efficient surface.
-type DoctorAgentPacket = {
-  schemaVersion: 1;
-  command: "doctor";
-  health: "ok" | "attention";
-  version: string;
-  node: string;
-  ledgerPath: string;
-  registry: { path: string; exists: boolean; ok: boolean; error: string | null };
-  ledgers: { total: number; ok: number; stale: number; invalid: number; warnings: number };
-  attention: string[];
-  blockers: string[];
-  cleanupSafety: DoctorReport["cleanupSafety"];
-  nextAction: string;
-  verification: string;
-};
-
-// Actionable categories only — ok ledgers are healthy states, never attention.
-// Order is fixed so the packet is byte-for-byte deterministic. Warnings surface
-// even when health is ok (they never fail the machine), mirroring status attention.
-const DOCTOR_ATTENTION_CATEGORIES: ReadonlyArray<keyof DoctorReport["summary"]> = ["stale", "invalid", "warnings"];
-
-function doctorAttention(summary: DoctorReport["summary"]): string[] {
-  return DOCTOR_ATTENTION_CATEGORIES.filter((key) => summary[key] > 0);
-}
-
-function doctorNextAction(blockers: string[], summary: DoctorReport["summary"]): string {
-  if (blockers.length > 0) {
-    return `repair ${blockers.length} registry/ledger issue(s) above, then re-run \`artshelf doctor\``;
-  }
-  if (summary.warnings > 0) {
-    return `healthy, but ${summary.warnings} warning(s) noted — run \`artshelf validate --all\` to inspect; nothing is auto-executed`;
-  }
-  return "artshelf is healthy on this machine — cleanup safety enforced; no action needed";
-}
-
-function buildDoctorAgentPacket(report: DoctorReport): DoctorAgentPacket {
-  const blockers: string[] = [];
-  if (report.registryError) blockers.push(`registry unreadable: ${report.registryError}`);
-  for (const ledger of report.ledgers) {
-    if (ledger.status !== "ok") {
-      blockers.push(`${ledger.name} ${ledger.status}${ledger.errors.length ? `: ${ledger.errors[0]}` : ""}`);
-    }
-  }
-  return {
-    schemaVersion: 1,
-    command: "doctor",
-    health: report.ok ? "ok" : "attention",
-    version: report.version,
-    node: report.node,
-    ledgerPath: report.ledgerPath,
-    registry: { path: report.registryPath, exists: report.registryExists, ok: report.registryOk, error: report.registryError },
-    ledgers: {
-      total: report.summary.ledgers,
-      ok: report.summary.ok,
-      stale: report.summary.stale,
-      invalid: report.summary.invalid,
-      warnings: report.summary.warnings
-    },
-    attention: doctorAttention(report.summary),
-    blockers,
-    cleanupSafety: report.cleanupSafety,
-    nextAction: doctorNextAction(blockers, report.summary),
-    verification: `artshelf doctor --agent --registry ${report.registryPath}`
-  };
-}
-
-// Human render (NGX-396): a scannable left-column glyph so attention state is
-// obvious at a glance — ✓ clear, ⚠ needs attention. Plain Unicode (no ANSI
-// color) keeps redirected/piped human output clean, and the `--agent`/`--json`
-// renders never carry glyphs (those stay machine contracts).
-const HUMAN_ATTENTION_GLYPH = "⚠";
-
-
-function printDoctor(report: DoctorReport): void {
-  process.stdout.write(`artshelf ${report.version} (node ${report.node})\n`);
-  process.stdout.write(`${attentionGlyph(!report.ok)} health: ${report.ok ? "ok" : "needs attention"}\n`);
-  process.stdout.write(`ledger: ${report.ledgerPath}${report.ledgerExists ? "" : " (absent)"}\n`);
-  process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"}\n`);
-  if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
-  process.stdout.write(`registered ledgers: ${report.summary.ledgers} (${report.summary.ok} ok, ${report.summary.stale} stale, ${report.summary.invalid} invalid)\n`);
-  for (const ledger of report.ledgers) {
-    process.stdout.write(`  ${attentionGlyph(ledger.status !== "ok")} ${ledger.status} ${ledger.name} ${ledger.path}\n`);
-    for (const message of ledger.errors) process.stdout.write(`    error: ${message}\n`);
-  }
-  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; cleanup=delete is refused; physical trash purge requires a separate reviewed plan\n");
-  if (!report.ok) {
-    for (const message of report.errors) process.stdout.write(`error: ${message}\n`);
-  }
-}
-
-type StatusCounts = {
-  active: number;
-  due: number;
-  manualReview: number;
-  missingPath: number;
-  kept: number;
-  pendingCleanup: number;
-};
-
-type StatusLedger = {
-  name: string;
-  path: string;
-  scope: LedgerRegistryEntry["scope"];
-  status: "ok" | "missing" | "invalid";
-  ok: boolean;
-  counts: StatusCounts;
-  errors: string[];
-};
-
-type StatusReport = {
-  ok: boolean;
-  registryPath: string;
-  registryExists: boolean;
-  registryOk: boolean;
-  registryError: string | null;
-  ledgers: StatusLedger[];
-  totals: StatusCounts & { ledgers: number; ok: number; stale: number; invalid: number };
-};
 
 function handleStatus(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   const agent = boolFlag(parsed, "agent");
@@ -888,143 +757,6 @@ function statusLedger(ledger: LedgerRegistryEntry, registered = true): StatusLed
     counts,
     errors: []
   };
-}
-
-function emptyStatusCounts(): StatusCounts {
-  return { active: 0, due: 0, manualReview: 0, missingPath: 0, kept: 0, pendingCleanup: 0 };
-}
-
-function sumStatusCounts(ledgers: StatusLedger[], key: keyof StatusCounts): number {
-  return ledgers.reduce((total, ledger) => total + ledger.counts[key], 0);
-}
-
-function formatStatusCounts(counts: StatusCounts): string {
-  return `active ${counts.active} · due ${counts.due} · manual-review ${counts.manualReview} · missing ${counts.missingPath} · kept ${counts.kept} · pending ${counts.pendingCleanup}`;
-}
-
-// Agent render: a compact, deterministic decision packet for `status`. It keeps
-// the audited counts intact while naming the actionable categories, the exact
-// blockers, the next safe action, and the command an agent can re-run to verify.
-// Existing `--json` stays the full audit report; this is a separate surface.
-type StatusAgentPacket = {
-  schemaVersion: 1;
-  command: "status";
-  scope: "all" | "single";
-  health: "ok" | "attention";
-  ledgerPath?: string;
-  registry?: { path: string; exists: boolean; ok: boolean; error: string | null };
-  ledgers?: { total: number; ok: number; stale: number; invalid: number };
-  counts: StatusCounts;
-  attention: string[];
-  blockers: string[];
-  nextAction: string;
-  verification: string;
-};
-
-// Actionable categories only — active and kept are healthy states, never
-// attention. Order is fixed so the packet is byte-for-byte deterministic.
-const STATUS_ATTENTION_CATEGORIES: ReadonlyArray<keyof StatusCounts> = ["due", "manualReview", "missingPath", "pendingCleanup"];
-
-function statusAttention(counts: StatusCounts): string[] {
-  return STATUS_ATTENTION_CATEGORIES.filter((key) => counts[key] > 0);
-}
-
-function statusCommand(scope: "all" | "single", command: "status" | "review", ledgerPath?: string): string {
-  if (scope === "all") return `artshelf ${command} --all`;
-  return ledgerPath ? `artshelf ${command} --ledger ${ledgerPath}` : `artshelf ${command}`;
-}
-
-function statusNextAction(blockers: string[], counts: StatusCounts, scope: "all" | "single", ledgerPath?: string): string {
-  if (blockers.length > 0) {
-    const verify = statusCommand(scope, "status", ledgerPath);
-    return `repair ${blockers.length} broken ledger(s) above, then re-run \`${verify}\``;
-  }
-  const review = statusCommand(scope, "review", ledgerPath);
-  if (counts.pendingCleanup > 0 || counts.due > 0) {
-    return `run \`${review}\` to preview cleanup plans; nothing is auto-executed`;
-  }
-  if (counts.manualReview > 0) {
-    return `run \`${review}\` to inspect manual-review records; nothing is auto-executed`;
-  }
-  if (counts.missingPath > 0) {
-    return "inspect missing-path records and `artshelf resolve` the ones no longer needed; nothing is auto-executable";
-  }
-  return "nothing due — no broken ledgers and no due, manual-review, missing-path, or pending cleanup entries";
-}
-
-function buildStatusAgentPacketAll(report: StatusReport): StatusAgentPacket {
-  const blockers: string[] = [];
-  if (report.registryError) blockers.push(`registry unreadable: ${report.registryError}`);
-  for (const ledger of report.ledgers) {
-    if (ledger.status !== "ok") {
-      blockers.push(`${ledger.name} ${ledger.status}${ledger.errors.length ? `: ${ledger.errors[0]}` : ""}`);
-    }
-  }
-  const counts: StatusCounts = {
-    active: report.totals.active,
-    due: report.totals.due,
-    manualReview: report.totals.manualReview,
-    missingPath: report.totals.missingPath,
-    kept: report.totals.kept,
-    pendingCleanup: report.totals.pendingCleanup
-  };
-  return {
-    schemaVersion: 1,
-    command: "status",
-    scope: "all",
-    health: report.ok ? "ok" : "attention",
-    registry: { path: report.registryPath, exists: report.registryExists, ok: report.registryOk, error: report.registryError },
-    ledgers: { total: report.totals.ledgers, ok: report.totals.ok, stale: report.totals.stale, invalid: report.totals.invalid },
-    counts,
-    attention: statusAttention(counts),
-    blockers,
-    nextAction: statusNextAction(blockers, counts, "all"),
-    verification: `artshelf status --all --agent --registry ${report.registryPath}`
-  };
-}
-
-function buildStatusAgentPacketSingle(ledger: StatusLedger, ledgerPath: string): StatusAgentPacket {
-  const blockers: string[] = ledger.ok
-    ? []
-    : [`${ledger.status}${ledger.errors.length ? `: ${ledger.errors[0]}` : ""}`];
-  return {
-    schemaVersion: 1,
-    command: "status",
-    scope: "single",
-    health: ledger.ok ? "ok" : "attention",
-    ledgerPath,
-    counts: ledger.counts,
-    attention: statusAttention(ledger.counts),
-    blockers,
-    nextAction: statusNextAction(blockers, ledger.counts, "single", ledgerPath),
-    verification: `artshelf status --agent --ledger ${ledgerPath}`
-  };
-}
-
-function printStatusAll(report: StatusReport): void {
-  const anyActionable = report.ledgers.some((ledger) => statusAttention(ledger.counts).length > 0);
-  process.stdout.write(`${attentionGlyph(!report.ok || anyActionable)} artshelf status: ${report.ok ? "ok" : "needs attention"}\n`);
-  process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"} — ${report.totals.ledgers} ledgers (${report.totals.ok} ok, ${report.totals.stale} stale, ${report.totals.invalid} invalid)\n`);
-  if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
-  for (const ledger of report.ledgers) {
-    if (ledger.status === "ok") {
-      process.stdout.write(`${attentionGlyph(statusAttention(ledger.counts).length > 0)} [${ledger.name}] ${formatStatusCounts(ledger.counts)}\n`);
-    } else {
-      process.stdout.write(`${HUMAN_ATTENTION_GLYPH} [${ledger.name}] ${ledger.status}: ${ledger.errors.join("; ")}\n`);
-    }
-  }
-  process.stdout.write(`total: ${formatStatusCounts(report.totals)}\n`);
-}
-
-function printStatusSingle(ledger: StatusLedger): void {
-  const needsAttention = !ledger.ok || statusAttention(ledger.counts).length > 0;
-  process.stdout.write(`${attentionGlyph(needsAttention)} artshelf status: ${ledger.ok ? "ok" : ledger.status}\n`);
-  process.stdout.write(`ledger: ${ledger.path}\n`);
-  if (ledger.ok) {
-    process.stdout.write(`${formatStatusCounts(ledger.counts)}\n`);
-  } else {
-    for (const message of ledger.errors) process.stdout.write(`error: ${message}\n`);
-  }
 }
 
 async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> {
@@ -1135,32 +867,13 @@ function validateRegisteredLedger(ledger: LedgerRegistryEntry): ReturnType<typeo
   return validateLedger(ledger.path);
 }
 
-type ReviewResult = {
-  ledger: LedgerRegistryEntry;
-  validate: ReturnType<typeof validateLedger>;
-  due: DueEntry[];
-  plan: CleanupPlan;
-};
-
-type ReviewSummary = {
-  ledgers: number;
-  ok: number;
-  invalid: number;
-  stale: number;
-  affected: number;
-  due: number;
-  manualReview: number;
-  missingPath: number;
-  executable: number;
-  skipped: number;
-  previewPlanIds: string[];
-};
-
 function reviewLedger(ledger: LedgerRegistryEntry, registered = true): ReviewResult {
   const validate = registered ? validateRegisteredLedger(ledger) : validateLedger(ledger.path);
+  const ledgerExists = existsSync(ledger.path);
   if (!validate.ok) {
     return {
       ledger,
+      ledgerExists,
       validate,
       due: [],
       plan: emptyReviewPlan(ledger.path)
@@ -1169,6 +882,7 @@ function reviewLedger(ledger: LedgerRegistryEntry, registered = true): ReviewRes
 
   return {
     ledger,
+    ledgerExists,
     validate,
     due: dueEntries(readLedger(ledger.path)),
     plan: previewCleanupPlan(ledger.path)
@@ -1257,7 +971,7 @@ function summarizeReview(results: ReviewResult[]): ReviewSummary {
   for (const result of results) {
     if (result.validate.ok) {
       summary.ok += 1;
-    } else if (existsSync(result.ledger.path)) {
+    } else if (result.ledgerExists) {
       summary.invalid += 1;
     } else {
       summary.stale += 1;
@@ -1278,238 +992,4 @@ function summarizeReview(results: ReviewResult[]): ReviewSummary {
   }
 
   return summary;
-}
-
-function reviewNextAction(summary: ReviewSummary, scope: "all" | "single", ledgerPath?: string): string {
-  const broken = summary.invalid + summary.stale;
-  const review = statusCommand(scope, "review", ledgerPath);
-  if (broken > 0) {
-    const repair = scope === "all" ? "re-register or fix the file" : "fix the file";
-    return `repair ${broken} broken ledger(s) above (${repair}), then re-run \`${review}\``;
-  }
-  if (summary.executable > 0) {
-    const dryRun = scope === "all" ? "artshelf cleanup --dry-run --all" : `artshelf cleanup --dry-run${ledgerPath ? ` --ledger ${ledgerPath}` : ""}`;
-    return `run \`${dryRun}\` to generate plans, then \`artshelf cleanup --execute --plan-id <id> --ledger <path>\` for each reviewed plan`;
-  }
-  if (summary.missingPath > 0) {
-    return "inspect missing-path entries and `artshelf resolve` the ones no longer needed; nothing is auto-executable";
-  }
-  return "nothing to do — no broken ledgers and no due, manual-review, missing-path, or executable cleanup entries";
-}
-
-function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAction: string, registryPath: string): void {
-  const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
-  process.stdout.write(`${attentionGlyph(needsAttention)} artshelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
-  process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
-  printReview(results);
-  process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
-  process.stdout.write(`next: ${nextAction}\n`);
-}
-
-function printReview(results: ReviewResult[]): void {
-  for (const result of results) {
-    const visibleDue = result.due.filter((entry) => entry.dueStatus !== "kept");
-    const needsAttention = !result.validate.ok || visibleDue.length > 0 || result.plan.entries.length > 0;
-    process.stdout.write(`${attentionGlyph(needsAttention)} [${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
-    process.stdout.write(`due/manual/missing: ${visibleDue.length}; plan ${result.plan.planId}: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped\n`);
-    process.stdout.write(`ledger: ${result.ledger.path}\n`);
-  }
-}
-
-// Agent render: a compact, deterministic decision packet for `review`. It reuses
-// the `ArtshelfReviewReport` vocabulary (classification → readyForApproval /
-// needsReviewFirst / blocked decision groups, safety flags) without binding to
-// that full schema, mirroring how status/doctor each carry a command-specific
-// shape under the shared convention (single compact line, `--agent` precedence
-// over `--json`, no agent-only fields leaking into `--json`).
-//
-// Safety is the design constraint: `review` is read-only. It never mints or
-// writes a cleanup plan, and its preview plan id is timestamp+random (see
-// makePlanId) and must never be executed from. So the only exact, plan-less
-// approval target review can safely emit is `resolve missing` (ledger-only, ids
-// known). Cleanup-eligible records stay needs-review-first and point at the
-// `cleanup --dry-run` that mints a reviewed plan; the exact cleanup approval
-// target is produced there, never leaked from a preview here.
-type ReviewDecision = {
-  label: string;
-  itemIds: string[];
-  actionType: "cleanup" | "resolve-missing" | "inspect" | "fix-registry";
-  approvalTarget: string | null;
-  reason: string;
-  nextStep: string;
-};
-
-type ReviewAgentGroups = {
-  readyForApproval: ReviewDecision[];
-  needsReviewFirst: ReviewDecision[];
-  blocked: ReviewDecision[];
-};
-
-type ReviewAgentPacket = {
-  schemaVersion: 1;
-  command: "review";
-  scope: "all" | "single";
-  health: "ok" | "attention";
-  ledgerPath?: string;
-  registry?: { path: string; exists: boolean };
-  ledgers?: { total: number; ok: number; stale: number; invalid: number };
-  counts: { due: number; manualReview: number; missingPath: number; executable: number; skipped: number };
-  decisionSummary: { readyForApproval: number; needsReviewFirst: number; blocked: number };
-  readyForApproval: ReviewDecision[];
-  needsReviewFirst: ReviewDecision[];
-  blocked: ReviewDecision[];
-  safety: { dryRunOnly: boolean; executeAllRefused: boolean; noExecuteRan: boolean; noResolveRan: boolean; noDeleteRan: boolean };
-  nextAction: string;
-  verification: string;
-};
-
-// review is read-only, so every safety guarantee holds unconditionally.
-const REVIEW_SAFETY = {
-  dryRunOnly: true,
-  executeAllRefused: true,
-  noExecuteRan: true,
-  noResolveRan: true,
-  noDeleteRan: true
-} as const;
-
-// Classify each registered ledger's records into decision groups. Order is
-// fixed (registry order, then a stable per-ledger sub-order) so the packet is
-// byte-for-byte deterministic.
-function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single"): ReviewAgentGroups {
-  const readyForApproval: ReviewDecision[] = [];
-  const needsReviewFirst: ReviewDecision[] = [];
-  const blocked: ReviewDecision[] = [];
-  const review = scope === "all" ? "artshelf review --all" : "artshelf review";
-
-  for (const result of results) {
-    const { ledger, validate, due } = result;
-    if (!validate.ok) {
-      const status = existsSync(ledger.path) ? "invalid" : "missing";
-      const repair = scope === "all" ? `re-register or fix ${ledger.path}` : `fix ${ledger.path}`;
-      blocked.push({
-        label: `Repair ${ledger.name} ledger (${status})`,
-        itemIds: [],
-        actionType: "fix-registry",
-        approvalTarget: null,
-        reason: validate.errors[0] ?? `${scope === "all" ? "registered ledger" : "ledger"} is ${status}`,
-        nextStep: `${repair}, then re-run \`${review}\``
-      });
-      continue;
-    }
-
-    const missingPath = due.filter((entry) => entry.dueStatus === "missing-path");
-    const trashSafe = due.filter((entry) => entry.dueStatus === "due" && entry.cleanup === "trash");
-    const inspectItems = due.filter(
-      (entry) =>
-        entry.dueStatus === "manual-review" ||
-        (entry.dueStatus === "due" && (entry.cleanup === "review" || entry.cleanup === "delete"))
-    );
-
-    // Ready for approval: missing-path records resolve ledger-only with an exact,
-    // plan-less approval target. Resolution updates the ledger and never touches
-    // files, so it is the one action review can hand an agent directly.
-    if (missingPath.length > 0) {
-      const ids = missingPath.map((entry) => entry.id).sort();
-      readyForApproval.push({
-        label: `Resolve ${ids.length} missing-path record(s) in ${ledger.name}`,
-        itemIds: ids,
-        actionType: "resolve-missing",
-        approvalTarget: `approve artshelf resolve missing ledger ${ledger.path} ids ${ids.join(" ")}`,
-        reason: "the recorded path is already missing",
-        nextStep: "confirm the artifact is no longer needed, then approve the ledger-only resolve"
-      });
-    }
-
-    // Trash-safe records are cleanup-eligible, but review never mints a plan, so
-    // they carry no approval target: the next step is the dry-run that produces
-    // the reviewed plan id to approve.
-    if (trashSafe.length > 0) {
-      const ids = trashSafe.map((entry) => entry.id).sort();
-      needsReviewFirst.push({
-        label: `Plan cleanup for ${ids.length} trash-eligible artifact(s) in ${ledger.name}`,
-        itemIds: ids,
-        actionType: "cleanup",
-        approvalTarget: null,
-        reason: "disposable artifacts are due but no reviewed cleanup plan exists yet",
-        nextStep: `run \`artshelf cleanup --dry-run --ledger ${ledger.path} --json\`, then approve \`approve artshelf cleanup ledger ${ledger.path} plan <plan-id>\``
-      });
-    }
-
-    // manual-review and cleanup=review records need a human decision before any
-    // cleanup; cleanup=delete is refused outright. None carry an approval target.
-    if (inspectItems.length > 0) {
-      const ids = inspectItems.map((entry) => entry.id).sort();
-      const hasDelete = inspectItems.some((entry) => entry.cleanup === "delete");
-      needsReviewFirst.push({
-        label: `Inspect ${ids.length} record(s) in ${ledger.name} before cleanup`,
-        itemIds: ids,
-        actionType: "inspect",
-        approvalTarget: null,
-        reason: hasDelete
-          ? "records need manual review; cleanup=delete is refused and never deletes files"
-          : "records are held for manual review before any cleanup",
-        nextStep: "inspect each path, then keep, change retention, resolve, or set cleanup=trash and plan a cleanup"
-      });
-    }
-  }
-
-  return { readyForApproval, needsReviewFirst, blocked };
-}
-
-function reviewCounts(summary: ReviewSummary): ReviewAgentPacket["counts"] {
-  return {
-    due: summary.due,
-    manualReview: summary.manualReview,
-    missingPath: summary.missingPath,
-    executable: summary.executable,
-    skipped: summary.skipped
-  };
-}
-
-function buildReviewAgentPacketAll(results: ReviewResult[], summary: ReviewSummary, registryPath: string): ReviewAgentPacket {
-  const groups = buildReviewDecisions(results, "all");
-  return {
-    schemaVersion: 1,
-    command: "review",
-    scope: "all",
-    health: summary.invalid + summary.stale > 0 ? "attention" : "ok",
-    registry: { path: registryPath, exists: existsSync(registryPath) },
-    ledgers: { total: summary.ledgers, ok: summary.ok, stale: summary.stale, invalid: summary.invalid },
-    counts: reviewCounts(summary),
-    decisionSummary: {
-      readyForApproval: groups.readyForApproval.length,
-      needsReviewFirst: groups.needsReviewFirst.length,
-      blocked: groups.blocked.length
-    },
-    readyForApproval: groups.readyForApproval,
-    needsReviewFirst: groups.needsReviewFirst,
-    blocked: groups.blocked,
-    safety: REVIEW_SAFETY,
-    nextAction: reviewNextAction(summary, "all"),
-    verification: `artshelf review --all --agent --registry ${registryPath}`
-  };
-}
-
-function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: string): ReviewAgentPacket {
-  const summary = summarizeReview([result]);
-  const groups = buildReviewDecisions([result], "single");
-  return {
-    schemaVersion: 1,
-    command: "review",
-    scope: "single",
-    health: summary.invalid + summary.stale > 0 ? "attention" : "ok",
-    ledgerPath,
-    counts: reviewCounts(summary),
-    decisionSummary: {
-      readyForApproval: groups.readyForApproval.length,
-      needsReviewFirst: groups.needsReviewFirst.length,
-      blocked: groups.blocked.length
-    },
-    readyForApproval: groups.readyForApproval,
-    needsReviewFirst: groups.needsReviewFirst,
-    blocked: groups.blocked,
-    safety: REVIEW_SAFETY,
-    nextAction: reviewNextAction(summary, "single", ledgerPath),
-    verification: `artshelf review --agent --ledger ${ledgerPath}`
-  };
 }
