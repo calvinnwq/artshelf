@@ -125,7 +125,8 @@ test("architecture guardrails catch boundary and migration regressions", () => {
     "src/renderers/json.ts",
     "src/shared/cli-types.ts",
     "src/shared/errors.ts",
-    "src/shared/flags.ts"
+    "src/shared/flags.ts",
+    "src/shared/help-text.ts"
   ];
 
   for (const file of sourceFiles) {

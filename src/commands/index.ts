@@ -29,6 +29,7 @@ import { PACKAGE_NAME, VERSION } from "../config/package.js";
 import { attentionGlyph } from "../renderers/attention.js";
 import { printCompactJson, printJson } from "../renderers/json.js";
 import { arrayFlag, boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
+import { LEDGERS_HELP, TRASH_HELP } from "../shared/help-text.js";
 import { getUpdateInfo } from "../adapters/update.js";
 import type { CommandRunResult, ParsedArgs } from "../shared/cli-types.js";
 
@@ -91,37 +92,11 @@ export async function runCommand(parsed: ParsedArgs): Promise<CommandRunResult> 
 
 function printHelp(command = ""): void {
   if (command === "ledgers") {
-    process.stdout.write(`Manage the ledger registry.
-
-Usage:
-  artshelf ledgers [command]
-
-Available Commands:
-  list      List and validate registered ledgers
-  add       Register an existing ledger file
-
-Flags:
-  -h, --help   help for ledgers
-
-Use "artshelf ledgers <command> --help" for more information about a command.
-`);
+    process.stdout.write(LEDGERS_HELP);
     return;
   }
   if (command === "trash") {
-    process.stdout.write(`Inspect and purge Artshelf trash.
-
-Usage:
-  artshelf trash [command]
-
-Available Commands:
-  list      List records currently held in Artshelf trash
-  purge     Plan or execute approved permanent trash deletion
-
-Flags:
-  -h, --help   help for trash
-
-Use "artshelf trash <command> --help" for more information about a command.
-`);
+    process.stdout.write(TRASH_HELP);
     return;
   }
   throw new Error(`Unknown help topic: ${command}`);

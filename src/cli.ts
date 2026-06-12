@@ -3,6 +3,7 @@ import { maybeNotifyAvailableUpdate, runCommand } from "./commands/index.js";
 import { VERSION } from "./config/package.js";
 import { formatCliError } from "./shared/errors.js";
 import { BOOLEAN_FLAGS, boolFlag, VALUE_FLAGS } from "./shared/flags.js";
+import { LEDGERS_HELP, TRASH_HELP } from "./shared/help-text.js";
 import type { ParsedArgs } from "./shared/cli-types.js";
 
 
@@ -44,11 +45,7 @@ function parseArgs(argv: string[]): ParsedArgs {
   const flags = new Map<string, string | boolean | string[]>();
   for (let index = 0; index < rest.length; index += 1) {
     const token = rest[index];
-    if (token === undefined) continue;
-    if (token === "--") {
-      positionals.push(...rest.slice(index + 1));
-      break;
-    }
+    if (!token) continue;
     if (token === "-h") {
       flags.set("help", true);
       continue;
@@ -65,7 +62,7 @@ function parseArgs(argv: string[]): ParsedArgs {
       }
       if (!VALUE_FLAGS.has(name)) throw new Error(`Unknown flag: --${name}`);
       const value = rest[index + 1];
-      if (!value || value.startsWith("--")) throw new Error(`Flag --${name} requires a value`);
+      if (!value || value.startsWith("--")) throw new Error(`Missing value for --${name}`);
       index += 1;
       if (name === "label") {
         const previous = flags.get(name);
@@ -235,38 +232,12 @@ Global --all mode is dry-run only.
   }
 
   if (command === "trash") {
-    process.stdout.write(`Inspect and purge Artshelf trash.
-
-Usage:
-  artshelf trash [command]
-
-Available Commands:
-  list      List records currently held in Artshelf trash
-  purge     Plan or execute approved permanent trash deletion
-
-Flags:
-  -h, --help   help for trash
-
-Use "artshelf trash <command> --help" for more information about a command.
-`);
+    process.stdout.write(TRASH_HELP);
     return;
   }
 
   if (command === "ledgers") {
-    process.stdout.write(`Manage the ledger registry.
-
-Usage:
-  artshelf ledgers [command]
-
-Available Commands:
-  list      List and validate registered ledgers
-  add       Register an existing ledger file
-
-Flags:
-  -h, --help   help for ledgers
-
-Use "artshelf ledgers <command> --help" for more information about a command.
-`);
+    process.stdout.write(LEDGERS_HELP);
     return;
   }
 
