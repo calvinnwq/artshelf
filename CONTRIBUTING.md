@@ -3,6 +3,10 @@
 Artshelf is intentionally small. Contributions should keep it boring, predictable,
 and safe around file cleanup.
 
+For CLI structure and ownership boundaries, read [ARCHITECTURE.md](ARCHITECTURE.md)
+before changing routing, command behavior, renderers, config, adapters, or
+cleanup safety rules.
+
 ## Local Setup
 
 ```bash
