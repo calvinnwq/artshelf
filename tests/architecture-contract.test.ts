@@ -50,6 +50,33 @@ test("cli entrypoint has a transitional size budget", () => {
   );
 });
 
+
+test("command modules own CLI command implementations", () => {
+  const commandFiles = [
+    "cleanup",
+    "doctor",
+    "due",
+    "find",
+    "get",
+    "ledgers",
+    "list",
+    "put",
+    "resolve",
+    "review",
+    "status",
+    "trash",
+    "update"
+  ];
+
+  for (const command of commandFiles) {
+    assert.equal(existsSync(`src/commands/${command}.ts`), true, `${command} command module should exist`);
+  }
+
+  const cli = read("src/cli.ts");
+  assert.doesNotMatch(cli, /^function handlePut/gm);
+  assert.doesNotMatch(cli, /^function handleTrash/gm);
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
