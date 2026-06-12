@@ -2534,6 +2534,46 @@ test("review --agent reports a single-ledger packet without registry aggregates"
   assert.equal(packet.verification, `artshelf review --agent --ledger ${ledger}`);
 });
 
+test("review --agent single-ledger next action stays single-scoped, never registry-wide --all", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const dueArtifact = join(fixture, "due.txt");
+  writeFileSync(dueArtifact, "due");
+  artshelf(["put", dueArtifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["review", "--ledger", ledger, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.scope, "single");
+  assert.ok(packet.counts.executable > 0, "the due trash artifact is cleanup-eligible");
+  // A single-ledger review reviewed one (unregistered) ledger, so its guidance must
+  // not point the agent at registry-wide commands that act on every ledger.
+  assert.doesNotMatch(packet.nextAction, /--all/, packet.nextAction);
+  assert.match(packet.nextAction, /artshelf cleanup --dry-run`/);
+});
+
+test("review --agent single-ledger blocked decision is single-scoped, not registry-wide", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  mkdirSync(dirname(ledger), { recursive: true });
+  writeFileSync(ledger, "{not json\n");
+
+  const result = artshelf(["review", "--ledger", ledger, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.scope, "single");
+  assert.equal(packet.blocked.length, 1);
+  const blocked = packet.blocked[0];
+  assert.equal(blocked.actionType, "fix-registry");
+  // The standalone ledger was never registered, so repair guidance must not tell the
+  // agent to re-register or re-run the registry-wide --all command.
+  assert.doesNotMatch(blocked.nextStep, /--all/, blocked.nextStep);
+  assert.doesNotMatch(blocked.nextStep, /re-register/, blocked.nextStep);
+  assert.match(blocked.nextStep, /re-run `artshelf review`/);
+  assert.doesNotMatch(packet.nextAction, /--all/, packet.nextAction);
+  assert.doesNotMatch(packet.nextAction, /re-register/, packet.nextAction);
+});
+
 function artshelf(args: string[], now?: string, extraEnv: Record<string, string | undefined> = {}): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
     encoding: "utf8",

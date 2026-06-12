@@ -579,7 +579,7 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     const results = registeredLedgersOrThrow(registryPath).map((ledger) => reviewLedger(ledger));
     const ok = results.every((entry) => entry.validate.ok);
     const summary = summarizeReview(results);
-    const nextAction = reviewNextAction(summary);
+    const nextAction = reviewNextAction(summary, "all");
     if (agent) {
       printCompactJson(buildReviewAgentPacketAll(results, summary, registryPath));
       return ok ? 0 : 1;
@@ -1505,13 +1505,16 @@ function summarizeReview(results: ReviewResult[]): ReviewSummary {
   return summary;
 }
 
-function reviewNextAction(summary: ReviewSummary): string {
+function reviewNextAction(summary: ReviewSummary, scope: "all" | "single"): string {
   const broken = summary.invalid + summary.stale;
+  const review = scope === "all" ? "artshelf review --all" : "artshelf review";
   if (broken > 0) {
-    return `repair ${broken} broken ledger(s) above (re-register or fix the file), then re-run \`artshelf review --all\``;
+    const repair = scope === "all" ? "re-register or fix the file" : "fix the file";
+    return `repair ${broken} broken ledger(s) above (${repair}), then re-run \`${review}\``;
   }
   if (summary.executable > 0) {
-    return "run `artshelf cleanup --dry-run --all` to generate plans, then `artshelf cleanup --execute --plan-id <id> --ledger <path>` for each reviewed plan";
+    const dryRun = scope === "all" ? "artshelf cleanup --dry-run --all" : "artshelf cleanup --dry-run";
+    return `run \`${dryRun}\` to generate plans, then \`artshelf cleanup --execute --plan-id <id> --ledger <path>\` for each reviewed plan`;
   }
   if (summary.missingPath > 0) {
     return "inspect missing-path entries and `artshelf resolve` the ones no longer needed; nothing is auto-executable";
@@ -1597,22 +1600,24 @@ const REVIEW_SAFETY = {
 // Classify each registered ledger's records into decision groups. Order is
 // fixed (registry order, then a stable per-ledger sub-order) so the packet is
 // byte-for-byte deterministic.
-function buildReviewDecisions(results: ReviewResult[]): ReviewAgentGroups {
+function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single"): ReviewAgentGroups {
   const readyForApproval: ReviewDecision[] = [];
   const needsReviewFirst: ReviewDecision[] = [];
   const blocked: ReviewDecision[] = [];
+  const review = scope === "all" ? "artshelf review --all" : "artshelf review";
 
   for (const result of results) {
     const { ledger, validate, due } = result;
     if (!validate.ok) {
       const status = existsSync(ledger.path) ? "invalid" : "missing";
+      const repair = scope === "all" ? `re-register or fix ${ledger.path}` : `fix ${ledger.path}`;
       blocked.push({
         label: `Repair ${ledger.name} ledger (${status})`,
         itemIds: [],
         actionType: "fix-registry",
         approvalTarget: null,
-        reason: validate.errors[0] ?? `registered ledger is ${status}`,
-        nextStep: `re-register or fix ${ledger.path}, then re-run \`artshelf review --all\``
+        reason: validate.errors[0] ?? `${scope === "all" ? "registered ledger" : "ledger"} is ${status}`,
+        nextStep: `${repair}, then re-run \`${review}\``
       });
       continue;
     }
@@ -1687,7 +1692,7 @@ function reviewCounts(summary: ReviewSummary): ReviewAgentPacket["counts"] {
 }
 
 function buildReviewAgentPacketAll(results: ReviewResult[], summary: ReviewSummary, registryPath: string): ReviewAgentPacket {
-  const groups = buildReviewDecisions(results);
+  const groups = buildReviewDecisions(results, "all");
   return {
     schemaVersion: 1,
     command: "review",
@@ -1705,14 +1710,14 @@ function buildReviewAgentPacketAll(results: ReviewResult[], summary: ReviewSumma
     needsReviewFirst: groups.needsReviewFirst,
     blocked: groups.blocked,
     safety: REVIEW_SAFETY,
-    nextAction: reviewNextAction(summary),
+    nextAction: reviewNextAction(summary, "all"),
     verification: `artshelf review --all --agent --registry ${registryPath}`
   };
 }
 
 function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: string): ReviewAgentPacket {
   const summary = summarizeReview([result]);
-  const groups = buildReviewDecisions([result]);
+  const groups = buildReviewDecisions([result], "single");
   return {
     schemaVersion: 1,
     command: "review",
@@ -1729,7 +1734,7 @@ function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: string):
     needsReviewFirst: groups.needsReviewFirst,
     blocked: groups.blocked,
     safety: REVIEW_SAFETY,
-    nextAction: reviewNextAction(summary),
+    nextAction: reviewNextAction(summary, "single"),
     verification: `artshelf review --agent --ledger ${ledgerPath}`
   };
 }
