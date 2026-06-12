@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 function read(path: string): string {
@@ -38,15 +38,15 @@ test("agent and contributor docs point to the architecture contract", () => {
   assert.match(contributing, /ARCHITECTURE\.md/);
 });
 
-test("cli entrypoint has a transitional size budget", () => {
+test("cli entrypoint stays thin and handler-free", () => {
   const cli = read("src/cli.ts");
   const lines = cli.split("\n").length;
   const commandHandlers = [...cli.matchAll(/^async function handle|^function handle/gm)].length;
 
-  assert.ok(lines <= 2250, `src/cli.ts has ${lines} lines; move behavior out instead of growing it`);
+  assert.ok(lines <= 650, `src/cli.ts has ${lines} lines; move behavior out instead of growing it`);
   assert.ok(
-    commandHandlers <= 16,
-    `src/cli.ts has ${commandHandlers} command handlers; add command modules instead of more handlers`
+    commandHandlers === 0,
+    `src/cli.ts has ${commandHandlers} command handlers; command behavior belongs in src/commands`
   );
 });
 
@@ -108,6 +108,31 @@ test("shared CLI contracts and update adapters are explicit modules", () => {
   assert.doesNotMatch(cli, /^type ParsedArgs/gm);
   assert.doesNotMatch(commands, /^type ParsedArgs/gm);
   assert.doesNotMatch(commands, /^function getLatestVersion/gm);
+});
+
+
+test("architecture guardrails catch boundary and migration regressions", () => {
+  const cli = read("src/cli.ts");
+  assert.doesNotMatch(cli, /from "\.\/ledger\.js"/);
+  assert.doesNotMatch(cli, /from "\.\/registry\.js"/);
+
+  const sourceFiles = [
+    "src/commands/index.ts",
+    ...readdirSync("src/commands").filter((file) => file.endsWith(".ts") && file !== "index.ts").map((file) => `src/commands/${file}`),
+    "src/adapters/update.ts",
+    "src/config/package.ts",
+    "src/renderers/attention.ts",
+    "src/renderers/json.ts",
+    "src/shared/cli-types.ts",
+    "src/shared/errors.ts",
+    "src/shared/flags.ts"
+  ];
+
+  for (const file of sourceFiles) {
+    const contents = read(file);
+    assert.doesNotMatch(contents, /during the NGX-407 extraction|temporary migration|compatibility shim/, file);
+    assert.doesNotMatch(contents, /from "\.\.\/cli\.js"|from "\.\/cli\.js"/, file);
+  }
 });
 
 function escapeRegExp(value: string): string {

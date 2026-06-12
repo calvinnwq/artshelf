@@ -11,16 +11,15 @@ explicit without changing command behavior.
 
 ## Current Boundary
 
-Until the migration finishes, `src/cli.ts` remains the executable entrypoint and
-compatibility surface. It may keep existing command behavior temporarily, but it
-must not become the storage place for new command implementations.
+`src/cli.ts` is the executable entrypoint and command registry glue. Command
+implementations, output helpers, update adapters, and shared CLI contracts live
+outside the entrypoint. New command behavior must not be added to `src/cli.ts`.
 
 Allowed in `src/cli.ts`:
 
 - process entrypoint and exit handling
 - argument parsing and help dispatch
 - command registry wiring
-- short compatibility shims during migration
 - process stdout/stderr calls at the outer edge
 
 Avoid adding to `src/cli.ts`:
@@ -162,7 +161,9 @@ Artshelf's public contract is safety-first:
 ## Migration Order
 
 Use these issues as the intended order. Each slice should leave the repo valid
-and preserve existing behavior.
+and preserve existing behavior. Shelves 17 through 20 established the current
+folder split; future work should extend the split rather than moving behavior
+back into the entrypoint.
 
 1. `NGX-406` / Shelf-16: create this architecture contract, link it from agent
    and contributor docs, and add the structural guardrail.
@@ -187,6 +188,6 @@ makes the later moves boring.
 - `CONTRIBUTING.md` links this contract
 - `src/cli.ts` stays within the temporary line/function budget
 
-The budget is intentionally transitional. When later refactor slices move code
-out of `src/cli.ts`, lower the budget in the test. Do not raise it to fit new
-command behavior.
+The budget now enforces `src/cli.ts` as a thin entrypoint. Do not raise it to fit
+new command behavior. Add command modules, renderers, adapters, config, or shared
+contracts in the folders above instead.
