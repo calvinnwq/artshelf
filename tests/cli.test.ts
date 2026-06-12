@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -229,6 +230,24 @@ test("commands surface an available update on stderr without breaking JSON stdou
   assert.match(result.stderr, /Run "artshelf update" to update npm installs/);
 });
 
+test("available update cache uses the long TTL and prints a notice without network", () => {
+  const fixture = fixtureDir();
+  const cache = join(fixture, "update-cache.json");
+  const checkedAt = Date.now() - 90 * 60 * 1000;
+  writeFileSync(cache, `${JSON.stringify({ latest: "99.0.0", checkedAt }, null, 2)}\n`);
+
+  const result = artshelf(["status", "--ledger", ledgerPath(fixture), "--json"], undefined, {
+    ARTSHELF_NO_UPDATE_CHECK: undefined,
+    ARTSHELF_NPM_REGISTRY_URL: "http://127.0.0.1:1/artshelf/latest",
+    ARTSHELF_UPDATE_CACHE: cache
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  assert.equal(JSON.parse(result.stdout).ok, true);
+  assert.match(result.stderr, new RegExp(`A new version of artshelf is available: v${escapeRegExp(PACKAGE_VERSION)} -> v99\\.0\\.0`));
+  assert.equal(JSON.parse(readFileSync(cache, "utf8")).checkedAt, checkedAt);
+});
+
 test("commands stay quiet when the current version is the latest", () => {
   const fixture = fixtureDir();
   const result = artshelf(["--version"], undefined, {
@@ -327,6 +346,65 @@ test("failed update checks are cached for the TTL", () => {
   const second = artshelf(["--version"], undefined, env);
   assert.equal(second.status, 0, second.stderr);
   assert.equal(JSON.parse(readFileSync(cache, "utf8")).checkedAt, checkedAt);
+});
+
+test("no-update caches expire sooner than available-update caches", () => {
+  const fixture = fixtureDir();
+  const cache = join(fixture, "update-cache.json");
+  const staleCheckedAt = Date.now() - 90 * 60 * 1000;
+  writeFileSync(cache, `${JSON.stringify({ latest: PACKAGE_VERSION, checkedAt: staleCheckedAt }, null, 2)}\n`);
+
+  const result = artshelf(["--version"], undefined, {
+    ARTSHELF_NO_UPDATE_CHECK: undefined,
+    ARTSHELF_NPM_REGISTRY_URL: "http://127.0.0.1:1/artshelf/latest",
+    ARTSHELF_UPDATE_CACHE: cache
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const refreshedCache = JSON.parse(readFileSync(cache, "utf8"));
+  assert.equal(refreshedCache.latest, null);
+  assert.ok(refreshedCache.checkedAt > staleCheckedAt);
+});
+
+test("ARTSHELF_NO_UPDATE_CHECK suppresses normal command update checks", () => {
+  const fixture = fixtureDir();
+  const cache = join(fixture, "update-cache.json");
+  const staleCheckedAt = Date.now() - 90 * 60 * 1000;
+  writeFileSync(cache, `${JSON.stringify({ latest: PACKAGE_VERSION, checkedAt: staleCheckedAt }, null, 2)}\n`);
+
+  const result = artshelf(["--version"], undefined, {
+    ARTSHELF_NO_UPDATE_CHECK: "1",
+    ARTSHELF_NPM_REGISTRY_URL: "http://127.0.0.1:1/artshelf/latest",
+    ARTSHELF_UPDATE_CACHE: cache
+  });
+
+  assert.equal(result.status, 0);
+  assert.equal(result.stdout, `artshelf ${PACKAGE_VERSION}\n`);
+  assert.equal(result.stderr, "");
+  assert.equal(JSON.parse(readFileSync(cache, "utf8")).checkedAt, staleCheckedAt);
+});
+
+test("update forces a fresh latest-version check instead of trusting stale no-update cache", async () => {
+  const fixture = fixtureDir();
+  const cache = join(fixture, "update-cache.json");
+  const checkedAt = Date.now();
+  writeFileSync(cache, `${JSON.stringify({ latest: PACKAGE_VERSION, checkedAt }, null, 2)}\n`);
+
+  await withRegistryVersion("99.0.0", async (registryUrl) => {
+    const result = await shelfAsync(["update"], undefined, {
+      ARTSHELF_NO_UPDATE_CHECK: undefined,
+      ARTSHELF_NPM_REGISTRY_URL: registryUrl,
+      ARTSHELF_UPDATE_CACHE: cache,
+      ARTSHELF_UPDATE_DRY_RUN: "1"
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.match(result.stdout, new RegExp(`A new version of artshelf is available: v${escapeRegExp(PACKAGE_VERSION)} -> v99\\.0\\.0`));
+    assert.equal(result.stderr, "");
+    const refreshedCache = JSON.parse(readFileSync(cache, "utf8"));
+    assert.equal(refreshedCache.latest, "99.0.0");
+    assert.ok(refreshedCache.checkedAt >= checkedAt);
+  });
 });
 
 test("unknown flags fail with a usage hint", () => {
@@ -2590,10 +2668,20 @@ function artshelf(args: string[], now?: string, extraEnv: Record<string, string 
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
 
-function shelfAsync(args: string[], now?: string): Promise<{ status: number; stdout: string; stderr: string }> {
+function shelfAsync(
+  args: string[],
+  now?: string,
+  extraEnv: Record<string, string | undefined> = {}
+): Promise<{ status: number; stdout: string; stderr: string }> {
   return new Promise((resolveResult) => {
     const child = spawn(process.execPath, [CLI.pathname, ...args], {
-      env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_REGISTRY: TEST_REGISTRY, ...(now ? { ARTSHELF_NOW: now } : {}) }
+      env: {
+        ...process.env,
+        ARTSHELF_NO_UPDATE_CHECK: "1",
+        ARTSHELF_REGISTRY: TEST_REGISTRY,
+        ...(now ? { ARTSHELF_NOW: now } : {}),
+        ...extraEnv
+      }
     });
     let stdout = "";
     let stderr = "";
@@ -2607,6 +2695,34 @@ function shelfAsync(args: string[], now?: string): Promise<{ status: number; std
       resolveResult({ status: status ?? 1, stdout, stderr });
     });
   });
+}
+
+async function withRegistryVersion<T>(version: string, run: (url: string) => Promise<T>): Promise<T> {
+  const server = createServer((_request, response) => {
+    response.setHeader("content-type", "application/json");
+    response.end(JSON.stringify({ version }));
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolve();
+    });
+  });
+
+  const address = server.address();
+  assert.equal(typeof address, "object");
+  assert.notEqual(address, null);
+  const url = `http://127.0.0.1:${address.port}/artshelf/latest`;
+
+  try {
+    return await run(url);
+  } finally {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error: Error | undefined) => (error ? reject(error) : resolve()));
+    });
+  }
 }
 
 function fixtureDir(): string {

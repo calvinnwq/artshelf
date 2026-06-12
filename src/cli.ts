@@ -33,6 +33,7 @@ const VERSION = readPackageVersion();
 const PACKAGE_NAME = "artshelf";
 const NPM_REGISTRY_URL = process.env.ARTSHELF_NPM_REGISTRY_URL ?? `https://registry.npmjs.org/${PACKAGE_NAME}/latest`;
 const UPDATE_CHECK_TTL_MS = 24 * 60 * 60 * 1000;
+const NO_UPDATE_CHECK_TTL_MS = 60 * 60 * 1000;
 const BOOLEAN_FLAGS = new Set(["all", "json", "agent", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
 const VALUE_FLAGS = new Set([
   "cleanup",
@@ -1173,19 +1174,28 @@ async function getLatestVersion(options: { force: boolean }): Promise<string | n
 }
 
 function readUpdateCache(): { latest: string | null } | null {
-  const ttl = Number(process.env.ARTSHELF_UPDATE_CHECK_TTL_MS ?? UPDATE_CHECK_TTL_MS);
-  if (ttl < 0) return null;
   const cachePath = updateCachePath();
   if (!existsSync(cachePath)) return null;
   try {
     const cache = JSON.parse(readFileSync(cachePath, "utf8"));
+    if (!("latest" in cache)) cache.latest = null;
     if (cache.latest !== null && typeof cache.latest !== "string") return null;
     if (typeof cache.checkedAt !== "number") return null;
+    const latest = cache.latest === null ? null : normalizeVersion(cache.latest);
+    const ttl = updateCacheTtlFor(latest);
+    if (ttl < 0) return null;
     if (Date.now() - cache.checkedAt > ttl) return null;
-    return { latest: cache.latest === null ? null : normalizeVersion(cache.latest) };
+    return { latest };
   } catch {
     return null;
   }
+}
+
+function updateCacheTtlFor(latest: string | null): number {
+  if (latest && compareVersions(latest, VERSION) > 0) {
+    return Number(process.env.ARTSHELF_UPDATE_CHECK_TTL_MS ?? UPDATE_CHECK_TTL_MS);
+  }
+  return Number(process.env.ARTSHELF_NO_UPDATE_CHECK_TTL_MS ?? process.env.ARTSHELF_UPDATE_CHECK_TTL_MS ?? NO_UPDATE_CHECK_TTL_MS);
 }
 
 function writeUpdateCache(latest: string | null): void {

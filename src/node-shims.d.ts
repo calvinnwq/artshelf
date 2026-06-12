@@ -53,6 +53,10 @@ declare module "node:fs" {
   export function mkdtempSync(prefix: string): string;
 }
 
+declare module "node:http" {
+  export function createServer(callback: (request: any, response: any) => void): any;
+}
+
 declare module "node:os" {
   export function homedir(): string;
   export function tmpdir(): string;

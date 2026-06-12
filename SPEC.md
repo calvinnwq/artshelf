@@ -353,12 +353,17 @@ Rules:
 - Read-only command guarantees refer to ledger and artifact mutation; automatic
   update-check cache writes are separate and can be disabled.
 - Update notices must never pollute JSON stdout.
-- Automatic checks cache successful and failed latest-version lookups at
-  `~/.artshelf/update-check.json` by default, with a 24-hour TTL.
+- Automatic checks cache latest-version lookups at
+  `~/.artshelf/update-check.json` by default. Cached update-available results
+  (`latest > current`) keep the long 24-hour TTL; cached no-update, failed,
+  missing, or null results use a shorter 1-hour TTL so newly published releases
+  are noticed sooner.
 - `ARTSHELF_NO_UPDATE_CHECK=1` disables automatic checks for scheduled jobs,
   tests, and no-network environments.
 - `ARTSHELF_UPDATE_CACHE` overrides the update-cache path,
-  `ARTSHELF_UPDATE_CHECK_TTL_MS` overrides the cache TTL, and
+  `ARTSHELF_UPDATE_CHECK_TTL_MS` overrides the update-available cache TTL,
+  `ARTSHELF_NO_UPDATE_CHECK_TTL_MS` overrides the no-update/failed cache TTL
+  (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility), and
   `ARTSHELF_NPM_REGISTRY_URL` overrides the npm latest-version endpoint.
 - `ARTSHELF_LATEST_VERSION` overrides the discovered latest version for tests.
 - `ARTSHELF_UPDATE_DRY_RUN=1` makes `artshelf update` report the npm command it
@@ -541,9 +546,13 @@ V1 also supports a user-level registry of known ledgers:
   overrides it for tests and controlled runs; legacy `SHELF_NOW` is read only
   when `ARTSHELF_NOW` is unset.
 - Automatic npm update checks cache their latest-version result at
-  `~/.artshelf/update-check.json` by default. `ARTSHELF_NO_UPDATE_CHECK=1`
-  disables automatic checks, `ARTSHELF_UPDATE_CACHE` overrides the cache path,
-  and `ARTSHELF_UPDATE_CHECK_TTL_MS` overrides the cache TTL.
+  `~/.artshelf/update-check.json` by default. Cached update-available results
+  use the long 24-hour TTL; cached no-update, failed, missing, or null results
+  use a shorter 1-hour TTL. `ARTSHELF_NO_UPDATE_CHECK=1` disables automatic
+  checks, `ARTSHELF_UPDATE_CACHE` overrides the cache path,
+  `ARTSHELF_UPDATE_CHECK_TTL_MS` overrides the update-available TTL, and
+  `ARTSHELF_NO_UPDATE_CHECK_TTL_MS` overrides the no-update/failed TTL
+  (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility).
 - `put` registers the ledger it writes to.
 - `ledgers add` registers an existing ledger explicitly.
 - `--all` reads registered ledgers as one review surface.

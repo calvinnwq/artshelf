@@ -148,7 +148,10 @@ artshelf update [--json]</code></pre>
               only. pnpm global installs should update with
               <code>pnpm add -g artshelf@latest</code>. Source installs should update by
               pulling, rebuilding, and linking the checkout. Notices are cached in
-              <code>~/.artshelf/update-check.json</code>; set
+              <code>~/.artshelf/update-check.json</code>: update-available results use
+              the long 24-hour TTL, while no-update, failed, missing, or null results
+              use a shorter 1-hour TTL so newly published releases are noticed sooner.
+              <code>artshelf update</code> forces a fresh latest-version check. Set
               <code>ARTSHELF_NO_UPDATE_CHECK=1</code> to disable automatic checks for
               no-network scripts and scheduled jobs. Read-only command labels refer
               to ledger and artifact mutation, not this optional update-check cache.
@@ -261,7 +264,8 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
               <tr><td>ARTSHELF_NOW</td><td>override current time for retention and due calculations</td></tr>
               <tr><td>ARTSHELF_NO_UPDATE_CHECK=1</td><td>disable automatic npm update checks</td></tr>
               <tr><td>ARTSHELF_UPDATE_CACHE</td><td>override the update-check cache path</td></tr>
-              <tr><td>ARTSHELF_UPDATE_CHECK_TTL_MS</td><td>override the update-check cache TTL</td></tr>
+              <tr><td>ARTSHELF_UPDATE_CHECK_TTL_MS</td><td>override the update-available cache TTL; also acts as the no-update TTL fallback for compatibility</td></tr>
+              <tr><td>ARTSHELF_NO_UPDATE_CHECK_TTL_MS</td><td>override the no-update/failed cache TTL specifically</td></tr>
               <tr><td>ARTSHELF_NPM_REGISTRY_URL</td><td>override the npm latest-version endpoint</td></tr>
               <tr><td>ARTSHELF_UPDATE_DRY_RUN=1</td><td>print the npm update command without running it</td></tr>
               <tr><td>ARTSHELF_LATEST_VERSION</td><td>override the latest-version value for tests</td></tr>
@@ -290,7 +294,9 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
               <code>~/.artshelf/ledgers.json</code> is the discovery index for <code>--all</code>
               review, status, cleanup dry-run, and trash-list; project records stay in their own
               repo-local ledgers. Automatic update checks cache their last npm result at
-              <code>~/.artshelf/update-check.json</code> by default.
+              <code>~/.artshelf/update-check.json</code> by default, with a long TTL
+              for update-available results and a shorter TTL for no-update or failed
+              results.
             </p>
             <div class="callout" data-kind="boundary">
               <span class="callout-label">Hard boundary</span>
