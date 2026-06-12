@@ -106,7 +106,10 @@ test("shared CLI contracts and update adapters are explicit modules", () => {
   for (const file of [
     "src/shared/cli-types.ts",
     "src/shared/flags.ts",
+    "src/config/env.ts",
+    "src/config/paths.ts",
     "src/config/package.ts",
+    "src/adapters/process.ts",
     "src/adapters/update.ts"
   ]) {
     assert.equal(existsSync(file), true, `${file} should exist`);
@@ -117,6 +120,8 @@ test("shared CLI contracts and update adapters are explicit modules", () => {
   assert.doesNotMatch(cli, /^type ParsedArgs/gm);
   assert.doesNotMatch(commands, /^type ParsedArgs/gm);
   assert.doesNotMatch(commands, /^function getLatestVersion/gm);
+  assert.doesNotMatch(commands, /process\.env\.ARTSHELF_UPDATE_DRY_RUN/);
+  assert.doesNotMatch(commands, /spawnSync\("npm"/);
 });
 
 
@@ -129,6 +134,9 @@ test("architecture guardrails catch boundary and migration regressions", () => {
     "src/commands/index.ts",
     ...readdirSync("src/commands").filter((file) => file.endsWith(".ts") && file !== "index.ts").map((file) => `src/commands/${file}`),
     "src/adapters/update.ts",
+    "src/adapters/process.ts",
+    "src/config/env.ts",
+    "src/config/paths.ts",
     "src/config/package.ts",
     "src/renderers/attention.ts",
     "src/renderers/doctor.ts",

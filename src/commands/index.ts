@@ -1,4 +1,3 @@
-import { spawnSync } from "node:child_process";
 import { existsSync } from "node:fs";
 import {
   appendPreparedRecord,
@@ -26,6 +25,8 @@ import {
 import type { LedgerRegistryEntry } from "../registry.js";
 import type { CleanupPlan, DueEntry, ArtshelfRecord } from "../types.js";
 import { PACKAGE_NAME, VERSION } from "../config/package.js";
+import { updateCheckDisabled, updateDryRunEnabled } from "../config/env.js";
+import { installGlobalNpmPackage } from "../adapters/process.js";
 import {
   buildDoctorAgentPacket,
   printDoctor,
@@ -770,7 +771,7 @@ async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> 
     return 0;
   }
 
-  if (process.env.ARTSHELF_UPDATE_DRY_RUN === "1") {
+  if (updateDryRunEnabled()) {
     if (json) {
       return printJson({
         ok: true,
@@ -790,9 +791,7 @@ async function handleUpdate(parsed: ParsedArgs, json: boolean): Promise<number> 
     process.stdout.write(`A new version of artshelf is available: v${info.current} -> v${info.latest}\n`);
     process.stdout.write(`Updating with "npm install -g ${PACKAGE_NAME}@latest"...\n`);
   }
-  const result = json
-    ? spawnSync("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { encoding: "utf8" })
-    : spawnSync("npm", ["install", "-g", `${PACKAGE_NAME}@latest`], { stdio: "inherit" });
+  const result = installGlobalNpmPackage(`${PACKAGE_NAME}@latest`, json ? "pipe" : "inherit");
   const status = result.status ?? 1;
   const spawnError = result.error instanceof Error ? result.error.message : "";
   if (json) {
@@ -819,7 +818,7 @@ function appendOutputMessage(output: string, message: string): string {
 }
 
 export async function maybeNotifyAvailableUpdate(parsed: ParsedArgs): Promise<void> {
-  if (process.env.ARTSHELF_NO_UPDATE_CHECK === "1") return;
+  if (updateCheckDisabled()) return;
   if (parsed.command === "update") return;
   const info = await getUpdateInfo({ force: false });
   if (!info?.updateAvailable) return;
