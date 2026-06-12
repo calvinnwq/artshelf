@@ -579,11 +579,11 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     const results = registeredLedgersOrThrow(registryPath).map((ledger) => reviewLedger(ledger));
     const ok = results.every((entry) => entry.validate.ok);
     const summary = summarizeReview(results);
-    const nextAction = reviewNextAction(summary, "all");
     if (agent) {
       printCompactJson(buildReviewAgentPacketAll(results, summary, registryPath));
       return ok ? 0 : 1;
     }
+    const nextAction = reviewNextAction(summary, "all");
     if (json) {
       printJson({ ok, registryPath, summary, nextAction, ledgers: results });
       return ok ? 0 : 1;
