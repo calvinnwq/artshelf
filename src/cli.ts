@@ -1,41 +1,10 @@
 #!/usr/bin/env node
-import { readFileSync } from "node:fs";
 import { maybeNotifyAvailableUpdate, runCommand } from "./commands/index.js";
+import { VERSION } from "./config/package.js";
 import { formatCliError } from "./shared/errors.js";
+import { BOOLEAN_FLAGS, boolFlag, VALUE_FLAGS } from "./shared/flags.js";
+import type { ParsedArgs } from "./shared/cli-types.js";
 
-const VERSION = readPackageVersion();
-const BOOLEAN_FLAGS = new Set(["all", "json", "agent", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
-const VALUE_FLAGS = new Set([
-  "cleanup",
-  "kind",
-  "label",
-  "ledger",
-  "name",
-  "owner",
-  "path",
-  "plan-id",
-  "older-than",
-  "registry",
-  "reason",
-  "retain-until",
-  "scope",
-  "status",
-  "ttl"
-]);
-function readPackageVersion(): string {
-  const packageJsonPath = decodeURIComponent(new URL("../../package.json", import.meta.url).pathname);
-  const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
-  if (typeof packageJson.version !== "string") {
-    throw new Error("package.json version must be a string");
-  }
-  return packageJson.version;
-}
-
-type ParsedArgs = {
-  command: string | undefined;
-  positionals: string[];
-  flags: Map<string, string | boolean | string[]>;
-};
 
 async function main(argv: string[]): Promise<number> {
   try {
@@ -111,9 +80,6 @@ function parseArgs(argv: string[]): ParsedArgs {
   return { command, positionals, flags };
 }
 
-function boolFlag(parsed: ParsedArgs, name: string): boolean {
-  return parsed.flags.get(name) === true;
-}
 
 async function maybeNotifyUpdateAndReturn(status: number, parsed: ParsedArgs): Promise<number> {
   await maybeNotifyAvailableUpdate(parsed);

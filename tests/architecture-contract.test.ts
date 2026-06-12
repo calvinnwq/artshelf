@@ -92,6 +92,24 @@ test("renderers own shared output helpers", () => {
   assert.doesNotMatch(commands, /^function attentionGlyph/gm);
 });
 
+
+test("shared CLI contracts and update adapters are explicit modules", () => {
+  for (const file of [
+    "src/shared/cli-types.ts",
+    "src/shared/flags.ts",
+    "src/config/package.ts",
+    "src/adapters/update.ts"
+  ]) {
+    assert.equal(existsSync(file), true, `${file} should exist`);
+  }
+
+  const cli = read("src/cli.ts");
+  const commands = read("src/commands/index.ts");
+  assert.doesNotMatch(cli, /^type ParsedArgs/gm);
+  assert.doesNotMatch(commands, /^type ParsedArgs/gm);
+  assert.doesNotMatch(commands, /^function getLatestVersion/gm);
+});
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
