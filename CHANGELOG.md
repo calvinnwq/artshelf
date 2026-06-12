@@ -64,6 +64,14 @@
   and `artshelf ledgers help` aliases, advertised short `-h`/`-v` flags, and
   reclassified `--ledger`, `--registry`, and `--all` as command-specific scope
   flags instead of global options.
+- Added an `--agent` render mode to `artshelf review`, `status`, and `doctor`: a
+  compact, deterministic single-line JSON decision packet (health, counts,
+  attention categories or classified decision groups, blockers, the next safe
+  action, and a verification command) tuned for agents acting on results.
+  `--agent` takes precedence over `--json`, while `--json` stays the full,
+  backward-compatible audit report. The default human renders of these three
+  commands now lead each ledger and summary line with a `✓`/`⚠` attention glyph
+  (plain Unicode, no color) so redirected output stays clean.
 
 ## [0.9.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.8.0...artshelf-v0.9.0) (2026-06-11)
 
