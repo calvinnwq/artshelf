@@ -73,7 +73,7 @@ artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;pro
 artshelf ledgers list --json
 
 <span class="c"># review and due-check every registered ledger at once</span>
-artshelf review --all --json
+artshelf review --all --agent
 artshelf due --all --json
 
 <span class="c"># find records this agent owns, across ledgers</span>
@@ -102,12 +102,20 @@ artshelf due --all --json
 
 <span class="c"># the full read-only pass: validate + due + plan preview</span>
 artshelf review --all --json
+artshelf review --all --agent
 
 <span class="c"># CLI version, paths, registry health, safety posture</span>
 artshelf doctor --json
+artshelf doctor --agent
 
 <span class="c"># lightweight counts, cron-friendly</span>
-artshelf status --all --json</code></pre>
+artshelf status --all --json
+artshelf status --all --agent</code></pre>
+            <p>
+              Use <code>--agent</code> for concise monitor decisions and exact next
+              actions. Use <code>--json</code> instead when the job needs full
+              audit/API detail for storage, debugging, or a custom report.
+            </p>
           </section>
 
           <section>

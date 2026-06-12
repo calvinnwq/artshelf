@@ -412,6 +412,26 @@ test("agent docs explain when to use the agent render versus json and human outp
   }
 });
 
+test("agent workflow docs reconcile built-in agent packets with full review reports", () => {
+  const review = read("docs/agent-review.html");
+  const monitor = read("docs/agent-monitor.html");
+  const skill = read("skills/artshelf/SKILL.md");
+
+  for (const text of [review, monitor, skill]) {
+    assert.match(text, /--agent/);
+    assert.match(text, /--json/);
+    assert.match(text, /audit|debugging|custom/i);
+  }
+
+  assert.match(review, /review --all --agent/);
+  assert.match(review, /ArtshelfReviewReport/);
+  assert.match(review, /host cards|host-specific|richer/i);
+  assert.match(monitor, /status --all --agent/);
+  assert.match(monitor, /doctor --agent/);
+  assert.match(skill, /review --all --agent/);
+  assert.match(skill, /render-review-report\.mjs/);
+});
+
 test("README presents the agent render alongside the json contract", () => {
   const readme = read("README.md");
   // The agent render is advertised next to --json, not buried.
