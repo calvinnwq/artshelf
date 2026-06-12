@@ -72,6 +72,13 @@
   backward-compatible audit report. The default human renders of these three
   commands now lead each ledger and summary line with a `✓`/`⚠` attention glyph
   (plain Unicode, no color) so redirected output stays clean.
+- Shortened the automatic update-check cache so no-update, failed, missing, or
+  null results expire after 1 hour while update-available results keep the
+  24-hour TTL, letting newly published releases surface sooner. `artshelf update`
+  forces a fresh latest-version check instead of trusting a stale no-update
+  cache, `ARTSHELF_NO_UPDATE_CHECK_TTL_MS` overrides the no-update/failed TTL
+  (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility), and a
+  non-numeric TTL value falls back to the default instead of disabling expiry.
 
 ## [0.10.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.9.0...artshelf-v0.10.0) (2026-06-12)
 

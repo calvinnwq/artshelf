@@ -62,12 +62,14 @@ install with `npm unlink -g artshelf`.
 </details>
 
 Artshelf checks npm occasionally and prints a non-blocking notice to stderr when
-a newer published version is available. Run `artshelf update` only for npm
-global installs; it upgrades with `npm install -g artshelf@latest`. pnpm global
-installs should update with `pnpm add -g artshelf@latest`, and source installs
-still update by pulling, rebuilding, and linking the checkout. Set
-`ARTSHELF_NO_UPDATE_CHECK=1` for scheduled jobs that must avoid network and
-update-cache writes.
+a newer published version is available. Available-update results are cached for
+24 hours by default; failed, missing, or no-update results are cached for 1 hour
+so a newly published release is noticed sooner. Run `artshelf update` only for
+npm global installs; it forces a fresh latest-version check before upgrading
+with `npm install -g artshelf@latest`. pnpm global installs should update with
+`pnpm add -g artshelf@latest`, and source installs still update by pulling,
+rebuilding, and linking the checkout. Set `ARTSHELF_NO_UPDATE_CHECK=1` for
+scheduled jobs that must avoid network and update-cache writes.
 
 ### Recommended agent setup
 
