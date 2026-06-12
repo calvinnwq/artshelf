@@ -778,7 +778,7 @@ function buildDoctorAgentPacket(report: DoctorReport): DoctorAgentPacket {
     blockers,
     cleanupSafety: report.cleanupSafety,
     nextAction: doctorNextAction(blockers, report.summary),
-    verification: "artshelf doctor --agent"
+    verification: `artshelf doctor --agent --registry ${report.registryPath}`
   };
 }
 
@@ -1023,7 +1023,7 @@ function buildStatusAgentPacketAll(report: StatusReport): StatusAgentPacket {
     attention: statusAttention(counts),
     blockers,
     nextAction: statusNextAction(blockers, counts, "all"),
-    verification: "artshelf status --all --agent"
+    verification: `artshelf status --all --agent --registry ${report.registryPath}`
   };
 }
 
@@ -1706,7 +1706,7 @@ function buildReviewAgentPacketAll(results: ReviewResult[], summary: ReviewSumma
     blocked: groups.blocked,
     safety: REVIEW_SAFETY,
     nextAction: reviewNextAction(summary),
-    verification: "artshelf review --all --agent"
+    verification: `artshelf review --all --agent --registry ${registryPath}`
   };
 }
 

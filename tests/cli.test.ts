@@ -1936,7 +1936,7 @@ test("doctor --agent emits a compact deterministic decision packet alongside ful
     dryRunBeforeMutation: true
   });
   assert.match(packet.nextAction, /healthy/i);
-  assert.equal(packet.verification, "artshelf doctor --agent");
+  assert.equal(packet.verification, `artshelf doctor --agent --registry ${registry}`);
 
   // Backward compatibility: full --json still emits the pretty audit report unchanged.
   const fullJson = artshelf(["doctor", "--registry", registry, "--json"]);
@@ -2313,7 +2313,7 @@ test("status --all --agent emits a compact deterministic agent packet alongside 
   assert.deepEqual(packet.attention, ["due", "manualReview", "pendingCleanup"]);
   assert.deepEqual(packet.blockers, []);
   assert.match(packet.nextAction, /review --all/);
-  assert.equal(packet.verification, "artshelf status --all --agent");
+  assert.equal(packet.verification, `artshelf status --all --agent --registry ${registry}`);
 
   // Backward compatibility: full --json still emits the pretty audit report unchanged.
   const fullJson = artshelf(["status", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
@@ -2461,7 +2461,7 @@ test("review --all --agent emits a compact deterministic decision packet alongsi
   // Cleanup-safety posture is stated in the packet and stays read-only.
   assert.deepEqual(packet.safety, { dryRunOnly: true, executeAllRefused: true, noExecuteRan: true, noResolveRan: true, noDeleteRan: true });
   assert.match(packet.nextAction, /cleanup --dry-run --all/);
-  assert.equal(packet.verification, "artshelf review --all --agent");
+  assert.equal(packet.verification, `artshelf review --all --agent --registry ${registry}`);
 
   // Read-only proof: review --agent never writes a cleanup plan.
   assert.equal(existsSync(join(fixture, "one", ".artshelf", "plans")), false);
