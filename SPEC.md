@@ -242,7 +242,9 @@ files or writing a plan.
 
 ```bash
 artshelf review --json
+artshelf review --agent
 artshelf review --all --json
+artshelf review --all --agent
 ```
 
 `review` is the compact report surface for scheduled checks. `--all` reads every
@@ -257,6 +259,16 @@ triage count and states the same next safe action (repair broken ledgers, dry-ru
 cleanup, inspect missing paths, or nothing to do). Review never writes a plan, so
 the next action always points at an explicit follow-up command.
 
+`review`, `status`, and `doctor` share three render modes. The default human
+render leads each ledger and summary line with a `✓`/`⚠` attention glyph; `--json`
+stays the full, backward-compatible audit report; and `--agent` emits a compact,
+deterministic single-line JSON decision packet for agents, taking precedence over
+`--json` when both are passed. For `review`, the packet sorts records into
+ready-for-approval, needs-review-first, and blocked groups. Because review is
+read-only and never mints a cleanup plan, the only exact approval target it emits
+is `resolve missing`; cleanup-eligible records stay needs-review-first and point
+at `cleanup --dry-run`, which mints the reviewed plan id to approve.
+
 ### `artshelf doctor`
 
 Reports whether Artshelf is healthy on the current machine without mutating
@@ -265,6 +277,7 @@ anything.
 ```bash
 artshelf doctor
 artshelf doctor --json
+artshelf doctor --agent
 artshelf doctor --ledger <path>
 artshelf doctor --registry <path>
 ```
@@ -284,7 +297,11 @@ A healthy machine exits 0. A broken registry file or any stale or invalid
 registered ledger exits non-zero with actionable errors. Humans should run
 `artshelf doctor` after install or when `--all` commands behave unexpectedly; agents
 may run it on a schedule to catch stale registry entries before relying on
-cleanup planning. Doctor never creates plans, receipts, or records.
+cleanup planning. Doctor never creates plans, receipts, or records. Like `review`
+and `status`, `doctor` accepts `--agent` for a compact single-line JSON decision
+packet (health, registry and registered-ledger health, blockers, cleanup-safety
+posture, next action, and a verify command); `--agent` takes precedence over
+`--json`.
 
 ### `artshelf status`
 
@@ -293,7 +310,9 @@ The lightweight daily "what is going on?" view across ledgers.
 ```bash
 artshelf status
 artshelf status --json
+artshelf status --agent
 artshelf status --all --json
+artshelf status --all --agent
 artshelf status --all --registry <path> --json
 ```
 
@@ -312,7 +331,9 @@ never creates plans or receipts and never mutates records. A healthy machine
 exits 0. In `--all` mode, a broken registry or any stale or invalid registered
 ledger exits non-zero. Due entries are normal operational state and do not change
 the exit code. With single `--ledger`, a not-yet-created ledger reports empty
-counts.
+counts. Like `review` and `doctor`, `status` accepts `--agent` for a compact
+single-line JSON decision packet (health, counts, attention categories, blockers,
+next action, and a verify command); `--agent` takes precedence over `--json`.
 
 ### `artshelf update`
 
@@ -773,6 +794,8 @@ human review.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`.
+- `review`, `status`, and `doctor` also support `--agent`, a compact single-line
+  JSON decision packet for agents that takes precedence over `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, and trash list/purge behavior.

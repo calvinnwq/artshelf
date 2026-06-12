@@ -1896,6 +1896,102 @@ test("doctor help explains the command", () => {
   assert.equal(help.status, 0);
   assert.match(help.stdout, /artshelf doctor/);
   assert.match(help.stdout, /--json/);
+  assert.match(help.stdout, /--agent/);
+});
+
+test("doctor --agent emits a compact deterministic decision packet alongside full --json", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 0, result.stderr);
+
+  // Token-efficient: a single compact JSON line, never pretty-printed.
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+  assert.ok(!result.stdout.includes("\n  "), "agent packet must not be pretty-printed");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.command, "doctor");
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.version, PACKAGE_VERSION);
+  assert.equal(typeof packet.node, "string");
+  assert.equal(packet.registry.path, registry);
+  assert.equal(packet.registry.exists, true);
+  assert.equal(packet.registry.ok, true);
+  assert.equal(packet.registry.error, null);
+  assert.deepEqual(packet.ledgers, { total: 1, ok: 1, stale: 0, invalid: 0, warnings: 0 });
+  assert.deepEqual(packet.attention, []);
+  assert.deepEqual(packet.blockers, []);
+  // Cleanup-safety posture travels with the agent packet so a model can confirm it.
+  assert.deepEqual(packet.cleanupSafety, {
+    executeRequiresLedgerAndPlanId: true,
+    globalExecuteRefused: true,
+    deleteRefusedInV1: true,
+    dryRunBeforeMutation: true
+  });
+  assert.match(packet.nextAction, /healthy/i);
+  assert.equal(packet.verification, `artshelf doctor --agent --registry ${registry}`);
+
+  // Backward compatibility: full --json still emits the pretty audit report unchanged.
+  const fullJson = artshelf(["doctor", "--registry", registry, "--json"]);
+  assert.equal(fullJson.status, 0, fullJson.stderr);
+  assert.ok(fullJson.stdout.includes("\n  "), "--json stays pretty-printed");
+  const fullBody = JSON.parse(fullJson.stdout);
+  assert.equal(fullBody.summary.ledgers, 1);
+  assert.equal(fullBody.attention, undefined, "full --json must not grow agent-only fields");
+  assert.equal(fullBody.nextAction, undefined, "full --json must not grow agent-only fields");
+  assert.equal(fullBody.schemaVersion, undefined, "full --json must not grow agent-only fields");
+});
+
+test("doctor --agent surfaces broken registry entries as blockers and exits non-zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "attention");
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 1);
+  assert.deepEqual(packet.attention, ["stale", "invalid"]);
+  assert.equal(packet.blockers.length, 2);
+  assert.ok(packet.blockers.some((line: string) => /stale/.test(line)));
+  assert.ok(packet.blockers.some((line: string) => /bad/.test(line)));
+  assert.match(packet.nextAction, /repair/i);
+});
+
+test("doctor --agent flags warnings as attention while the machine stays healthy", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "vanishing", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
+  rmSync(artifact); // active record now points at a missing path -> warning, not an error
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "ok"); // warnings never fail the machine
+  assert.equal(packet.ledgers.warnings, 1);
+  assert.deepEqual(packet.attention, ["warnings"]);
+  assert.deepEqual(packet.blockers, []);
+  assert.match(packet.nextAction, /validate --all/);
 });
 
 test("status --all --json aggregates registry health and ledger counts for cron", () => {
@@ -2070,6 +2166,99 @@ test("status human output is compact enough to paste into Discord", () => {
   assert.ok(lines.length <= 4, `status human output should be short, got ${lines.length} lines`);
 });
 
+// Human render (NGX-396): default output carries a scannable left-column glyph so
+// attention state is obvious at a glance — ✓ clear, ⚠ needs attention — without
+// ANSI color (piped output stays clean) and without growing the line budget.
+test("status human render flags actionable work with a glyph and clears it when nothing is due", () => {
+  const busyFixture = fixtureDir();
+  const busyLedger = ledgerPath(busyFixture);
+  const due = join(busyFixture, "due.txt");
+  writeFileSync(due, "due");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", busyLedger], "2026-06-01T00:00:00Z");
+
+  const attention = artshelf(["status", "--ledger", busyLedger], "2026-06-03T00:00:00Z");
+  assert.equal(attention.status, 0, attention.stderr);
+  // The ledger is still valid (word stays `ok` for backward compatibility), but
+  // the leading glyph marks that there is due work to act on.
+  assert.match(attention.stdout, /^⚠ artshelf status: ok/);
+
+  const calmFixture = fixtureDir();
+  const calmLedger = ledgerPath(calmFixture);
+  const kept = join(calmFixture, "kept.txt");
+  writeFileSync(kept, "kept");
+  artshelf(["put", kept, "--reason", "still needed", "--retain-until", "2026-06-30T00:00:00Z", "--ledger", calmLedger], "2026-06-01T00:00:00Z");
+
+  const clear = artshelf(["status", "--ledger", calmLedger], "2026-06-03T00:00:00Z");
+  assert.equal(clear.status, 0, clear.stderr);
+  assert.match(clear.stdout, /^✓ artshelf status: ok/);
+  assert.doesNotMatch(clear.stdout, /⚠/);
+});
+
+test("status --all human render marks each ledger with its own attention glyph", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const busy = join(fixture, "busy", ".artshelf", "ledger.jsonl");
+  const calm = join(fixture, "calm", ".artshelf", "ledger.jsonl");
+  const due = join(fixture, "due.txt");
+  const kept = join(fixture, "kept.txt");
+  writeFileSync(due, "due");
+  writeFileSync(kept, "kept");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", busy, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", kept, "--reason", "still needed", "--retain-until", "2026-06-30T00:00:00Z", "--ledger", calm, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["status", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  // Per-ledger rows each carry their own glyph so the column scans top-to-bottom.
+  assert.match(result.stdout, /⚠ \[busy\]/);
+  assert.match(result.stdout, /✓ \[calm\]/);
+  // The header rolls up to attention because at least one ledger has due work.
+  assert.match(result.stdout, /^⚠ artshelf status:/);
+});
+
+test("doctor human render marks health and each registered ledger with a glyph", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const healthy = join(fixture, "healthy", ".artshelf", "ledger.jsonl");
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", healthy, "--registry", registry]);
+
+  const ok = artshelf(["doctor", "--registry", registry]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /✓ health: ok/);
+  assert.match(ok.stdout, /✓ ok healthy/);
+  assert.doesNotMatch(ok.stdout, /⚠/);
+
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const broken = artshelf(["doctor", "--registry", registry]);
+  assert.equal(broken.status, 1, broken.stderr);
+  assert.match(broken.stdout, /⚠ health: needs attention/);
+  assert.match(broken.stdout, /⚠ invalid bad/);
+});
+
+test("review --all human render marks the header and each ledger with a glyph", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const busy = join(fixture, "busy", ".artshelf", "ledger.jsonl");
+  const calm = join(fixture, "calm", ".artshelf", "ledger.jsonl");
+  const due = join(fixture, "due.txt");
+  const kept = join(fixture, "kept.txt");
+  writeFileSync(due, "due");
+  writeFileSync(kept, "kept");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", busy, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", kept, "--reason", "still needed", "--retain-until", "2026-06-30T00:00:00Z", "--ledger", calm, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["review", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^⚠ artshelf review --all: needs attention/);
+  assert.match(result.stdout, /⚠ \[busy\]/);
+  assert.match(result.stdout, /✓ \[calm\]/);
+});
+
 test("status help explains the command", () => {
   const main = artshelf(["help"]);
   assert.match(main.stdout, /\bstatus\b/);
@@ -2079,6 +2268,312 @@ test("status help explains the command", () => {
   assert.match(help.stdout, /artshelf status/);
   assert.match(help.stdout, /--all/);
   assert.match(help.stdout, /--json/);
+  assert.match(help.stdout, /--agent/);
+});
+
+test("status --all --agent emits a compact deterministic agent packet alongside full --json", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+  const twoLedger = join(fixture, "two", ".artshelf", "ledger.jsonl");
+  const dueArtifact = join(fixture, "due.txt");
+  const reviewArtifact = join(fixture, "review.txt");
+  const keptArtifact = join(fixture, "kept.txt");
+  writeFileSync(dueArtifact, "due");
+  writeFileSync(reviewArtifact, "review");
+  writeFileSync(keptArtifact, "kept");
+
+  artshelf(["put", dueArtifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", oneLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", reviewArtifact, "--reason", "needs eyes", "--manual-review", "--ledger", twoLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", keptArtifact, "--reason", "still kept", "--retain-until", "2026-06-10T00:00:00Z", "--ledger", twoLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["status", "--all", "--registry", registry, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+
+  // Token-efficient: a single compact JSON line, never pretty-printed.
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+  assert.ok(!result.stdout.includes("\n  "), "agent packet must not be pretty-printed");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.command, "status");
+  assert.equal(packet.scope, "all");
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.registry.path, registry);
+  assert.equal(packet.registry.exists, true);
+  assert.equal(packet.registry.ok, true);
+  assert.equal(packet.registry.error, null);
+  assert.deepEqual(packet.ledgers, { total: 2, ok: 2, stale: 0, invalid: 0 });
+
+  // Counts mirror the audited --json totals exactly.
+  assert.deepEqual(packet.counts, { active: 3, due: 1, manualReview: 1, missingPath: 0, kept: 1, pendingCleanup: 2 });
+
+  // Attention names the nonzero actionable categories only, in a stable order.
+  assert.deepEqual(packet.attention, ["due", "manualReview", "pendingCleanup"]);
+  assert.deepEqual(packet.blockers, []);
+  assert.match(packet.nextAction, /review --all/);
+  assert.equal(packet.verification, `artshelf status --all --agent --registry ${registry}`);
+
+  // Backward compatibility: full --json still emits the pretty audit report unchanged.
+  const fullJson = artshelf(["status", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(fullJson.status, 0, fullJson.stderr);
+  assert.ok(fullJson.stdout.includes("\n  "), "--json stays pretty-printed");
+  const fullBody = JSON.parse(fullJson.stdout);
+  assert.equal(fullBody.totals.active, 3);
+  assert.equal(fullBody.totals.pendingCleanup, 2);
+  assert.equal(fullBody.attention, undefined, "full --json must not grow agent-only fields");
+});
+
+test("status --all --agent surfaces broken ledgers as blockers and exits non-zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = artshelf(["status", "--all", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "attention");
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 1);
+  assert.equal(packet.blockers.length, 2);
+  assert.ok(packet.blockers.some((line: string) => /stale/.test(line)));
+  assert.ok(packet.blockers.some((line: string) => /bad/.test(line)));
+  assert.match(packet.nextAction, /repair/i);
+});
+
+test("status --agent reports a single ledger packet without registry aggregates", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const due = join(fixture, "due.txt");
+  writeFileSync(due, "due");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["status", "--ledger", ledger, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.scope, "single");
+  assert.equal(packet.ledgerPath, ledger);
+  assert.equal(packet.registry, undefined);
+  assert.equal(packet.ledgers, undefined);
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.counts.due, 1);
+  assert.equal(packet.counts.pendingCleanup, 1);
+  assert.deepEqual(packet.attention, ["due", "pendingCleanup"]);
+  assert.match(packet.nextAction, new RegExp(`artshelf review --ledger ${escapeRegExp(ledger)}`));
+  assert.equal(packet.verification, `artshelf status --agent --ledger ${ledger}`);
+});
+
+test("review help explains the render modes", () => {
+  const main = artshelf(["help"]);
+  assert.match(main.stdout, /\breview\b/);
+
+  const help = artshelf(["help", "review"]);
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /artshelf review/);
+  assert.match(help.stdout, /--all/);
+  assert.match(help.stdout, /--json/);
+  assert.match(help.stdout, /--agent/);
+  assert.match(help.stdout, /Render modes:/);
+  assert.match(help.stdout, /--agent takes\s+precedence over --json/);
+});
+
+test("review --all --agent emits a compact deterministic decision packet alongside full --json", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const oneLedger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+  const twoLedger = join(fixture, "two", ".artshelf", "ledger.jsonl");
+  const dueArtifact = join(fixture, "due.txt");
+  const missingArtifact = join(fixture, "missing.txt");
+  const reviewArtifact = join(fixture, "review.txt");
+  const keptArtifact = join(fixture, "kept.txt");
+  writeFileSync(dueArtifact, "due");
+  writeFileSync(missingArtifact, "missing");
+  writeFileSync(reviewArtifact, "review");
+  writeFileSync(keptArtifact, "kept");
+
+  artshelf(["put", dueArtifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", oneLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  const missingPut = JSON.parse(artshelf(["put", missingArtifact, "--reason", "gone", "--ttl", "1d", "--cleanup", "trash", "--ledger", oneLedger, "--registry", registry, "--json"], "2026-06-01T00:00:00Z").stdout);
+  rmSync(missingArtifact);
+  artshelf(["put", reviewArtifact, "--reason", "needs eyes", "--manual-review", "--ledger", twoLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", keptArtifact, "--reason", "still kept", "--retain-until", "2026-06-10T00:00:00Z", "--ledger", twoLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["review", "--all", "--registry", registry, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+
+  // Token-efficient: a single compact JSON line, never pretty-printed.
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+  assert.ok(!result.stdout.includes("\n  "), "agent packet must not be pretty-printed");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.command, "review");
+  assert.equal(packet.scope, "all");
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.registry.path, registry);
+  assert.equal(packet.registry.exists, true);
+  assert.deepEqual(packet.ledgers, { total: 2, ok: 2, stale: 0, invalid: 0 });
+
+  // Triage counts mirror the audited --json review summary exactly.
+  assert.deepEqual(packet.counts, { due: 1, manualReview: 1, missingPath: 1, executable: 2, skipped: 2 });
+
+  // Decision groups reuse the ArtshelfReviewReport vocabulary.
+  assert.deepEqual(packet.decisionSummary, { readyForApproval: 1, needsReviewFirst: 2, blocked: 0 });
+
+  // Ready-for-approval holds the exact, plan-less resolve target for the missing path.
+  assert.equal(packet.readyForApproval.length, 1);
+  const resolve = packet.readyForApproval[0];
+  assert.equal(resolve.actionType, "resolve-missing");
+  assert.ok(resolve.itemIds.includes(missingPut.record.id));
+  assert.match(resolve.approvalTarget, new RegExp(`^approve artshelf resolve missing ledger .+ ids ${escapeRegExp(missingPut.record.id)}$`));
+
+  // Trash-safe cleanup is read-only here: it points at the dry-run that mints a
+  // reviewed plan instead of leaking a preview plan id, so it stays needs-review.
+  const cleanup = packet.needsReviewFirst.find((decision: any) => decision.actionType === "cleanup");
+  assert.ok(cleanup, "cleanup decision present");
+  assert.equal(cleanup.approvalTarget, null);
+  assert.ok(cleanup.itemIds.length === 1);
+  assert.match(cleanup.nextStep, /artshelf cleanup --dry-run --ledger .+ --json/);
+
+  const inspect = packet.needsReviewFirst.find((decision: any) => decision.actionType === "inspect");
+  assert.ok(inspect, "manual-review inspect decision present");
+  assert.equal(inspect.approvalTarget, null);
+
+  assert.deepEqual(packet.blocked, []);
+
+  // Invariant: ready-for-approval always carries an exact approval target; the
+  // needs-review-first and blocked groups never leak one.
+  for (const decision of packet.readyForApproval) assert.equal(typeof decision.approvalTarget, "string");
+  for (const decision of [...packet.needsReviewFirst, ...packet.blocked]) assert.equal(decision.approvalTarget, null);
+
+  // Cleanup-safety posture is stated in the packet and stays read-only.
+  assert.deepEqual(packet.safety, { dryRunOnly: true, executeAllRefused: true, noExecuteRan: true, noResolveRan: true, noDeleteRan: true });
+  assert.match(packet.nextAction, /cleanup --dry-run --all/);
+  assert.equal(packet.verification, `artshelf review --all --agent --registry ${registry}`);
+
+  // Read-only proof: review --agent never writes a cleanup plan.
+  assert.equal(existsSync(join(fixture, "one", ".artshelf", "plans")), false);
+
+  // Backward compatibility: full --json review report stays pretty and unchanged.
+  const fullJson = artshelf(["review", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(fullJson.status, 0, fullJson.stderr);
+  assert.ok(fullJson.stdout.includes("\n  "), "--json stays pretty-printed");
+  const fullBody = JSON.parse(fullJson.stdout);
+  assert.equal(fullBody.summary.executable, 2);
+  assert.equal(fullBody.decisionSummary, undefined, "full --json must not grow agent-only fields");
+  assert.equal(fullBody.readyForApproval, undefined);
+});
+
+test("review --all --agent surfaces broken ledgers as blocked decisions and exits non-zero", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = artshelf(["review", "--all", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "attention");
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 1);
+  assert.equal(packet.blocked.length, 2);
+  assert.equal(packet.decisionSummary.blocked, 2);
+  for (const decision of packet.blocked) {
+    assert.equal(decision.actionType, "fix-registry");
+    assert.equal(decision.approvalTarget, null);
+  }
+  assert.ok(packet.blocked.some((decision: any) => /stale/.test(decision.label)));
+  assert.ok(packet.blocked.some((decision: any) => /bad/.test(decision.label)));
+  assert.match(packet.nextAction, /repair/i);
+});
+
+test("review --agent reports a single-ledger packet without registry aggregates", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const missingArtifact = join(fixture, "missing.txt");
+  writeFileSync(missingArtifact, "missing");
+  const put = JSON.parse(artshelf(["put", missingArtifact, "--reason", "gone", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger, "--json"], "2026-06-01T00:00:00Z").stdout);
+  rmSync(missingArtifact);
+
+  const result = artshelf(["review", "--ledger", ledger, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const lines = result.stdout.trimEnd().split("\n");
+  assert.equal(lines.length, 1, "agent packet must be a single compact JSON line");
+
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.command, "review");
+  assert.equal(packet.scope, "single");
+  assert.equal(packet.ledgerPath, ledger);
+  assert.equal(packet.registry, undefined);
+  assert.equal(packet.ledgers, undefined);
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.counts.missingPath, 1);
+  assert.equal(packet.readyForApproval.length, 1);
+  assert.equal(packet.readyForApproval[0].actionType, "resolve-missing");
+  assert.match(packet.readyForApproval[0].approvalTarget, new RegExp(`^approve artshelf resolve missing ledger .+ ids ${escapeRegExp(put.record.id)}$`));
+  assert.equal(packet.verification, `artshelf review --agent --ledger ${ledger}`);
+});
+
+test("review --agent single-ledger next action stays single-scoped, never registry-wide --all", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const dueArtifact = join(fixture, "due.txt");
+  writeFileSync(dueArtifact, "due");
+  artshelf(["put", dueArtifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["review", "--ledger", ledger, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.scope, "single");
+  assert.ok(packet.counts.executable > 0, "the due trash artifact is cleanup-eligible");
+  // A single-ledger review reviewed one (unregistered) ledger, so its guidance must
+  // not point the agent at registry-wide or default-ledger commands.
+  assert.doesNotMatch(packet.nextAction, /--all/, packet.nextAction);
+  assert.match(packet.nextAction, new RegExp(`artshelf cleanup --dry-run --ledger ${escapeRegExp(ledger)}`));
+});
+
+test("review --agent single-ledger blocked decision is single-scoped, not registry-wide", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  mkdirSync(dirname(ledger), { recursive: true });
+  writeFileSync(ledger, "{not json\n");
+
+  const result = artshelf(["review", "--ledger", ledger, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.scope, "single");
+  assert.equal(packet.blocked.length, 1);
+  const blocked = packet.blocked[0];
+  assert.equal(blocked.actionType, "fix-registry");
+  // The standalone ledger was never registered, so repair guidance must not tell the
+  // agent to re-register or re-run the registry-wide --all command.
+  assert.doesNotMatch(blocked.nextStep, /--all/, blocked.nextStep);
+  assert.doesNotMatch(blocked.nextStep, /re-register/, blocked.nextStep);
+  assert.match(blocked.nextStep, /re-run `artshelf review`/);
+  assert.doesNotMatch(packet.nextAction, /--all/, packet.nextAction);
+  assert.doesNotMatch(packet.nextAction, /re-register/, packet.nextAction);
+  assert.match(packet.nextAction, new RegExp(`artshelf review --ledger ${escapeRegExp(ledger)}`));
 });
 
 function artshelf(args: string[], now?: string, extraEnv: Record<string, string | undefined> = {}): { status: number; stdout: string; stderr: string } {

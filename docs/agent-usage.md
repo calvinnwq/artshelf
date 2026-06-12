@@ -50,6 +50,23 @@ The browsable docs split the workflow into focused child pages:
 - Approval names the exact ledger, plan id, or record ids.
 - Every approved action ends with a read-only verification.
 
+## Render modes
+
+`review`, `status`, and `doctor` share three render modes so the same data fits
+both people and agents:
+
+- **default**: a human render — scannable grouped counts, attention states, and a
+  short next action for a person at the terminal.
+- **`--agent`**: a deterministic, token-efficient decision packet (single-line
+  compact JSON) with health, counts, classifications, exact approval targets,
+  blockers, and a verification command. Use it when an agent acts on the result.
+- **`--json`**: the full audit and API contract — complete machine-readable JSON
+  for debugging and existing integrations, unchanged and backward compatible.
+
+Reach for `--agent` when an agent needs to decide and act cheaply; reach for
+`--json` when you want the full record, plan, or health detail for audit or
+debugging. `--agent` takes precedence if both flags are passed.
+
 ## Portable Skill
 
 The repo ships a portable skill at

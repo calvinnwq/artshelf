@@ -44,16 +44,22 @@
           <section>
             <h2>Daily review workflow</h2>
             <ol>
-              <li>Read <code>ledgers list</code>, <code>review --all</code>, and <code>trash list --all</code>.</li>
+              <li>Read <code>ledgers list --json</code>, <code>review --all --agent</code>, and <code>trash list --all --json</code>.</li>
               <li>Run explicit-ledger purge dry-runs only when old trash needs review.</li>
               <li>Classify each candidate: <code>trash-safe</code>, <code>needs-human-review</code>, <code>resolve-candidate</code>, or <code>registry-problem</code>.</li>
               <li>Ask only with exact ledger path, reviewed plan id, or ids.</li>
             </ol>
+            <p>
+              Prefer the built-in <code>--agent</code> packet when an acting agent
+              needs the compact decision surface. Use full <code>--json</code>
+              output when you need every ledger field for audit, debugging, or a
+              custom renderer.
+            </p>
           </section>
 
           <section>
             <h2>Review plan report schema</h2>
-            <p>Construct an <code>ArtshelfReviewReport</code> JSON packet first, then render a compact decision card.</p>
+            <p>For richer host cards, attachments, or audit packets, construct an <code>ArtshelfReviewReport</code> JSON packet first, then render a compact decision card.</p>
             <p>
               Use <a href="schemas/artshelf-review-report.schema.json">schemas/artshelf-review-report.schema.json</a>
               and <a href="examples/artshelf-review-report.json">examples/artshelf-review-report.json</a>.

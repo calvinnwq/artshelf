@@ -59,8 +59,7 @@ npm link
 artshelf doctor
 ```
 
-Install, copy, or reference this portable skill only after the user chooses the
-integration path. Offer to schedule read-only review job delivery in the host runtime.
+Install, copy, or reference this portable skill only after the user chooses the integration path. Offer to schedule read-only review job delivery in the host runtime.
 
 ## Create
 
@@ -72,15 +71,11 @@ artshelf put <path> --reason "<why this exists>" --ttl 3d --kind run-artifact --
 artshelf get <id> --json
 ```
 
-Register backups, quarantine folders, debug output, generated reports, long-run
-evidence, and copied files kept for review. Skip source files, cheap regenerated
-build output, dependency caches, secrets, credential dumps, and artifacts already
-owned by another durable ledger.
+Register backups, quarantine folders, debug output, generated reports, long-run evidence, and copied files kept for review. Skip source files, cheap regenerated
+build output, dependency caches, secrets, credential dumps, and artifacts already owned by another durable ledger.
 
-Defaults: `kind=scratch` for temp dirs, `backup` for rollback copies,
-`run-artifact` for logs/reports/evidence, `quarantine` for isolated questionable
-files. Use `cleanup=review` when judgment is needed and `cleanup=trash` only when
-later disposal is clearly safe.
+Defaults: `kind=scratch` for temp dirs, `backup` for rollback copies, `run-artifact` for logs/reports/evidence, `quarantine` for isolated questionable
+files. Use `cleanup=review` when judgment is needed and `cleanup=trash` only when later disposal is clearly safe.
 
 When JSON registration succeeds, include this deterministic Artshelf footnote:
 
@@ -94,13 +89,15 @@ Use the ledger registry for whole-machine review:
 
 ```bash
 artshelf ledgers list --json
-artshelf status --all --json
-artshelf review --all --json
+artshelf status --all --agent
+artshelf review --all --agent
 artshelf trash list --all --json
 ```
 
 `artshelf ledgers list --json` reports per-ledger validation status. `--plain`
 skips validation. `--all` is for discovery and review, not mutation permission.
+Use `--agent` on `review`, `status`, and `doctor` for compact decisions; use
+`--json` for full audit/API payloads, custom rendering, or debugging.
 
 Register existing project ledgers explicitly:
 
@@ -144,22 +141,23 @@ Daily Review Workflow: turn raw Artshelf output into a decision packet, not a
 count dump.
 
 1. Run read-only review first: `artshelf ledgers list --json`,
-   `artshelf review --all --json`, and `artshelf trash list --all --json`.
+   `artshelf review --all --agent`, and `artshelf trash list --all --json`.
 2. If cleanup attention exists, run `artshelf cleanup --dry-run --all --json`.
 3. Classify candidates as `trash-safe`, `needs-human-review`,
    `resolve-candidate`, or `registry-problem`.
-4. Use `ArtshelfReviewReport` from
-   `schemas/artshelf-review-report.schema.json`; use
-   `examples/artshelf-review-report.json` as the canonical packet.
-5. Render the compact decision card with `scripts/render-review-report.mjs`;
-   keep `decisionSummary` in audit, while `decisionGroups` drive counts.
-   Emojis are encouraged only in host-specific wrappers, not the renderer.
+4. Use the built-in `--agent` packet when the CLI output is enough to decide,
+   because it is deterministic and token-efficient. Use
+   `ArtshelfReviewReport` from `schemas/artshelf-review-report.schema.json` and
+   `examples/artshelf-review-report.json` when you need a host-specific card,
+   attachment, or richer audit record.
+5. Render full packets with `scripts/render-review-report.mjs`; keep
+   `decisionSummary` in audit, while `decisionGroups` drive counts. Emojis are encouraged only in host-specific wrappers, not the renderer.
 6. Always include the exact approval target in the message body as a fallback.
    Do not paste the whole packet into chat unless the user asks for it.
 
 ### Review Plan Report Schema
 
-Deterministic renderer:
+Deterministic compact decision card renderer:
 
 ```bash
 cd /path/to/skills/artshelf
