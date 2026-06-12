@@ -4,23 +4,22 @@ This file is the source of truth for Artshelf's TypeScript CLI structure. Read
 it before changing CLI routing, command behavior, output rendering, storage, or
 update-check logic.
 
-Artshelf is intentionally small, but `src/cli.ts` is currently doing too much:
-argument parsing, command routing, command behavior, output rendering, update
-checks, and process I/O. The next refactor slices should make that ownership
-explicit without changing command behavior.
+Artshelf is intentionally small. `src/cli.ts` once did too much: argument parsing,
+command routing, command behavior, output rendering, update checks, and process
+I/O. The refactor slices below moved that ownership into dedicated folders without
+changing command behavior, leaving the entrypoint thin.
 
 ## Current Boundary
 
-Until the migration finishes, `src/cli.ts` remains the executable entrypoint and
-compatibility surface. It may keep existing command behavior temporarily, but it
-must not become the storage place for new command implementations.
+`src/cli.ts` is the executable entrypoint and command registry glue. Command
+implementations, output helpers, update adapters, and shared CLI contracts live
+outside the entrypoint. New command behavior must not be added to `src/cli.ts`.
 
 Allowed in `src/cli.ts`:
 
 - process entrypoint and exit handling
 - argument parsing and help dispatch
 - command registry wiring
-- short compatibility shims during migration
 - process stdout/stderr calls at the outer edge
 
 Avoid adding to `src/cli.ts`:
@@ -53,7 +52,8 @@ Command modules translate parsed CLI input into core calls and renderer calls.
 They own command-specific option validation and orchestration, but not ledger
 rules or output formatting details.
 
-Expected later modules include:
+The folder has a module per command family, with dispatch and shared command
+logic in `commands/index.ts`:
 
 - `commands/put.ts`
 - `commands/list.ts`
@@ -61,7 +61,6 @@ Expected later modules include:
 - `commands/get.ts`
 - `commands/resolve.ts`
 - `commands/due.ts`
-- `commands/validate.ts`
 - `commands/review.ts`
 - `commands/cleanup.ts`
 - `commands/trash.ts`
@@ -162,7 +161,9 @@ Artshelf's public contract is safety-first:
 ## Migration Order
 
 Use these issues as the intended order. Each slice should leave the repo valid
-and preserve existing behavior.
+and preserve existing behavior. Shelves 17 through 20 established the current
+folder split; future work should extend the split rather than moving behavior
+back into the entrypoint.
 
 1. `NGX-406` / Shelf-16: create this architecture contract, link it from agent
    and contributor docs, and add the structural guardrail.
@@ -187,6 +188,6 @@ makes the later moves boring.
 - `CONTRIBUTING.md` links this contract
 - `src/cli.ts` stays within the temporary line/function budget
 
-The budget is intentionally transitional. When later refactor slices move code
-out of `src/cli.ts`, lower the budget in the test. Do not raise it to fit new
-command behavior.
+The budget now enforces `src/cli.ts` as a thin entrypoint. Do not raise it to fit
+new command behavior. Add command modules, renderers, adapters, config, or shared
+contracts in the folders above instead.

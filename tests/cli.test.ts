@@ -432,6 +432,26 @@ test("unknown flags fail with a usage hint", () => {
   assert.match(result.stderr, /artshelf help/);
 });
 
+test("value flags without a value fail with the missing-value error", () => {
+  const result = artshelf(["put", "/tmp/x", "--reason"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Missing value for --reason/);
+});
+
+test("a bare -- is rejected as an unknown flag rather than ending option parsing", () => {
+  const result = artshelf(["list", "--"]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /Unknown flag: --/);
+});
+
+test("empty-string arguments are skipped rather than treated as positionals", () => {
+  const result = artshelf(["update", ""], undefined, {
+    ARTSHELF_NPM_REGISTRY_URL: "http://127.0.0.1:1/artshelf/latest"
+  });
+  assert.doesNotMatch(result.stderr, /does not accept positional arguments/);
+  assert.match(result.stderr, /Could not check npm/);
+});
+
 test("put refuses a missing path", () => {
   const fixture = fixtureDir();
   const result = artshelf(["put", join(fixture, "missing"), "--reason", "debug", "--ttl", "1d", "--ledger", ledgerPath(fixture)]);
