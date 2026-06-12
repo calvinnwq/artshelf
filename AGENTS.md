@@ -4,8 +4,9 @@ Before changing Artshelf CLI routing, command behavior, output rendering,
 storage paths, update checks, or cleanup safety rules, read
 [`ARCHITECTURE.md`](ARCHITECTURE.md).
 
-For NGX-406, keep the work doc/guardrail first. Do not move command behavior out
-of `src/cli.ts` until the follow-up implementation slice.
+Command behavior lives in `src/commands/`, with renderers, adapters, config, and
+shared contracts in their sibling folders. Keep `src/cli.ts` a thin entrypoint and
+do not add new command behavior to it.
 
 Preserve these hard boundaries:
 

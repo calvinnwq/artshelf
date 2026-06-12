@@ -4,10 +4,10 @@ This file is the source of truth for Artshelf's TypeScript CLI structure. Read
 it before changing CLI routing, command behavior, output rendering, storage, or
 update-check logic.
 
-Artshelf is intentionally small, but `src/cli.ts` is currently doing too much:
-argument parsing, command routing, command behavior, output rendering, update
-checks, and process I/O. The next refactor slices should make that ownership
-explicit without changing command behavior.
+Artshelf is intentionally small. `src/cli.ts` once did too much: argument parsing,
+command routing, command behavior, output rendering, update checks, and process
+I/O. The refactor slices below moved that ownership into dedicated folders without
+changing command behavior, leaving the entrypoint thin.
 
 ## Current Boundary
 
@@ -52,7 +52,8 @@ Command modules translate parsed CLI input into core calls and renderer calls.
 They own command-specific option validation and orchestration, but not ledger
 rules or output formatting details.
 
-Expected later modules include:
+The folder has a module per command family, with dispatch and shared command
+logic in `commands/index.ts`:
 
 - `commands/put.ts`
 - `commands/list.ts`
@@ -60,7 +61,6 @@ Expected later modules include:
 - `commands/get.ts`
 - `commands/resolve.ts`
 - `commands/due.ts`
-- `commands/validate.ts`
 - `commands/review.ts`
 - `commands/cleanup.ts`
 - `commands/trash.ts`
