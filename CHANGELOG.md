@@ -73,6 +73,22 @@
   commands now lead each ledger and summary line with a `✓`/`⚠` attention glyph
   (plain Unicode, no color) so redirected output stays clean.
 
+## [0.10.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.9.0...artshelf-v0.10.0) (2026-06-12)
+
+
+### Features
+
+* **cli:** add --agent decision-packet render mode for review, status, and doctor ([4d2dee0](https://github.com/calvinnwq/artshelf/commit/4d2dee099569803b887ae49438b0747d1330ec5d))
+* **cli:** add --agent render mode and implement status --agent ([36f8e78](https://github.com/calvinnwq/artshelf/commit/36f8e7839d535fcabddadfc616ba518a9b444114))
+* **cli:** add ✓/⚠ attention glyphs to human renders of status/doctor/review ([6f6cbe8](https://github.com/calvinnwq/artshelf/commit/6f6cbe85d54886cfd137791863e1b3554ca908f0))
+* **cli:** implement artshelf doctor --agent compact decision packet ([d9abd4e](https://github.com/calvinnwq/artshelf/commit/d9abd4e75a7f4b2898eeacc3b3404221f4456bd4))
+* **cli:** implement artshelf review --agent compact decision packet ([6f5476c](https://github.com/calvinnwq/artshelf/commit/6f5476ca987de3190f7a8760c6bb9c1efa8b9fce))
+
+
+### Bug Fixes
+
+* **cli:** preserve ledger scope in agent next actions ([a583683](https://github.com/calvinnwq/artshelf/commit/a583683064cdd16dd929766dc01f23fc31fa50e7))
+
 ## [0.9.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.8.0...artshelf-v0.9.0) (2026-06-11)
 
 
