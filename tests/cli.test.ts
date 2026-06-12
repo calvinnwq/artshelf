@@ -366,6 +366,24 @@ test("no-update caches expire sooner than available-update caches", () => {
   assert.ok(refreshedCache.checkedAt > staleCheckedAt);
 });
 
+test("a non-numeric update-check TTL falls back to the default instead of disabling expiry", () => {
+  const fixture = fixtureDir();
+  const cache = join(fixture, "update-cache.json");
+  const staleCheckedAt = Date.now() - 90 * 60 * 1000;
+  writeFileSync(cache, `${JSON.stringify({ latest: PACKAGE_VERSION, checkedAt: staleCheckedAt }, null, 2)}\n`);
+
+  const result = artshelf(["--version"], undefined, {
+    ARTSHELF_NO_UPDATE_CHECK: undefined,
+    ARTSHELF_NPM_REGISTRY_URL: "http://127.0.0.1:1/artshelf/latest",
+    ARTSHELF_UPDATE_CACHE: cache,
+    ARTSHELF_UPDATE_CHECK_TTL_MS: "1h"
+  });
+
+  assert.equal(result.status, 0, result.stderr);
+  const refreshedCache = JSON.parse(readFileSync(cache, "utf8"));
+  assert.ok(refreshedCache.checkedAt > staleCheckedAt);
+});
+
 test("ARTSHELF_NO_UPDATE_CHECK suppresses normal command update checks", () => {
   const fixture = fixtureDir();
   const cache = join(fixture, "update-cache.json");

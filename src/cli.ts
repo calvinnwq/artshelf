@@ -1193,9 +1193,18 @@ function readUpdateCache(): { latest: string | null } | null {
 
 function updateCacheTtlFor(latest: string | null): number {
   if (latest && compareVersions(latest, VERSION) > 0) {
-    return Number(process.env.ARTSHELF_UPDATE_CHECK_TTL_MS ?? UPDATE_CHECK_TTL_MS);
+    return resolveTtlMs(process.env.ARTSHELF_UPDATE_CHECK_TTL_MS, UPDATE_CHECK_TTL_MS);
   }
-  return Number(process.env.ARTSHELF_NO_UPDATE_CHECK_TTL_MS ?? process.env.ARTSHELF_UPDATE_CHECK_TTL_MS ?? NO_UPDATE_CHECK_TTL_MS);
+  return resolveTtlMs(
+    process.env.ARTSHELF_NO_UPDATE_CHECK_TTL_MS ?? process.env.ARTSHELF_UPDATE_CHECK_TTL_MS,
+    NO_UPDATE_CHECK_TTL_MS
+  );
+}
+
+function resolveTtlMs(value: string | undefined, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function writeUpdateCache(latest: string | null): void {
