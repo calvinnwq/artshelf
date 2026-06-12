@@ -2166,6 +2166,99 @@ test("status human output is compact enough to paste into Discord", () => {
   assert.ok(lines.length <= 4, `status human output should be short, got ${lines.length} lines`);
 });
 
+// Human render (NGX-396): default output carries a scannable left-column glyph so
+// attention state is obvious at a glance — ✓ clear, ⚠ needs attention — without
+// ANSI color (piped output stays clean) and without growing the line budget.
+test("status human render flags actionable work with a glyph and clears it when nothing is due", () => {
+  const busyFixture = fixtureDir();
+  const busyLedger = ledgerPath(busyFixture);
+  const due = join(busyFixture, "due.txt");
+  writeFileSync(due, "due");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", busyLedger], "2026-06-01T00:00:00Z");
+
+  const attention = artshelf(["status", "--ledger", busyLedger], "2026-06-03T00:00:00Z");
+  assert.equal(attention.status, 0, attention.stderr);
+  // The ledger is still valid (word stays `ok` for backward compatibility), but
+  // the leading glyph marks that there is due work to act on.
+  assert.match(attention.stdout, /^⚠ artshelf status: ok/);
+
+  const calmFixture = fixtureDir();
+  const calmLedger = ledgerPath(calmFixture);
+  const kept = join(calmFixture, "kept.txt");
+  writeFileSync(kept, "kept");
+  artshelf(["put", kept, "--reason", "still needed", "--retain-until", "2026-06-30T00:00:00Z", "--ledger", calmLedger], "2026-06-01T00:00:00Z");
+
+  const clear = artshelf(["status", "--ledger", calmLedger], "2026-06-03T00:00:00Z");
+  assert.equal(clear.status, 0, clear.stderr);
+  assert.match(clear.stdout, /^✓ artshelf status: ok/);
+  assert.doesNotMatch(clear.stdout, /⚠/);
+});
+
+test("status --all human render marks each ledger with its own attention glyph", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const busy = join(fixture, "busy", ".artshelf", "ledger.jsonl");
+  const calm = join(fixture, "calm", ".artshelf", "ledger.jsonl");
+  const due = join(fixture, "due.txt");
+  const kept = join(fixture, "kept.txt");
+  writeFileSync(due, "due");
+  writeFileSync(kept, "kept");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", busy, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", kept, "--reason", "still needed", "--retain-until", "2026-06-30T00:00:00Z", "--ledger", calm, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["status", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  // Per-ledger rows each carry their own glyph so the column scans top-to-bottom.
+  assert.match(result.stdout, /⚠ \[busy\]/);
+  assert.match(result.stdout, /✓ \[calm\]/);
+  // The header rolls up to attention because at least one ledger has due work.
+  assert.match(result.stdout, /^⚠ artshelf status:/);
+});
+
+test("doctor human render marks health and each registered ledger with a glyph", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const healthy = join(fixture, "healthy", ".artshelf", "ledger.jsonl");
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "healthy", "--ttl", "7d", "--ledger", healthy, "--registry", registry]);
+
+  const ok = artshelf(["doctor", "--registry", registry]);
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /✓ health: ok/);
+  assert.match(ok.stdout, /✓ ok healthy/);
+  assert.doesNotMatch(ok.stdout, /⚠/);
+
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const broken = artshelf(["doctor", "--registry", registry]);
+  assert.equal(broken.status, 1, broken.stderr);
+  assert.match(broken.stdout, /⚠ health: needs attention/);
+  assert.match(broken.stdout, /⚠ invalid bad/);
+});
+
+test("review --all human render marks the header and each ledger with a glyph", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const busy = join(fixture, "busy", ".artshelf", "ledger.jsonl");
+  const calm = join(fixture, "calm", ".artshelf", "ledger.jsonl");
+  const due = join(fixture, "due.txt");
+  const kept = join(fixture, "kept.txt");
+  writeFileSync(due, "due");
+  writeFileSync(kept, "kept");
+  artshelf(["put", due, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", busy, "--registry", registry], "2026-06-01T00:00:00Z");
+  artshelf(["put", kept, "--reason", "still needed", "--retain-until", "2026-06-30T00:00:00Z", "--ledger", calm, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  const result = artshelf(["review", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /^⚠ artshelf review --all: needs attention/);
+  assert.match(result.stdout, /⚠ \[busy\]/);
+  assert.match(result.stdout, /✓ \[calm\]/);
+});
+
 test("status help explains the command", () => {
   const main = artshelf(["help"]);
   assert.match(main.stdout, /\bstatus\b/);

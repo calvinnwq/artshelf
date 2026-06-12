@@ -214,8 +214,10 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
             <h2>Output mode</h2>
             <p>
               Every command has a default human render: compact, scannable terminal output with
-              grouped counts, attention states, and a short next action — meant for a person reading
-              the screen, not a wall of raw JSON.
+              grouped counts, a leading <code>✓</code>/<code>⚠</code> attention glyph on each ledger
+              and the summary line, and a short next action — meant for a person reading the screen,
+              not a wall of raw JSON. The glyphs are plain Unicode (no ANSI color), so redirected
+              output stays clean.
             </p>
             <p>
               <code>review</code>, <code>status</code>, and <code>doctor</code> add <code>--agent</code>:
@@ -231,7 +233,7 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
             </p>
             <table class="opts">
               <tr><th>option</th><th>meaning</th></tr>
-              <tr><td>(default)</td><td>human render: grouped counts, attention states, and a short next action</td></tr>
+              <tr><td>(default)</td><td>human render: grouped counts, ✓/⚠ attention glyphs, and a short next action</td></tr>
               <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code></td></tr>
               <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data</td></tr>
             </table>

@@ -383,6 +383,11 @@ test("reference docs document the human, agent, and json render modes for review
   assert.match(outputMode, /backward compatible/i);
   // The table gains a dedicated row for the agent render so it is not just prose.
   assert.match(outputMode, /<td>--agent<\/td>/);
+  // The human render's "attention states" are made concrete: the visual surface
+  // carries a ✓/⚠ glyph so a person can scan health at a glance (NGX-396).
+  assert.match(outputMode, /✓/);
+  assert.match(outputMode, /⚠/);
+  assert.match(outputMode, /glyph/i);
 });
 
 test("agent docs explain when to use the agent render versus json and human output", () => {

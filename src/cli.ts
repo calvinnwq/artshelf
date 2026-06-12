@@ -782,15 +782,26 @@ function buildDoctorAgentPacket(report: DoctorReport): DoctorAgentPacket {
   };
 }
 
+// Human render (NGX-396): a scannable left-column glyph so attention state is
+// obvious at a glance — ✓ clear, ⚠ needs attention. Plain Unicode (no ANSI
+// color) keeps redirected/piped human output clean, and the `--agent`/`--json`
+// renders never carry glyphs (those stay machine contracts).
+const HUMAN_OK_GLYPH = "✓";
+const HUMAN_ATTENTION_GLYPH = "⚠";
+
+function attentionGlyph(needsAttention: boolean): string {
+  return needsAttention ? HUMAN_ATTENTION_GLYPH : HUMAN_OK_GLYPH;
+}
+
 function printDoctor(report: DoctorReport): void {
   process.stdout.write(`artshelf ${report.version} (node ${report.node})\n`);
-  process.stdout.write(`health: ${report.ok ? "ok" : "needs attention"}\n`);
+  process.stdout.write(`${attentionGlyph(!report.ok)} health: ${report.ok ? "ok" : "needs attention"}\n`);
   process.stdout.write(`ledger: ${report.ledgerPath}${report.ledgerExists ? "" : " (absent)"}\n`);
   process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"}\n`);
   if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
   process.stdout.write(`registered ledgers: ${report.summary.ledgers} (${report.summary.ok} ok, ${report.summary.stale} stale, ${report.summary.invalid} invalid)\n`);
   for (const ledger of report.ledgers) {
-    process.stdout.write(`  ${ledger.status} ${ledger.name} ${ledger.path}\n`);
+    process.stdout.write(`  ${attentionGlyph(ledger.status !== "ok")} ${ledger.status} ${ledger.name} ${ledger.path}\n`);
     for (const message of ledger.errors) process.stdout.write(`    error: ${message}\n`);
   }
   process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; cleanup=delete is refused; physical trash purge requires a separate reviewed plan\n");
@@ -1035,21 +1046,23 @@ function buildStatusAgentPacketSingle(ledger: StatusLedger, ledgerPath: string):
 }
 
 function printStatusAll(report: StatusReport): void {
-  process.stdout.write(`artshelf status: ${report.ok ? "ok" : "needs attention"}\n`);
+  const anyActionable = report.ledgers.some((ledger) => statusAttention(ledger.counts).length > 0);
+  process.stdout.write(`${attentionGlyph(!report.ok || anyActionable)} artshelf status: ${report.ok ? "ok" : "needs attention"}\n`);
   process.stdout.write(`registry: ${report.registryPath}${report.registryExists ? "" : " (absent)"} — ${report.totals.ledgers} ledgers (${report.totals.ok} ok, ${report.totals.stale} stale, ${report.totals.invalid} invalid)\n`);
   if (report.registryError) process.stdout.write(`registry error: ${report.registryError}\n`);
   for (const ledger of report.ledgers) {
     if (ledger.status === "ok") {
-      process.stdout.write(`[${ledger.name}] ${formatStatusCounts(ledger.counts)}\n`);
+      process.stdout.write(`${attentionGlyph(statusAttention(ledger.counts).length > 0)} [${ledger.name}] ${formatStatusCounts(ledger.counts)}\n`);
     } else {
-      process.stdout.write(`[${ledger.name}] ${ledger.status}: ${ledger.errors.join("; ")}\n`);
+      process.stdout.write(`${HUMAN_ATTENTION_GLYPH} [${ledger.name}] ${ledger.status}: ${ledger.errors.join("; ")}\n`);
     }
   }
   process.stdout.write(`total: ${formatStatusCounts(report.totals)}\n`);
 }
 
 function printStatusSingle(ledger: StatusLedger): void {
-  process.stdout.write(`artshelf status: ${ledger.ok ? "ok" : ledger.status}\n`);
+  const needsAttention = !ledger.ok || statusAttention(ledger.counts).length > 0;
+  process.stdout.write(`${attentionGlyph(needsAttention)} artshelf status: ${ledger.ok ? "ok" : ledger.status}\n`);
   process.stdout.write(`ledger: ${ledger.path}\n`);
   if (ledger.ok) {
     process.stdout.write(`${formatStatusCounts(ledger.counts)}\n`);
@@ -1508,7 +1521,7 @@ function reviewNextAction(summary: ReviewSummary): string {
 
 function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAction: string, registryPath: string): void {
   const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
-  process.stdout.write(`artshelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
+  process.stdout.write(`${attentionGlyph(needsAttention)} artshelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
   process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
   printReview(results);
   process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
@@ -1518,7 +1531,8 @@ function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAct
 function printReview(results: ReviewResult[]): void {
   for (const result of results) {
     const visibleDue = result.due.filter((entry) => entry.dueStatus !== "kept");
-    process.stdout.write(`[${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
+    const needsAttention = !result.validate.ok || visibleDue.length > 0 || result.plan.entries.length > 0;
+    process.stdout.write(`${attentionGlyph(needsAttention)} [${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
     process.stdout.write(`due/manual/missing: ${visibleDue.length}; plan ${result.plan.planId}: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped\n`);
     process.stdout.write(`ledger: ${result.ledger.path}\n`);
   }
