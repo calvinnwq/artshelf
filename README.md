@@ -112,6 +112,8 @@ destructive deletion.
 - **Trash before delete** — `cleanup=delete` stays refused; physical deletion
   needs its own reviewed trash purge. No silent deletion, ever.
 - **`--json` on every command**, so agents can act on structured output.
+- **`--agent` on `review`/`status`/`doctor`**, a compact, token-efficient
+  decision packet for agents, while the default render stays human-scannable.
 
 ## Reference
 
@@ -143,7 +145,8 @@ artshelf resolve <id> --status resolved --reason "inspected and no longer needed
 Use `artshelf help` for a grouped command list, then `artshelf <command> --help`
 or `artshelf help <command>` for focused details. Nested commands such as
 `artshelf trash purge --help` and `artshelf ledgers add --help` show only that
-subcommand. All core commands support `--json`; `--ledger`, `--registry`, and
+subcommand. All core commands support `--json`; `review`, `status`, and `doctor`
+also take `--agent` for a compact decision packet; `--ledger`, `--registry`, and
 `--all` are scope flags only on commands that list them.
 </details>
 

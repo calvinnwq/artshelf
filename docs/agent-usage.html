@@ -88,6 +88,20 @@
           </section>
 
           <section>
+            <h2>Render modes</h2>
+            <p>
+              <code>review</code>, <code>status</code>, and <code>doctor</code> share three render modes
+              so the same data fits both people and agents. Reach for <code>--agent</code> when an agent
+              decides and acts; reach for <code>--json</code> for full record, plan, or health detail.
+            </p>
+            <dl class="def-rows">
+              <div><dt>default</dt><dd>human render: scannable grouped counts, attention states, and a short next action for a person at the terminal</dd></div>
+              <div><dt>--agent</dt><dd>a deterministic, token-efficient decision packet (single-line compact JSON) with health, counts, classifications, exact approval targets, blockers, and a verification command</dd></div>
+              <div><dt>--json</dt><dd>the full audit and API contract: complete machine-readable JSON for debugging and existing integrations, unchanged and backward compatible</dd></div>
+            </dl>
+          </section>
+
+          <section>
             <h2>The mental model</h2>
             <ul class="boundary-list">
               <li>

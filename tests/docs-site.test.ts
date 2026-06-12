@@ -361,6 +361,61 @@ test("reference docs and SPEC document --json on every machine-readable command"
   assert.match(reference, /artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt; \[--json\]/);
 });
 
+test("reference docs document the human, agent, and json render modes for review/status/doctor", () => {
+  const reference = read("docs/reference.html");
+
+  // review/status/doctor expose the agent render alongside --json in the snippet.
+  assert.match(reference, /artshelf review \[--all\] \[--agent\] \[--json\]/);
+  assert.match(reference, /artshelf status \[--all\] \[--agent\] \[--json\]/);
+  assert.match(reference, /artshelf doctor \[--agent\] \[--json\]/);
+
+  // The Output mode section explains all three render modes and when to use each.
+  const outputMode = reference.slice(
+    reference.indexOf("<h2>Output mode</h2>"),
+    reference.indexOf("<h2>Scope flags (command-specific)</h2>")
+  );
+  assert.match(outputMode, /human render/i);
+  assert.match(outputMode, /--agent/);
+  assert.match(outputMode, /token-efficient/i);
+  assert.match(outputMode, /decision packet/i);
+  assert.match(outputMode, /approval target/i);
+  assert.match(outputMode, /audit/i);
+  assert.match(outputMode, /backward compatible/i);
+  // The table gains a dedicated row for the agent render so it is not just prose.
+  assert.match(outputMode, /<td>--agent<\/td>/);
+});
+
+test("agent docs explain when to use the agent render versus json and human output", () => {
+  const usageMd = read("docs/agent-usage.md");
+  const usageHtml = read("docs/agent-usage.html");
+
+  for (const text of [usageMd, usageHtml]) {
+    assert.match(text, /[Rr]ender modes/);
+    // The agent render is the token-efficient decision packet for acting agents.
+    assert.match(text, /--agent/);
+    assert.match(text, /token-efficient|decision packet/i);
+    assert.match(text, /approval target/i);
+    // --json stays the full audit/API contract.
+    assert.match(text, /--json/);
+    assert.match(text, /audit/i);
+    // The default human render is named so humans know which surface is theirs.
+    assert.match(text, /human render/i);
+    // The trio of commands that carry the agent render is explicit.
+    assert.match(text, /review/i);
+    assert.match(text, /status/i);
+    assert.match(text, /doctor/i);
+  }
+});
+
+test("README presents the agent render alongside the json contract", () => {
+  const readme = read("README.md");
+  // The agent render is advertised next to --json, not buried.
+  assert.match(readme, /--agent/);
+  assert.match(readme, /token-efficient|decision packet/i);
+  // The human-scannable default render is still named as the people-facing surface.
+  assert.match(readme, /human-scannable|human render/i);
+});
+
 test("docs menu keeps the reference section focused on user-facing pages", () => {
   for (const page of DOC_PAGES) {
     const html = read(page);

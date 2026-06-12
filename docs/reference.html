@@ -120,19 +120,20 @@ artshelf validate [--all] [--json]</code></pre>
           <section class="cmd">
             <div class="cmd-head"><h2>artshelf review / status / doctor</h2><span class="cmd-flag readonly">read-only</span></div>
             <pre><code><span class="c"># validate + due + plan preview in one pass</span>
-artshelf review [--all] [--json]
+artshelf review [--all] [--agent] [--json]
 
 <span class="c"># lightweight dashboard of counts</span>
-artshelf status [--all] [--json]
+artshelf status [--all] [--agent] [--json]
 
 <span class="c"># CLI version, resolved paths, registry health</span>
-artshelf doctor [--json]</code></pre>
+artshelf doctor [--agent] [--json]</code></pre>
             <p>
               <code>review</code> runs validate, due, and a cleanup plan preview in one pass; no-op
               previews report <code>not-created</code>, and <code>--all</code> adds an aggregate triage
               summary plus the next safe action. <code>status</code> is the lightweight dashboard of
               counts; <code>--all --json</code> is cron-friendly. <code>doctor</code> reports CLI version,
-              resolved paths, registry health, and the cleanup safety posture.
+              resolved paths, registry health, and the cleanup safety posture. All three also accept
+              <code>--agent</code> for a deterministic, token-efficient decision packet (see Output mode).
             </p>
           </section>
 
@@ -212,13 +213,27 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
           <section>
             <h2>Output mode</h2>
             <p>
-              <code>--json</code> is the agent contract: it switches commands that return data,
-              records, plans, receipts, or health output to machine-readable JSON on stdout.
-              Update notices and other diagnostics stay on stderr and never corrupt JSON output.
+              Every command has a default human render: compact, scannable terminal output with
+              grouped counts, attention states, and a short next action — meant for a person reading
+              the screen, not a wall of raw JSON.
+            </p>
+            <p>
+              <code>review</code>, <code>status</code>, and <code>doctor</code> add <code>--agent</code>:
+              a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
+              It names health, counts, classifications, exact approval targets, blockers, and the command
+              to re-run for verification, so an agent can act without parsing decorative output.
+            </p>
+            <p>
+              <code>--json</code> stays the audit and API contract: the full, pretty-printed report for
+              debugging, audit trails, and existing integrations. It is unchanged and backward compatible,
+              and <code>--agent</code> takes precedence when both are passed. Update notices and other
+              diagnostics stay on stderr and never corrupt JSON or packet output.
             </p>
             <table class="opts">
               <tr><th>option</th><th>meaning</th></tr>
-              <tr><td>--json</td><td>emit machine-readable JSON on commands that return data</td></tr>
+              <tr><td>(default)</td><td>human render: grouped counts, attention states, and a short next action</td></tr>
+              <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code></td></tr>
+              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data</td></tr>
             </table>
           </section>
 
