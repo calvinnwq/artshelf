@@ -573,8 +573,9 @@ function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boolean): nu
     return ok ? 0 : 1;
   }
   const result = reviewLedger({ name: "current", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }, false);
+  const summary = summarizeReview([result]);
   if (agent) {
-    printCompactJson(buildReviewAgentPacketSingle(result, ledgerPath));
+    printCompactJson(buildReviewAgentPacketSingle(result, summary, ledgerPath));
     return result.validate.ok ? 0 : 1;
   }
   if (json) {

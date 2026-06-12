@@ -214,8 +214,7 @@ export function buildReviewAgentPacketAll(results: ReviewResult[], summary: Revi
   };
 }
 
-export function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: string): ReviewAgentPacket {
-  const summary = summarizeReviewForPacket([result]);
+export function buildReviewAgentPacketSingle(result: ReviewResult, summary: ReviewSummary, ledgerPath: string): ReviewAgentPacket {
   const groups = buildReviewDecisions([result], "single");
   return {
     schemaVersion: 1,
@@ -236,45 +235,4 @@ export function buildReviewAgentPacketSingle(result: ReviewResult, ledgerPath: s
     nextAction: reviewNextAction(summary, "single", ledgerPath),
     verification: `artshelf review --agent --ledger ${ledgerPath}`
   };
-}
-
-function summarizeReviewForPacket(results: ReviewResult[]): ReviewSummary {
-  const summary: ReviewSummary = {
-    ledgers: results.length,
-    ok: 0,
-    invalid: 0,
-    stale: 0,
-    affected: 0,
-    due: 0,
-    manualReview: 0,
-    missingPath: 0,
-    executable: 0,
-    skipped: 0,
-    previewPlanIds: []
-  };
-
-  for (const result of results) {
-    if (result.validate.ok) {
-      summary.ok += 1;
-    } else if (result.ledgerExists) {
-      summary.invalid += 1;
-    } else {
-      summary.stale += 1;
-    }
-
-    const due = result.due.filter((entry) => entry.dueStatus === "due").length;
-    const manualReview = result.due.filter((entry) => entry.dueStatus === "manual-review").length;
-    const missingPath = result.due.filter((entry) => entry.dueStatus === "missing-path").length;
-    summary.due += due;
-    summary.manualReview += manualReview;
-    summary.missingPath += missingPath;
-    summary.executable += result.plan.entries.length;
-    summary.skipped += result.plan.skipped.length;
-    if (result.plan.planId !== "not-created") summary.previewPlanIds.push(result.plan.planId);
-    if (!result.validate.ok || due + manualReview + missingPath > 0 || result.plan.entries.length > 0) {
-      summary.affected += 1;
-    }
-  }
-
-  return summary;
 }
