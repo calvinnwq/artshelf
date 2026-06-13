@@ -80,6 +80,13 @@
   (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility), and a
   non-numeric TTL value falls back to the default instead of disabling expiry.
 
+## [0.10.2](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.1...artshelf-v0.10.2) (2026-06-13)
+
+
+### Miscellaneous Chores
+
+* **release:** force artshelf 0.10.2 ([84be1f6](https://github.com/calvinnwq/artshelf/commit/84be1f6c5f7610666b7cccec62801ffb89417a91))
+
 ## [0.10.1](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.0...artshelf-v0.10.1) (2026-06-12)
 
 
