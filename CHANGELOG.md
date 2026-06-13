@@ -80,6 +80,23 @@
   (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility), and a
   non-numeric TTL value falls back to the default instead of disabling expiry.
 
+## [0.10.2](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.1...artshelf-v0.10.2) (2026-06-13)
+
+
+### Code Refactoring
+
+* **cli:** extract command dispatch and shared modules from the monolithic
+  entrypoint ([c198c19](https://github.com/calvinnwq/artshelf/commit/c198c194693e756dd02b2525e2f6abbee5741d59))
+* **cli:** separate status, doctor, review, and JSON renderers from command
+  orchestration ([4ec76b0](https://github.com/calvinnwq/artshelf/commit/4ec76b0b0e4f45562d0e98a1237602bc5d41ca67))
+* **cli:** extract update environment, package, path, and process adapter seams
+  ([4ec76b0](https://github.com/calvinnwq/artshelf/commit/4ec76b0b0e4f45562d0e98a1237602bc5d41ca67))
+* **cli:** restore real per-command modules, add the validate command module,
+  and strengthen architecture guardrails
+  ([a617ba3](https://github.com/calvinnwq/artshelf/commit/a617ba36e7de7d8a5725d1ba47eb3419ae3c6329))
+* **cli:** move help rendering out of the entrypoint and into shared help text
+  ([8e2698b](https://github.com/calvinnwq/artshelf/commit/8e2698bce1b47073d434113cbe1e8cfb32ec34e2))
+
 ## [0.10.1](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.0...artshelf-v0.10.1) (2026-06-12)
 
 
