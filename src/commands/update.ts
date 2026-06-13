@@ -70,6 +70,3 @@ export async function maybeNotifyAvailableUpdate(parsed: ParsedArgs): Promise<vo
   process.stderr.write(`A new version of artshelf is available: v${info.current} -> v${info.latest}\n`);
   process.stderr.write(`Run "artshelf update" to update npm installs\n`);
 }
-
-// Agent/compact surface: a single minified JSON line. The default `--json`
-// stays pretty-printed for audit/debug; agent packets optimize for tokens.
