@@ -14,16 +14,16 @@ test("architecture contract is the source of truth for CLI structure", () => {
     "source of truth",
     "src/cli.ts",
     "commands/",
-    "core/",
     "adapters/",
     "renderers/",
     "config/",
     "shared/",
+    "ledger.ts",
+    "registry.ts",
     "Import Direction",
     "Output And Safety Rules",
-    "Migration Order",
-    "NGX-406",
-    "NGX-407"
+    "Closeout Guardrails",
+    "NGX-410"
   ]) {
     assert.match(architecture, new RegExp(escapeRegExp(text)), text);
   }
@@ -43,7 +43,7 @@ test("cli entrypoint stays thin and handler-free", () => {
   const lines = cli.split("\n").length;
   const commandHandlers = [...cli.matchAll(/^async function handle|^function handle/gm)].length;
 
-  assert.ok(lines <= 650, `src/cli.ts has ${lines} lines; move behavior out instead of growing it`);
+  assert.ok(lines <= 520, `src/cli.ts has ${lines} lines; move behavior out instead of growing it`);
   assert.ok(
     commandHandlers === 0,
     `src/cli.ts has ${commandHandlers} command handlers; command behavior belongs in src/commands`
@@ -51,30 +51,55 @@ test("cli entrypoint stays thin and handler-free", () => {
 });
 
 
-test("command modules own CLI command implementations", () => {
-  const commandFiles = [
-    "cleanup",
-    "doctor",
-    "due",
-    "find",
-    "get",
-    "ledgers",
-    "list",
-    "put",
-    "resolve",
-    "review",
-    "status",
-    "trash",
-    "update"
-  ];
+const PUBLIC_COMMANDS = [
+  "cleanup",
+  "doctor",
+  "due",
+  "find",
+  "get",
+  "ledgers",
+  "list",
+  "put",
+  "resolve",
+  "review",
+  "status",
+  "trash",
+  "update",
+  "validate"
+] as const;
 
-  for (const command of commandFiles) {
-    assert.equal(existsSync(`src/commands/${command}.ts`), true, `${command} command module should exist`);
+test("the public command surface is documented and routed through the command boundary", () => {
+  const architecture = read("ARCHITECTURE.md");
+  const cli = read("src/cli.ts");
+  const commands = read("src/commands/index.ts");
+
+  for (const command of PUBLIC_COMMANDS) {
+    assert.match(architecture, new RegExp(`\\b${escapeRegExp(command)}\\b`), `${command} should be named in ARCHITECTURE.md`);
+    assert.match(cli, new RegExp(`name: "${escapeRegExp(command)}"`), `${command} should appear in top-level help`);
+    assert.match(commands, new RegExp(`case "${escapeRegExp(command)}":`), `${command} should be dispatched by src/commands/index.ts`);
   }
 
-  const cli = read("src/cli.ts");
   assert.doesNotMatch(cli, /^function handlePut/gm);
   assert.doesNotMatch(cli, /^function handleTrash/gm);
+});
+
+test("command modules are real discoverable implementations", () => {
+  const commandFiles = readdirSync("src/commands")
+    .filter((file) => file.endsWith(".ts") && !["index.ts", "shared.ts"].includes(file))
+    .sort();
+
+  assert.deepEqual(commandFiles, PUBLIC_COMMANDS.map((command) => `${command}.ts`).sort());
+
+  for (const command of PUBLIC_COMMANDS) {
+    const path = `src/commands/${command}.ts`;
+    const contents = read(path);
+    const handlerName = `handle${capitalizeCommand(command)}`;
+    assert.match(contents, new RegExp(`export (async )?function ${handlerName}\\b`), `${path} should export ${handlerName}`);
+    assert.doesNotMatch(contents, /^export const .*CommandName = /m, `${path} should not be a marker module`);
+  }
+
+  const index = read("src/commands/index.ts");
+  assert.doesNotMatch(index, /^function handle[A-Z]/gm, "src/commands/index.ts should dispatch imported command handlers, not own command implementations");
 });
 
 
@@ -129,6 +154,8 @@ test("architecture guardrails catch boundary and migration regressions", () => {
   const cli = read("src/cli.ts");
   assert.doesNotMatch(cli, /from "\.\/ledger\.js"/);
   assert.doesNotMatch(cli, /from "\.\/registry\.js"/);
+  assert.doesNotMatch(cli, /from "\.\/adapters\//);
+  assert.doesNotMatch(cli, /from "\.\/renderers\//);
 
   const sourceFiles = [
     "src/commands/index.ts",
@@ -155,6 +182,42 @@ test("architecture guardrails catch boundary and migration regressions", () => {
     assert.doesNotMatch(contents, /from "\.\.\/cli\.js"|from "\.\/cli\.js"/, file);
   }
 });
+
+test("layer imports only cross approved boundaries", () => {
+  assertAllowedImports({
+    directory: "src/renderers",
+    disallowed: [/node:/, /\.\.\/ledger\.js/, /\.\.\/commands\//, /\.\.\/adapters\//, /\.\.\/config\//]
+  });
+  assertAllowedImports({
+    directory: "src/adapters",
+    disallowed: [/\.\.\/commands\//, /\.\.\/renderers\//, /\.\.\/ledger\.js/, /\.\.\/registry\.js/]
+  });
+  assertAllowedImports({
+    directory: "src/config",
+    disallowed: [/\.\.\/commands\//, /\.\.\/renderers\//, /\.\.\/adapters\//, /\.\.\/ledger\.js/, /\.\.\/registry\.js/]
+  });
+  assertAllowedImports({
+    directory: "src/shared",
+    disallowed: [/node:/, /\.\.\/commands\//, /\.\.\/renderers\//, /\.\.\/adapters\//, /\.\.\/config\//, /\.\.\/ledger\.js/, /\.\.\/registry\.js/]
+  });
+});
+
+function capitalizeCommand(command: string): string {
+  return command.split("-").map((part) => `${part.charAt(0).toUpperCase()}${part.slice(1)}`).join("");
+}
+
+function assertAllowedImports(options: { directory: string; disallowed: RegExp[] }): void {
+  for (const file of readdirSync(options.directory).filter((entry) => entry.endsWith(".ts"))) {
+    const path = `${options.directory}/${file}`;
+    const contents = read(path);
+    for (const match of contents.matchAll(/^\s*import\b(?!\s+type\b)(?:[^"';]*?\bfrom\b)?\s*["']([^"']+)["']/gm)) {
+      const specifier = match[1];
+      for (const pattern of options.disallowed) {
+        assert.doesNotMatch(specifier, pattern, `${path} imports across a forbidden boundary: ${specifier}`);
+      }
+    }
+  }
+}
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
