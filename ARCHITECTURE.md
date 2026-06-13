@@ -13,23 +13,23 @@ or command-family implementation code.
 
 ## Current Boundary
 
-`src/cli.ts` is the executable entrypoint and command registry glue. It parses
-argv, handles top-level help/version dispatch, calls the command boundary, maps
-top-level errors, and sets the process exit code. New command behavior must not
-be added to `src/cli.ts`.
+`src/cli.ts` is the executable entrypoint. It parses argv, handles top-level
+help/version dispatch through shared help helpers, calls the command boundary,
+maps top-level errors, and sets the process exit code. New command behavior must
+not be added to `src/cli.ts`.
 
 Allowed in `src/cli.ts`:
 
 - process entrypoint and exit handling
-- argument parsing and top-level/nested help dispatch
-- command registry wiring for help text and command summaries
+- argument parsing and top-level help/version dispatch
+- calls to shared help routing/rendering helpers
 - process stdout/stderr calls at the outer edge
 
 Avoid adding to `src/cli.ts`:
 
 - new command behavior
 - ledger or registry business rules
-- large renderers beyond help text
+- help text renderers or command summary registries
 - adapters for npm, filesystem, network, clock, or process state
 - long helper clusters that belong to a command, renderer, adapter, config, or
   domain module
@@ -38,7 +38,7 @@ Avoid adding to `src/cli.ts`:
 
 ```text
 src/
-  cli.ts              executable entrypoint, parser, help registry, exit mapping
+  cli.ts              executable entrypoint, parser, help/version dispatch, exit mapping
   commands/index.ts   command dispatch boundary
   commands/*.ts      one real module per user-visible command/family
   commands/shared.ts shared command helpers for registry validation and common output
@@ -49,7 +49,7 @@ src/
   adapters/           npm/process/update infrastructure edges
   renderers/          human, --json, and --agent output formatting helpers
   config/             env, package metadata, defaults, and path normalization
-  shared/             small cross-cutting CLI types, errors, flags, and help text
+  shared/             small cross-cutting CLI types, errors, flags, and help routing/text
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
@@ -137,7 +137,7 @@ repo-local storage, user-global storage, update TTLs, and npm registry URLs.
 
 Shared modules are for small, boring pieces used by multiple layers: typed CLI
 contracts, error formatting, flag definitions, flag accessors, and shared help
-text. Do not hide feature logic here.
+routing/text. Do not hide feature logic here.
 
 ## Import Direction
 
@@ -195,7 +195,10 @@ Artshelf's public contract is safety-first:
 - `src/cli.ts` stays within a thin-entrypoint line/function budget and does not
   import ledger/registry, adapters, or renderers directly
 - the public command surface, including `validate`, is documented in this file,
-  appears in top-level help, and is dispatched by `src/commands/index.ts`
+  appears in `src/shared/help-text.ts` top-level help, and is dispatched by
+  `src/commands/index.ts`
+- help text routing/rendering stays in `src/shared/help-text.ts`, not in
+  `src/cli.ts`
 - every public command has a discoverable `src/commands/<command>.ts` module with
   a real exported handler; marker command modules are refused
 - renderers, adapters, config, and shared modules cannot import across forbidden
@@ -216,5 +219,6 @@ ARTSHELF_UPDATE_DRY_RUN=1 node dist/src/cli.js update --json
 ```
 
 The budget enforces `src/cli.ts` as a thin entrypoint. Do not raise it to fit new
-command behavior. Add real command modules, renderers, adapters, config, shared
-contracts, or focused domain helpers in the folders above instead.
+command behavior or help rendering. Add real command modules, renderers,
+adapters, config, shared contracts, shared help text, or focused domain helpers
+in the folders above instead.
