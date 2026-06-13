@@ -74,27 +74,28 @@ import {
   validateRegisteredLedgersOrThrow
 } from "./shared.js";
 
-export function handleDue(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
+export function handleValidate(parsed: ParsedArgs, ledgerPath: string, json: boolean): number {
   if (boolFlag(parsed, "all")) {
     const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-    const validation = validateRegisteredLedgersOrThrow(registryPath);
-    if (!validation.ok) return printRegisteredLedgerValidation(registryPath, validation.results, json);
-    const results = validation.results.map(({ ledger }) => ({ ledger, entries: dueEntries(readLedger(ledger.path)) }));
-    if (json) return printJson({ ok: true, registryPath, ledgers: results });
-    printDueEntries(results);
+    const results = registeredLedgersOrThrow(registryPath).map((ledger) => ({ ledger, result: validateRegisteredLedger(ledger) }));
+    const ok = results.every((entry) => entry.result.ok);
+    if (json) {
+      printJson({ ok, registryPath, ledgers: results });
+      return ok ? 0 : 1;
+    }
+    for (const entry of results) {
+      process.stdout.write(`${entry.result.ok ? "ok" : "invalid"} ${entry.ledger.name}: ${entry.result.entries} entries, ${entry.result.errors.length} errors, ${entry.result.warnings.length} warnings\nledger: ${entry.ledger.path}\n`);
+      for (const error of entry.result.errors) process.stdout.write(`error: ${error}\n`);
+      for (const warning of entry.result.warnings) process.stdout.write(`warning: ${warning}\n`);
+    }
     process.stdout.write(`registry: ${registryPath}\n`);
-    return 0;
+    return ok ? 0 : 1;
   }
-  const entries = dueEntries(readLedger(ledgerPath));
-  const visible = entries.filter((entry) => entry.dueStatus !== "kept");
-  if (json) return printJson({ ok: true, ledgerPath, entries });
-  if (visible.length === 0) {
-    process.stdout.write(`nothing due\nledger: ${ledgerPath}\n`);
-    return 0;
-  }
-  for (const entry of visible) {
-    process.stdout.write(`${entry.dueStatus} ${entry.id} ${entry.cleanup} ${entry.path} :: ${entry.reason}\n`);
-  }
+  const result = validateLedger(ledgerPath);
+  if (json) return printJson({ ledgerPath, ...result });
+  process.stdout.write(`${result.ok ? "ok" : "invalid"}: ${result.entries} entries, ${result.errors.length} errors, ${result.warnings.length} warnings\n`);
+  for (const error of result.errors) process.stdout.write(`error: ${error}\n`);
+  for (const warning of result.warnings) process.stdout.write(`warning: ${warning}\n`);
   process.stdout.write(`ledger: ${ledgerPath}\n`);
-  return 0;
+  return result.ok ? 0 : 1;
 }

@@ -1,108 +1,125 @@
 # Artshelf Architecture
 
 This file is the source of truth for Artshelf's TypeScript CLI structure. Read
-it before changing CLI routing, command behavior, output rendering, storage, or
-update-check logic.
+it before changing CLI routing, command behavior, output rendering, storage,
+update checks, or cleanup safety rules.
 
-Artshelf is intentionally small. `src/cli.ts` once did too much: argument parsing,
-command routing, command behavior, output rendering, update checks, and process
-I/O. The refactor slices below moved that ownership into dedicated folders without
-changing command behavior, leaving the entrypoint thin.
+Artshelf is intentionally small. The CLI refactor moved command behavior,
+update/config/output boundaries, and shared contracts out of the executable
+entrypoint without changing public command behavior. The closeout stance is
+conservative but explicit: `src/commands/index.ts` dispatches to real
+per-command modules, and each `src/commands/<command>.ts` file owns that command
+or command-family implementation code.
 
 ## Current Boundary
 
-`src/cli.ts` is the executable entrypoint and command registry glue. Command
-implementations, output helpers, update adapters, and shared CLI contracts live
-outside the entrypoint. New command behavior must not be added to `src/cli.ts`.
+`src/cli.ts` is the executable entrypoint and command registry glue. It parses
+argv, handles top-level help/version dispatch, calls the command boundary, maps
+top-level errors, and sets the process exit code. New command behavior must not
+be added to `src/cli.ts`.
 
 Allowed in `src/cli.ts`:
 
 - process entrypoint and exit handling
-- argument parsing and help dispatch
-- command registry wiring
+- argument parsing and top-level/nested help dispatch
+- command registry wiring for help text and command summaries
 - process stdout/stderr calls at the outer edge
 
 Avoid adding to `src/cli.ts`:
 
 - new command behavior
 - ledger or registry business rules
-- large renderers
+- large renderers beyond help text
 - adapters for npm, filesystem, network, clock, or process state
-- long helper clusters that belong to a command or feature
+- long helper clusters that belong to a command, renderer, adapter, config, or
+  domain module
 
-## Target Shape
-
-Use these folders when moving code. Create only the folders needed for the slice
-in front of you; do not perform a broad reshuffle in one change.
+## Current Source Tree
 
 ```text
 src/
-  cli.ts              executable entrypoint and command registry
-  commands/           one module per user-visible command or command family
-  core/               ledger, retention, cleanup, review, status domain logic
-  adapters/           filesystem, npm registry, clock, process, and OS edges
-  renderers/          human, --json, and --agent output formatting
-  config/             path, env, defaults, and option normalization
-  shared/             small cross-cutting types, errors, and utilities
+  cli.ts              executable entrypoint, parser, help registry, exit mapping
+  commands/index.ts   command dispatch boundary
+  commands/*.ts      one real module per user-visible command/family
+  commands/shared.ts shared command helpers for registry validation and common output
+  ledger.ts           ledger domain rules, cleanup planning/execution, validation
+  registry.ts         ledger registry domain and persistence helpers
+  time.ts             retention time parsing and clock helpers
+  types.ts            ledger and cleanup domain contracts
+  adapters/           npm/process/update infrastructure edges
+  renderers/          human, --json, and --agent output formatting helpers
+  config/             env, package metadata, defaults, and path normalization
+  shared/             small cross-cutting CLI types, errors, flags, and help text
 ```
+
+There is no `src/core/` folder in the current Artshelf tree. The root domain files
+(`ledger.ts`, `registry.ts`, `time.ts`, and `types.ts`) are the existing core/domain
+modules for this closeout. A future issue may move them under `src/core/`, but
+NGX-410 should not perform that broad domain reshuffle.
 
 ### `commands/`
 
-Command modules translate parsed CLI input into core calls and renderer calls.
-They own command-specific option validation and orchestration, but not ledger
-rules or output formatting details.
+`commands/index.ts` is the dispatch boundary. It maps parsed command names to
+real command modules and does not own command-specific handlers. Command modules
+translate parsed CLI input into domain calls and renderer calls. They own
+command-specific option validation and orchestration, but not durable ledger
+rules or reusable output formatting details.
 
-The folder has a module per command family, with dispatch and shared command
-logic in `commands/index.ts`:
+Public commands currently routed through real command modules:
 
-- `commands/put.ts`
-- `commands/list.ts`
-- `commands/find.ts`
-- `commands/get.ts`
-- `commands/resolve.ts`
-- `commands/due.ts`
-- `commands/review.ts`
-- `commands/cleanup.ts`
-- `commands/trash.ts`
-- `commands/ledgers.ts`
-- `commands/doctor.ts`
-- `commands/status.ts`
-- `commands/update.ts`
+- `put`
+- `list`
+- `find`
+- `get`
+- `resolve`
+- `due`
+- `validate`
+- `review`
+- `cleanup`
+- `trash`
+- `ledgers`
+- `doctor`
+- `status`
+- `update`
 
-### `core/`
+Each public command has a discoverable module named after the CLI surface:
+`put.ts`, `list.ts`, `find.ts`, `get.ts`, `resolve.ts`, `due.ts`, `validate.ts`,
+`review.ts`, `cleanup.ts`, `trash.ts`, `ledgers.ts`, `doctor.ts`, `status.ts`,
+and `update.ts`. Marker modules that merely export a command name are refused;
+these files must contain real command-family implementation code.
 
-Core modules hold deterministic Artshelf behavior. They should be callable from
-tests without spawning the CLI and without relying on process-global state.
+### Domain files
 
-Good candidates:
+Root domain files hold deterministic Artshelf behavior. They should be callable
+from tests without spawning the CLI and without relying on process-global state
+except where legacy behavior already requires it.
 
-- ledger record lifecycle and validation
-- registry-backed all-ledger reads
-- due/review classification
-- cleanup plan and receipt rules
-- trash listing and purge planning
-- doctor/status report construction
-- update-check cache policy decisions
+Current domain ownership:
+
+- `ledger.ts`: ledger record lifecycle and validation, due classification,
+  cleanup and trash plan/receipt rules
+- `registry.ts`: registry-backed all-ledger reads and registrations
+- `time.ts`: TTL/date parsing and current-time normalization
+- `types.ts`: ledger, cleanup, trash, and registry-adjacent domain contracts
 
 ### `adapters/`
 
-Adapters isolate real-world edges. Code here may touch the filesystem, npm,
-environment, time, process state, or the network. Core code should receive
-adapter results as explicit inputs.
+Adapters isolate real-world edges. Code here may touch npm, process spawning,
+update-check cache files, environment-derived update configuration, time, or the
+network. Domain code should receive adapter results as explicit inputs when new
+code is added.
 
-Good candidates:
+Current adapters:
 
-- filesystem reads/writes
-- npm latest-version lookup
-- current time
-- homedir/path resolution
-- process spawning for `artshelf update`
+- `adapters/process.ts`: process spawning for `artshelf update`
+- `adapters/update.ts`: npm latest-version lookup, update-cache reads/writes,
+  update TTL policy application
 
 ### `renderers/`
 
-Renderers format already-built reports. They should not discover ledger state or
-decide cleanup safety. Keep renderers deterministic and easy to snapshot or
-assert against.
+Renderers format already-built reports. They should not discover ledger state,
+read or write ledgers, or decide cleanup safety. Keep renderers deterministic and
+easy to snapshot or assert against.
 
 Render modes:
 
@@ -112,36 +129,44 @@ Render modes:
 
 ### `config/`
 
-Config modules normalize env vars, defaults, and paths. They should keep
-compatibility behavior clear, especially for `ARTSHELF_*` env vars and
-repo-local versus user-global storage paths.
+Config modules normalize env vars, package metadata, defaults, and paths. They
+keep compatibility behavior clear, especially for `ARTSHELF_*` env vars,
+repo-local storage, user-global storage, update TTLs, and npm registry URLs.
 
 ### `shared/`
 
-Shared modules are for small, boring pieces used by multiple layers: typed
-errors, result helpers, version comparison, and tiny string/path utilities. Do
-not hide feature logic here.
+Shared modules are for small, boring pieces used by multiple layers: typed CLI
+contracts, error formatting, flag definitions, flag accessors, and shared help
+text. Do not hide feature logic here.
 
 ## Import Direction
 
 Keep dependencies moving inward:
 
 ```text
-cli -> commands -> core
+cli -> commands -> domain files
 cli -> commands -> renderers
-commands -> adapters
-core -> shared
-renderers -> shared
+cli -> commands -> adapters/config/shared
+commands -> adapters/config/renderers/shared
+ledger/registry/time/types -> shared or narrower domain helpers
+renderers -> shared and type-only domain imports
+adapters -> config/shared
 config -> shared
 ```
 
 Rules:
 
-- `core/` must not import `commands/`, `renderers/`, or `cli.ts`.
-- `renderers/` must not read or write ledgers, registries, or files.
-- `commands/` may import core, adapters, config, renderers, and shared helpers.
-- `adapters/` may import shared/config helpers, but should not own domain rules.
-- `cli.ts` may import commands/config/shared, but should stay thin.
+- `src/cli.ts` may import `commands/`, `config/`, and `shared/`; it must not
+  import `ledger.ts`, `registry.ts`, `adapters/`, or `renderers/` directly.
+- Domain files (`ledger.ts`, `registry.ts`, `time.ts`, `types.ts`) must not
+  import `commands/`, `renderers/`, `adapters/`, or `cli.ts`.
+- `renderers/` must not read or write ledgers, registries, or files. Runtime
+  imports should stay renderer-local or shared; type-only domain imports are
+  acceptable where they document report shapes.
+- `commands/` may import domain files, adapters, config, renderers, and shared
+  helpers.
+- `adapters/` may import shared/config helpers, but should not import command
+  modules, renderers, ledger, or registry domain modules.
 - Avoid import cycles. If a cycle appears, move the shared type or helper into
   `shared/` or the narrower owning feature.
 
@@ -156,38 +181,40 @@ Artshelf's public contract is safety-first:
 - `cleanup --execute --all` remains refused.
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, and `list`
   remain read-only surfaces.
+- `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
+  update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.
 
-## Migration Order
+## Closeout Guardrails
 
-Use these issues as the intended order. Each slice should leave the repo valid
-and preserve existing behavior. Shelves 17 through 20 established the current
-folder split; future work should extend the split rather than moving behavior
-back into the entrypoint.
+`tests/architecture-contract.test.ts` enforces the NGX-410 closeout guardrails:
 
-1. `NGX-406` / Shelf-16: create this architecture contract, link it from agent
-   and contributor docs, and add the structural guardrail.
-2. `NGX-407` / Shelf-17: create a thin command module pattern and move one
-   low-risk command family first.
-3. Shelf-18: extract renderers for human, JSON, and agent output where the shape
-   is already stable.
-4. Shelf-19: extract adapters/config around update checks, paths, env vars, and
-   process edges.
-5. Shelf-20: reduce `src/cli.ts` to entrypoint, parser, registry, and
-   compatibility glue.
-
-Do not move command behavior in NGX-406. This document is the contract that
-makes the later moves boring.
-
-## Structural Guardrail
-
-`tests/architecture-contract.test.ts` enforces the first guardrail:
-
-- root `ARCHITECTURE.md` exists and names the intended folder ownership
+- root `ARCHITECTURE.md` exists and names the current folder/file ownership
 - root `AGENTS.md` points agents here before CLI work
-- `CONTRIBUTING.md` links this contract
-- `src/cli.ts` stays within the temporary line/function budget
+- `CONTRIBUTING.md` links this contract for humans
+- `src/cli.ts` stays within a thin-entrypoint line/function budget and does not
+  import ledger/registry, adapters, or renderers directly
+- the public command surface, including `validate`, is documented in this file,
+  appears in top-level help, and is dispatched by `src/commands/index.ts`
+- every public command has a discoverable `src/commands/<command>.ts` module with
+  a real exported handler; marker command modules are refused
+- renderers, adapters, config, and shared modules cannot import across forbidden
+  boundaries
+- temporary migration comments and obsolete compatibility-shim text stay out of
+  source files
 
-The budget now enforces `src/cli.ts` as a thin entrypoint. Do not raise it to fit
-new command behavior. Add command modules, renderers, adapters, config, or shared
-contracts in the folders above instead.
+Representative CLI smoke commands for this architecture contract:
+
+```bash
+node dist/src/cli.js --help
+node dist/src/cli.js status --agent
+node dist/src/cli.js doctor --agent
+node dist/src/cli.js review --agent
+node dist/src/cli.js validate --json
+ARTSHELF_NO_UPDATE_CHECK=1 node dist/src/cli.js status --agent
+ARTSHELF_UPDATE_DRY_RUN=1 node dist/src/cli.js update --json
+```
+
+The budget enforces `src/cli.ts` as a thin entrypoint. Do not raise it to fit new
+command behavior. Add real command modules, renderers, adapters, config, shared
+contracts, or focused domain helpers in the folders above instead.

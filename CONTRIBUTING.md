@@ -7,6 +7,11 @@ For CLI structure and ownership boundaries, read [ARCHITECTURE.md](ARCHITECTURE.
 before changing routing, command behavior, renderers, config, adapters, or
 cleanup safety rules.
 
+Command behavior routes through real `src/commands/<command>.ts` modules, with
+`src/commands/index.ts` limited to dispatch. New command files must own real
+command-family implementation code; do not add marker modules that only export a
+command name.
+
 ## Local Setup
 
 ```bash
