@@ -71,11 +71,12 @@ const PUBLIC_COMMANDS = [
 test("the public command surface is documented and routed through the command boundary", () => {
   const architecture = read("ARCHITECTURE.md");
   const cli = read("src/cli.ts");
+  const helpText = read("src/shared/help-text.ts");
   const commands = read("src/commands/index.ts");
 
   for (const command of PUBLIC_COMMANDS) {
     assert.match(architecture, new RegExp(`\\b${escapeRegExp(command)}\\b`), `${command} should be named in ARCHITECTURE.md`);
-    assert.match(cli, new RegExp(`name: "${escapeRegExp(command)}"`), `${command} should appear in top-level help`);
+    assert.match(helpText, new RegExp(`name: "${escapeRegExp(command)}"`), `${command} should appear in top-level help`);
     assert.match(commands, new RegExp(`case "${escapeRegExp(command)}":`), `${command} should be dispatched by src/commands/index.ts`);
   }
 
@@ -147,6 +148,21 @@ test("shared CLI contracts and update adapters are explicit modules", () => {
   assert.doesNotMatch(commands, /^function getLatestVersion/gm);
   assert.doesNotMatch(commands, /process\.env\.ARTSHELF_UPDATE_DRY_RUN/);
   assert.doesNotMatch(commands, /spawnSync\("npm"/);
+});
+
+test("help text rendering stays out of the executable entrypoint", () => {
+  const cli = read("src/cli.ts");
+  const helpText = read("src/shared/help-text.ts");
+
+  assert.doesNotMatch(cli, /\bCOMMAND_GROUPS\b/);
+  assert.doesNotMatch(cli, /\bNESTED_HELP\b/);
+  assert.doesNotMatch(cli, /\bfunction renderTopLevelHelp\b/);
+  assert.doesNotMatch(cli, /\bfunction printHelp\b/);
+  assert.doesNotMatch(cli, /Usage:\n  artshelf put/);
+
+  assert.match(helpText, /\bexport function resolveHelpKey\b/);
+  assert.match(helpText, /\bexport function renderHelp\b/);
+  assert.match(helpText, /\bCOMMAND_GROUPS\b/);
 });
 
 
