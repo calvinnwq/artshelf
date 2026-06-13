@@ -209,10 +209,11 @@ function capitalizeCommand(command: string): string {
 function assertAllowedImports(options: { directory: string; disallowed: RegExp[] }): void {
   for (const file of readdirSync(options.directory).filter((entry) => entry.endsWith(".ts"))) {
     const path = `${options.directory}/${file}`;
-    const imports = read(path).split("\n").filter((line) => /^\s*import(?!\s+type\b)/.test(line));
-    for (const line of imports) {
+    const contents = read(path);
+    for (const match of contents.matchAll(/^\s*import\b(?!\s+type\b)(?:[^"';]*?\bfrom\b)?\s*["']([^"']+)["']/gm)) {
+      const specifier = match[1];
       for (const pattern of options.disallowed) {
-        assert.doesNotMatch(line, pattern, `${path} imports across a forbidden boundary: ${line}`);
+        assert.doesNotMatch(specifier, pattern, `${path} imports across a forbidden boundary: ${specifier}`);
       }
     }
   }
