@@ -44,6 +44,7 @@ src/
   commands/shared.ts shared command helpers for registry validation and common output
   ledger.ts           ledger domain rules, cleanup planning/execution, validation
   registry.ts         ledger registry domain and persistence helpers
+  locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger and cleanup domain contracts
   adapters/           npm/process/update infrastructure edges
@@ -53,9 +54,9 @@ src/
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
-(`ledger.ts`, `registry.ts`, `time.ts`, and `types.ts`) are the existing core/domain
-modules for this closeout. A future issue may move them under `src/core/`, but
-NGX-410 should not perform that broad domain reshuffle.
+(`ledger.ts`, `registry.ts`, `locks.ts`, `time.ts`, and `types.ts`) are the existing
+core/domain modules for this closeout. A future issue may move them under `src/core/`,
+but NGX-410 should not perform that broad domain reshuffle.
 
 ### `commands/`
 
@@ -99,6 +100,8 @@ Current domain ownership:
 - `ledger.ts`: ledger record lifecycle and validation, due classification,
   cleanup and trash plan/receipt rules
 - `registry.ts`: registry-backed all-ledger reads and registrations
+- `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
+  ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
 - `types.ts`: ledger, cleanup, trash, and registry-adjacent domain contracts
 
@@ -158,8 +161,8 @@ Rules:
 
 - `src/cli.ts` may import `commands/`, `config/`, and `shared/`; it must not
   import `ledger.ts`, `registry.ts`, `adapters/`, or `renderers/` directly.
-- Domain files (`ledger.ts`, `registry.ts`, `time.ts`, `types.ts`) must not
-  import `commands/`, `renderers/`, `adapters/`, or `cli.ts`.
+- Domain files (`ledger.ts`, `registry.ts`, `locks.ts`, `time.ts`, `types.ts`)
+  must not import `commands/`, `renderers/`, `adapters/`, or `cli.ts`.
 - `renderers/` must not read or write ledgers, registries, or files. Runtime
   imports should stay renderer-local or shared; type-only domain imports are
   acceptable where they document report shapes.

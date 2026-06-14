@@ -1172,6 +1172,101 @@ test("registry preserves concurrent ledger registrations", async () => {
   assert.deepEqual(ledgers.map((ledger: any) => ledger.name).sort(), ["repo-0", "repo-1", "repo-2", "repo-3", "repo-4", "repo-5"]);
 });
 
+test("ledger preserves concurrent appends against the same ledger", async () => {
+  // NGX-428: concurrent `put` into one ledger must not lose records. Without a
+  // shared write lock the read-modify-write append in ledger.ts drops records as
+  // overlapping processes rewrite the whole file from stale snapshots.
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, ".artshelf", "ledger.jsonl");
+  const count = 8;
+  const jobs = Array.from({ length: count }, (_, index) => {
+    const artifact = join(fixture, `artifact-${index}.txt`);
+    writeFileSync(artifact, `artifact ${index}`);
+    return shelfAsync([
+      "put",
+      artifact,
+      "--reason",
+      `concurrent append ${index}`,
+      "--ttl",
+      "1d",
+      "--ledger",
+      ledger,
+      "--registry",
+      registry,
+      "--json"
+    ], "2026-06-01T00:00:00Z");
+  });
+
+  const results = await Promise.all(jobs);
+  for (const result of results) {
+    assert.equal(result.status, 0, result.stderr);
+  }
+
+  const records = readLedger(ledger);
+  assert.equal(records.length, count);
+  assert.deepEqual(
+    records.map((record) => record.reason).sort(),
+    Array.from({ length: count }, (_, index) => `concurrent append ${index}`).sort()
+  );
+  assert.equal(new Set(records.map((record) => record.id)).size, count);
+});
+
+test("ledger preserves concurrent full rewrites against the same ledger", async () => {
+  // NGX-428: concurrent `resolve` of distinct records exercises the full-file
+  // rewrite path (writeLedger). Without a shared write lock and unique temp file,
+  // overlapping read-modify-write cycles lose updates or collide on the temp file.
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, ".artshelf", "ledger.jsonl");
+  const count = 8;
+  for (let index = 0; index < count; index++) {
+    const artifact = join(fixture, `artifact-${index}.txt`);
+    writeFileSync(artifact, `artifact ${index}`);
+    const put = artshelf([
+      "put",
+      artifact,
+      "--reason",
+      `rewrite target ${index}`,
+      "--manual-review",
+      "--ledger",
+      ledger,
+      "--registry",
+      registry
+    ], "2026-06-01T00:00:00Z");
+    assert.equal(put.status, 0, put.stderr);
+  }
+
+  const ids = readLedger(ledger).map((record) => record.id);
+  assert.equal(ids.length, count);
+
+  const jobs = ids.map((id) =>
+    shelfAsync([
+      "resolve",
+      id,
+      "--status",
+      "resolved",
+      "--reason",
+      `resolved ${id}`,
+      "--ledger",
+      ledger,
+      "--registry",
+      registry,
+      "--json"
+    ], "2026-06-02T00:00:00Z")
+  );
+
+  const results = await Promise.all(jobs);
+  for (const result of results) {
+    assert.equal(result.status, 0, result.stderr);
+  }
+
+  const records = readLedger(ledger);
+  assert.equal(records.length, count);
+  assert.equal(records.filter((record) => record.status === "resolved").length, count);
+  assert.equal(new Set(records.map((record) => record.id)).size, count);
+});
+
 test("due classifies kept, due, manual review, and missing paths", () => {
   const fixture = fixtureDir();
   const ledger = ledgerPath(fixture);

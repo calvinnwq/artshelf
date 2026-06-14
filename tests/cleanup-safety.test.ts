@@ -73,6 +73,90 @@ test("cleanup --execute refuses physical delete so there is no silent deletion p
   assert.equal(existsSync(target), true, "delete must never remove the file in v1");
 });
 
+// NGX-426: cleanup --execute must reject unsafe or mismatched plan inputs before
+// it moves files or writes receipts, matching the plan-id-bound posture trash
+// purge already has.
+
+test("cleanup --execute refuses an unsafe --plan-id before writing a receipt or trash", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const unsafe = artshelf(["cleanup", "--execute", "--plan-id", "../plan_escape", "--ledger", ledger], "2026-06-03T00:00:00Z");
+  assert.equal(unsafe.status, 1);
+  assert.match(unsafe.stderr, /Invalid cleanup plan id/);
+
+  const shelfDir = join(fixture, ".artshelf");
+  assert.equal(existsSync(artifact), true, "an unsafe plan id must move nothing");
+  assert.equal(existsSync(join(shelfDir, "trash")), false, "an unsafe plan id must not create trash");
+  assert.equal(existsSync(join(shelfDir, "receipts")), false, "an unsafe plan id must not write a receipt");
+});
+
+test("cleanup --execute refuses a plan whose planId does not match the requested id", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  // Copy the reviewed plan to a different (still-safe) plan-id path while leaving
+  // its internal planId pointing at the original. The requested id now mismatches.
+  const plansDir = join(fixture, ".artshelf", "plans");
+  const mismatchedId = "plan_mismatched_id";
+  writeFileSync(join(plansDir, `${mismatchedId}.json`), readFileSync(join(plansDir, `${plan.planId}.json`), "utf8"));
+
+  const refused = artshelf(["cleanup", "--execute", "--plan-id", mismatchedId, "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /plan id mismatch/i);
+
+  const shelfDir = join(fixture, ".artshelf");
+  assert.equal(existsSync(artifact), true, "a mismatched planId must move nothing");
+  assert.equal(existsSync(join(shelfDir, "trash")), false, "a mismatched planId must not create trash");
+  assert.equal(existsSync(join(shelfDir, "receipts", `${mismatchedId}.json`)), false, "a mismatched planId must not write a receipt");
+});
+
+test("cleanup --execute refuses a plan whose ledgerPath does not match the executing ledger", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  // Tamper the stored plan so it claims to belong to a different ledger.
+  const planFile = join(fixture, ".artshelf", "plans", `${plan.planId}.json`);
+  writeFileSync(planFile, JSON.stringify({ ...plan, ledgerPath: join(fixture, "other-ledger.jsonl") }, null, 2));
+
+  const refused = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /ledger mismatch/i);
+
+  assert.equal(existsSync(artifact), true, "a mismatched ledgerPath must move nothing");
+  assert.equal(existsSync(join(fixture, ".artshelf", "trash")), false, "a mismatched ledgerPath must not create trash");
+});
+
+test("cleanup --execute refuses a plan whose entries are malformed before mutation", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const planFile = join(fixture, ".artshelf", "plans", `${plan.planId}.json`);
+  writeFileSync(planFile, JSON.stringify({ ...plan, entries: "not-an-array" }, null, 2));
+
+  const refused = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger], "2026-06-03T00:01:00Z");
+  assert.equal(refused.status, 1);
+  assert.match(refused.stderr, /entries/i);
+
+  assert.equal(existsSync(artifact), true, "a malformed plan must move nothing");
+  assert.equal(existsSync(join(fixture, ".artshelf", "trash")), false, "a malformed plan must not create trash");
+});
+
 test("read-only status, review, and doctor never execute cleanup", () => {
   const fixture = fixtureDir();
   const artifact = join(fixture, "artifact.txt");
