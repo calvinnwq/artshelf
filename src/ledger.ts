@@ -365,10 +365,10 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
   const planPath = trashPurgePlanPath(ledgerPath, purgePlanId);
   if (!existsSync(planPath)) throw new Error(`Trash purge plan not found: ${purgePlanId}`);
   const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
-  const existingReceipt = existsSync(receiptPath) ? readTrashPurgeReceipt(receiptPath) : null;
-  if (existingReceipt?.completedAt) throw new Error(`Trash purge receipt already exists: ${purgePlanId}`);
   const plan = JSON.parse(readFileSync(planPath, "utf8")) as TrashPurgePlan;
   return withLedgerLock(ledgerPath, () => {
+    const existingReceipt = existsSync(receiptPath) ? readTrashPurgeReceipt(receiptPath) : null;
+    if (existingReceipt?.completedAt) throw new Error(`Trash purge receipt already exists: ${purgePlanId}`);
     const records = readLedger(ledgerPath);
     const recordsById = new Map(records.map((record) => [record.id, record]));
     const trashRoot = resolve(dirname(ledgerPath), "trash");
