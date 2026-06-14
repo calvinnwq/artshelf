@@ -161,8 +161,8 @@ Rules:
 
 - `src/cli.ts` may import `commands/`, `config/`, and `shared/`; it must not
   import `ledger.ts`, `registry.ts`, `adapters/`, or `renderers/` directly.
-- Domain files (`ledger.ts`, `registry.ts`, `time.ts`, `types.ts`) must not
-  import `commands/`, `renderers/`, `adapters/`, or `cli.ts`.
+- Domain files (`ledger.ts`, `registry.ts`, `locks.ts`, `time.ts`, `types.ts`)
+  must not import `commands/`, `renderers/`, `adapters/`, or `cli.ts`.
 - `renderers/` must not read or write ledgers, registries, or files. Runtime
   imports should stay renderer-local or shared; type-only domain imports are
   acceptable where they document report shapes.

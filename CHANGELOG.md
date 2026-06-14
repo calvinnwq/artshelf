@@ -79,6 +79,18 @@
   cache, `ARTSHELF_NO_UPDATE_CHECK_TTL_MS` overrides the no-update/failed TTL
   (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility), and a
   non-numeric TTL value falls back to the default instead of disabling expiry.
+- Made concurrent ledger and registry writes safe: ledger mutations now take the
+  same cross-process advisory lock as the registry (extracted into a shared
+  `withPathLock` helper in `src/locks.ts`), and ledger appends and rewrites commit
+  through a unique temp file and an atomic rename, so overlapping `put`,
+  `resolve`, and cleanup runs no longer drop records or leave a partially written
+  ledger.
+- Hardened `cleanup --execute` to reject unsafe plan ids and bind the loaded plan
+  to the request before any filesystem mutation: the plan's `planId` must match
+  the requested id, its `ledgerPath` must match the executing ledger, and its
+  entries must be well-formed, so mismatched or malformed plans are refused before
+  moving files or writing a receipt — the plan-id-bound posture trash purge
+  already enforces.
 
 ## [0.10.2](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.1...artshelf-v0.10.2) (2026-06-13)
 

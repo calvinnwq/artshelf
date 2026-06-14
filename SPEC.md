@@ -423,8 +423,15 @@ artshelf cleanup --execute --plan-id <id> [--ledger <path>] --json
 
 Rules:
 
-- Requires `--plan-id`.
+- Requires `--plan-id`, and refuses an unsafe plan id (anything outside
+  `[A-Za-z0-9_-]`, such as a value containing path separators or `..`) before
+  touching the filesystem.
 - Refuses to generate a fresh live cleanup set during execute.
+- Binds the loaded plan to the request before any mutation: the plan file's
+  `planId` must match the requested id, its `ledgerPath` must match the executing
+  ledger, and its entries must be well-formed. A mismatched or malformed plan is
+  refused without moving files or writing a receipt, mirroring the live-record
+  re-checks `trash purge --execute` performs.
 - Writes a cleanup receipt and appends or refreshes an Artshelf-owned ledger record
   for that receipt with `owner=artshelf`, `kind=run-artifact`, `ttl=30d`,
   `cleanup=review`, and labels including `artshelf`, `cleanup-receipt`, and the
@@ -531,6 +538,16 @@ Default behavior:
 - If the current directory is inside a git repo, write repo-local.
 - Otherwise write user-global.
 - Allow `--ledger <path>` for explicit tests and unusual workflows.
+
+Write durability:
+
+- Every mutation of a ledger or the registry runs under a cross-process advisory
+  lock keyed on the target file, so overlapping `artshelf` processes serialize
+  their writes instead of racing. The lock is re-entrant within a process and
+  reclaims a stale lock left by a crashed holder.
+- Ledger writes — both single-record appends and full rewrites — land through a
+  unique temp file and an atomic rename, so an interrupted write cannot truncate
+  the ledger or lose already-recorded entries.
 
 V1 also supports a user-level registry of known ledgers:
 
@@ -784,6 +801,8 @@ human review.
 - CLI can find existing records by path/owner/label/status and get records by id.
 - CLI can mark records manually resolved with a required reason.
 - CLI validates ledger shape.
+- Concurrent ledger and registry writes are serialized with a cross-process lock
+  and committed atomically, so overlapping commands do not lose records.
 - CLI reports machine and registry health through `artshelf doctor`, exiting
   non-zero when the registry or a registered ledger is broken.
 - CLI reports a read-only daily dashboard through `artshelf status`, with
@@ -795,7 +814,8 @@ human review.
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf
   creates.
-- Cleanup execute refuses to run without a plan id.
+- Cleanup execute refuses to run without a plan id, and refuses an unsafe,
+  mismatched, or malformed plan before moving files or writing a receipt.
 - Cleanup execute writes a receipt.
 - CLI can list trashed records (single ledger or `--all`) and purge them through
   an approval-first, ledger-scoped dry-run/execute boundary that writes a purge
@@ -807,7 +827,8 @@ human review.
   JSON decision packet for agents that takes precedence over `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
-  dry-run, global-dry-run, execute-plan, and trash list/purge behavior.
+  dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent
+  ledger writes, and trash list/purge behavior.
 
 ## Deferred
 
