@@ -651,6 +651,7 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   const planPath = cleanupPlanPath(ledgerPath, planId);
   if (!existsSync(planPath)) throw new Error(`Cleanup plan not found: ${planId}`);
   const plan = JSON.parse(readFileSync(planPath, "utf8")) as CleanupPlan;
+  assertCleanupPlanExecutable(plan, planId, ledgerPath);
   const trashRoot = join(dirname(ledgerPath), "trash", planId);
   return withLedgerLock(ledgerPath, () => {
     const records = readLedger(ledgerPath);
@@ -966,6 +967,7 @@ function makePurgePlanId(date: Date): string {
 }
 
 function cleanupPlanPath(ledgerPath: string, planId: string): string {
+  assertSafeGeneratedId(planId, "cleanup plan id");
   return join(dirname(ledgerPath), "plans", `${planId}.json`);
 }
 
@@ -975,6 +977,7 @@ function trashPurgePlanPath(ledgerPath: string, purgePlanId: string): string {
 }
 
 function receiptPathFor(ledgerPath: string, planId: string): string {
+  assertSafeGeneratedId(planId, "cleanup plan id");
   return join(dirname(ledgerPath), "receipts", `${planId}.json`);
 }
 
@@ -1021,6 +1024,27 @@ function pathExistsForPurge(path: string): boolean {
 function assertSafeGeneratedId(value: string, label: string): void {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new Error(`Invalid ${label}: ${value}`);
+  }
+}
+
+// Bind a loaded cleanup plan to the request before any filesystem mutation: the
+// plan must declare the requested id, belong to the executing ledger, and carry
+// executable-looking entries. This keeps `cleanup --execute` plan-id bound, the
+// same posture trash purge already enforces against ledger record metadata.
+function assertCleanupPlanExecutable(plan: CleanupPlan, planId: string, ledgerPath: string): void {
+  if (plan.planId !== planId) {
+    throw new Error(`Cleanup plan id mismatch: plan file declares ${plan.planId}, requested ${planId}`);
+  }
+  if (plan.ledgerPath !== ledgerPath) {
+    throw new Error(`Cleanup plan ledger mismatch: plan was created for ${plan.ledgerPath}, executing ${ledgerPath}`);
+  }
+  if (!Array.isArray(plan.entries)) {
+    throw new Error(`Cleanup plan entries are malformed: ${planId}`);
+  }
+  for (const entry of plan.entries) {
+    if (!entry || typeof entry.id !== "string" || typeof entry.path !== "string" || !CLEANUP_ACTIONS.has(entry.action)) {
+      throw new Error(`Cleanup plan entries are malformed: ${planId}`);
+    }
   }
 }
 
