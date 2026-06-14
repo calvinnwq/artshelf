@@ -797,20 +797,24 @@ function withLedgerLock<T>(ledgerPath: string, fn: () => T): T {
   return withPathLock(ledgerPath, fn, "Artshelf ledger");
 }
 
+function atomicWriteFileSync(targetPath: string, content: string): void {
+  const tmpPath = `${targetPath}.${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.tmp`;
+  writeFileSync(tmpPath, content);
+  renameSync(tmpPath, targetPath);
+}
+
 function appendRecord(ledgerPath: string, record: ArtshelfRecord): void {
   withLedgerLock(ledgerPath, () => {
     mkdirSync(dirname(ledgerPath), { recursive: true });
     const previous = existsSync(ledgerPath) ? readFileSync(ledgerPath, "utf8") : "";
-    writeFileSync(ledgerPath, `${previous}${previous && !previous.endsWith("\n") ? "\n" : ""}${JSON.stringify(record)}\n`);
+    atomicWriteFileSync(ledgerPath, `${previous}${previous && !previous.endsWith("\n") ? "\n" : ""}${JSON.stringify(record)}\n`);
   });
 }
 
 function writeLedger(ledgerPath: string, records: ArtshelfRecord[]): void {
   withLedgerLock(ledgerPath, () => {
     mkdirSync(dirname(ledgerPath), { recursive: true });
-    const tmpPath = `${ledgerPath}.${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.tmp`;
-    writeFileSync(tmpPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : ""));
-    renameSync(tmpPath, ledgerPath);
+    atomicWriteFileSync(ledgerPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : ""));
   });
 }
 
