@@ -113,6 +113,9 @@ destructive deletion.
 - **No fresh-plan-then-execute shortcut** — review the plan, then run that plan.
 - **Trash before delete** — `cleanup=delete` stays refused; physical deletion
   needs its own reviewed trash purge. No silent deletion, ever.
+- **Durable, concurrency-safe writes** — ledger and registry mutations take a
+  cross-process lock and commit atomically, so overlapping commands never lose
+  records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
 - **`--agent` on `review`/`status`/`doctor`**, a compact, token-efficient
   decision packet for agents, while the default render stays human-scannable.
