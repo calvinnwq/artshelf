@@ -134,7 +134,10 @@ function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single"):
       continue;
     }
 
-    const handledReconcileIds = new Set(result.reconcile?.plan.entries.map((entry) => entry.id) ?? []);
+    const handledReconcileIds = new Set([
+      ...(result.reconcile?.plan.entries.map((entry) => entry.id) ?? []),
+      ...(result.reconcile?.plan.blocked.map((entry) => entry.id) ?? [])
+    ]);
     const reconcileActions = buildReconcileDecisions(result, scope);
     readyForApproval.push(...reconcileActions.readyForApproval);
     needsReviewFirst.push(...reconcileActions.needsReviewFirst);
@@ -216,7 +219,7 @@ function buildReconcileDecisions(result: ReviewResult, _scope: "all" | "single")
     const entries = byCategory[category];
     if (entries.length === 0) continue;
     const ids = entries.map((entry) => entry.id).sort();
-    const label = `Review ${entries.length} reconcile ${formatReconcileCategory(category)} finding(s) in ${result.ledger.name}`;
+    const label = `Review ${entries.length} reconcile ${category} finding(s) in ${result.ledger.name}`;
     const reason = `recorded paths are ${category === "remap" ? "safe to remap" : "stale and require manual review before execution"}`;
     const decision: ReviewDecision = {
       label,
@@ -244,12 +247,6 @@ function buildReconcileDecisions(result: ReviewResult, _scope: "all" | "single")
   }
 
   return { readyForApproval, needsReviewFirst, blocked };
-}
-
-function formatReconcileCategory(category: ReconcileCategory): string {
-  if (category === "resolve-stale-trash") return "resolve-stale-trash";
-  if (category === "registry-remap") return "registry-remap";
-  return category;
 }
 
 function reviewCounts(summary: ReviewSummary): ReviewAgentPacket["counts"] {

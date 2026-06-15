@@ -445,7 +445,8 @@
               "enum": [
                 "cleanup",
                 "trash-purge",
-                "resolve-missing"
+                "resolve-missing",
+                "reconcile"
               ]
             },
             "approvalTarget": {

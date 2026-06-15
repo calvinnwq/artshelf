@@ -746,7 +746,8 @@ test("review report schema and example define the deterministic packet", () => {
   assert.deepEqual(schema.$defs.approvalDecision.allOf[1].properties.actionType.enum, [
     "cleanup",
     "trash-purge",
-    "resolve-missing"
+    "resolve-missing",
+    "reconcile"
   ]);
   assert.deepEqual(schema.$defs.nonApprovalDecision.allOf[1].properties.actionType.enum, [
     "inspect",
