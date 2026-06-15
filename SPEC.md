@@ -446,11 +446,13 @@ Rules:
 - Appends or refreshes an Artshelf-owned ledger record for the completed receipt with
   `owner=artshelf`, `kind=run-artifact`, `ttl=30d`, `cleanup=review`, and labels
   including `artshelf`, `cleanup-receipt`, and the plan id.
-- Resumes an interrupted run on rerun of the same plan id: an artifact already moved
-  into the plan's trash directory is recorded as `trashed` without moving it again and
-  keeps the original `executedAt`; a missing original path with no trash target and no
-  receipt evidence stays a skipped missing path rather than a success; and a completed
-  receipt replays idempotently without duplicating the Artshelf-owned receipt record.
+- Resumes an interrupted run on rerun of the same plan id: terminal receipt evidence
+  for an artifact keeps its original `executedAt`/`cleanedAt`, an artifact already
+  moved into the plan's trash directory without terminal receipt evidence is recorded
+  as `trashed` at resume time without moving it again, a missing original path with no
+  trash target and no receipt evidence stays a skipped missing path rather than a
+  success, and a completed receipt replays idempotently without duplicating the
+  Artshelf-owned receipt record.
 - Updates touched ledger records so handled artifacts stop appearing as active
   cleanup candidates.
 - Uses trash/review behavior by default.
