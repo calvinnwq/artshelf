@@ -19,7 +19,7 @@ export function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean)
     cleanup: stringFlag(parsed, "cleanup"),
     owner: stringFlag(parsed, "owner"),
     labels: arrayFlag(parsed, "label")
-  });
+  }, ledgerPath);
   const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
   appendPreparedRecord(ledgerPath, record);
   let ledger: LedgerRegistryEntry | undefined;

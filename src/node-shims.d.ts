@@ -63,6 +63,7 @@ declare module "node:os" {
 }
 
 declare module "node:path" {
+  export const sep: string;
   export function basename(path: string): string;
   export function dirname(path: string): string;
   export function isAbsolute(path: string): boolean;

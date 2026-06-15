@@ -13,6 +13,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { withPathLock } from "./locks.js";
+import { computeProvenance, validateProvenance } from "./provenance.js";
 import { addTtl, assertIsoDate, ageOf, now, ttlToMs, toIso } from "./time.js";
 import type {
   CleanupAction,
@@ -86,12 +87,12 @@ export function normalizeLedgerPath(path?: string): string {
 }
 
 export function putRecord(ledgerPath: string, input: PutInput): ArtshelfRecord {
-  const record = prepareRecord(input);
+  const record = prepareRecord(input, ledgerPath);
   appendPreparedRecord(ledgerPath, record);
   return record;
 }
 
-export function prepareRecord(input: PutInput): ArtshelfRecord {
+export function prepareRecord(input: PutInput, ledgerPath: string): ArtshelfRecord {
   const artifactPath = resolve(input.path);
   if (!existsSync(artifactPath)) {
     throw new Error(`Path does not exist: ${input.path}`);
@@ -121,7 +122,8 @@ export function prepareRecord(input: PutInput): ArtshelfRecord {
     cleanup,
     owner: input.owner ?? "manual",
     labels: input.labels,
-    status: "active"
+    status: "active",
+    provenance: computeProvenance(artifactPath, { ledgerPath })
   };
 
   return record;
@@ -291,6 +293,13 @@ export function validateLedger(ledgerPath: string): {
     if (record.status === "resolved") {
       if (!record.resolvedAt) errors.push(`${label}: resolved record missing resolvedAt`);
       if (!record.resolutionReason) errors.push(`${label}: resolved record missing resolutionReason`);
+    }
+    // Legacy rows simply omit provenance and are left alone; once a row carries
+    // provenance it must be well-formed so future reconcile can trust it.
+    if ("provenance" in record) {
+      for (const problem of validateProvenance(record.provenance)) {
+        errors.push(`${label}: ${problem}`);
+      }
     }
   }
 
@@ -706,7 +715,10 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   });
 }
 
-function registerArtshelfArtifact(
+// Exported so the reconcile plan layer (src/reconcile.ts) registers its dry-run plan
+// artifacts through the same upsert-by-path-and-labels path that cleanup plans use,
+// keeping plan files tracked and reused under a stable plan id.
+export function registerArtshelfArtifact(
   ledgerPath: string,
   path: string,
   input: Pick<PutInput, "reason" | "ttl" | "kind" | "cleanup" | "labels">
@@ -719,7 +731,7 @@ function registerArtshelfArtifact(
     cleanup: input.cleanup,
     owner: "artshelf",
     labels: input.labels
-  });
+  }, ledgerPath);
   withLedgerLock(ledgerPath, () => {
     const records = readLedger(ledgerPath);
     const index = records.findIndex((record) => (
@@ -811,7 +823,10 @@ function appendRecord(ledgerPath: string, record: ArtshelfRecord): void {
   });
 }
 
-function writeLedger(ledgerPath: string, records: ArtshelfRecord[]): void {
+// Exported so the reconcile execute layer (src/reconcile.ts) persists its mutated
+// records through the canonical JSONL writer + ledger lock instead of duplicating the
+// atomic-write format, keeping the reconcile -> ledger import direction one-way.
+export function writeLedger(ledgerPath: string, records: ArtshelfRecord[]): void {
   withLedgerLock(ledgerPath, () => {
     mkdirSync(dirname(ledgerPath), { recursive: true });
     atomicWriteFileSync(ledgerPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : ""));
@@ -1025,7 +1040,7 @@ function pathExistsForPurge(path: string): boolean {
   }
 }
 
-function assertSafeGeneratedId(value: string, label: string): void {
+export function assertSafeGeneratedId(value: string, label: string): void {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new Error(`Invalid ${label}: ${value}`);
   }
