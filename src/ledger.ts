@@ -13,7 +13,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { withPathLock } from "./locks.js";
-import { computeProvenance } from "./provenance.js";
+import { computeProvenance, validateProvenance } from "./provenance.js";
 import { addTtl, assertIsoDate, ageOf, now, ttlToMs, toIso } from "./time.js";
 import type {
   CleanupAction,
@@ -293,6 +293,13 @@ export function validateLedger(ledgerPath: string): {
     if (record.status === "resolved") {
       if (!record.resolvedAt) errors.push(`${label}: resolved record missing resolvedAt`);
       if (!record.resolutionReason) errors.push(`${label}: resolved record missing resolutionReason`);
+    }
+    // Legacy rows simply omit provenance and are left alone; once a row carries
+    // provenance it must be well-formed so future reconcile can trust it.
+    if ("provenance" in record) {
+      for (const problem of validateProvenance(record.provenance)) {
+        errors.push(`${label}: ${problem}`);
+      }
     }
   }
 

@@ -35,6 +35,59 @@ export function computeProvenance(targetPath: string, context: ProvenanceContext
   };
 }
 
+const ROOT_KINDS: ReadonlySet<string> = new Set<PathRootKind>(["repo", "ledger", "external"]);
+const NODE_KINDS: ReadonlySet<string> = new Set<PathNodeKind>(["file", "directory", "other"]);
+
+// Validate a provenance value carried on a record. Returns a list of problems
+// (empty means well-formed). This is the line between a legacy row (no provenance
+// field at all, which callers skip) and a malformed one: once provenance is present
+// it must conform to the PathProvenance contract, including the rule that only
+// `external` roots drop the reconstruct data (rootPath/relativePath).
+export function validateProvenance(provenance: unknown): string[] {
+  if (typeof provenance !== "object" || provenance === null) {
+    return ["provenance must be an object"];
+  }
+  const value = provenance as Record<string, unknown>;
+  const problems: string[] = [];
+
+  if (typeof value.root !== "string" || !ROOT_KINDS.has(value.root)) {
+    problems.push(`provenance.root is invalid: ${String(value.root)}`);
+  }
+  if (typeof value.basename !== "string" || value.basename.length === 0) {
+    problems.push("provenance.basename must be a non-empty string");
+  }
+  if (typeof value.pathKind !== "string" || !NODE_KINDS.has(value.pathKind)) {
+    problems.push(`provenance.pathKind is invalid: ${String(value.pathKind)}`);
+  }
+  if (value.rootPath !== null && typeof value.rootPath !== "string") {
+    problems.push("provenance.rootPath must be a string or null");
+  }
+  if (value.relativePath !== null && typeof value.relativePath !== "string") {
+    problems.push("provenance.relativePath must be a string or null");
+  }
+
+  // Reconstruct-data consistency: external paths cannot be rebuilt, so they carry
+  // null rootPath/relativePath; repo/ledger paths must carry both to be remappable.
+  if (value.root === "external") {
+    if (value.rootPath !== null || value.relativePath !== null) {
+      problems.push("provenance with external root must have null rootPath and relativePath");
+    }
+  } else if (value.root === "repo" || value.root === "ledger") {
+    if (typeof value.rootPath !== "string" || typeof value.relativePath !== "string") {
+      problems.push(`provenance with ${value.root} root requires rootPath and relativePath`);
+    }
+  }
+
+  if (value.fingerprint !== undefined) {
+    const fingerprint = value.fingerprint as Record<string, unknown> | null;
+    if (typeof fingerprint !== "object" || fingerprint === null || typeof fingerprint.byteSize !== "number") {
+      problems.push("provenance.fingerprint must have a numeric byteSize");
+    }
+  }
+
+  return problems;
+}
+
 function reconstructable(
   root: PathRootKind,
   rootPath: string,

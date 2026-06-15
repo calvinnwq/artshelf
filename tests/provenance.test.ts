@@ -3,11 +3,27 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { prepareRecord } from "../src/ledger.js";
-import { computeProvenance } from "../src/provenance.js";
+import { appendPreparedRecord, prepareRecord, readLedger, validateLedger } from "../src/ledger.js";
+import { computeProvenance, validateProvenance } from "../src/provenance.js";
 
 function fixture(): string {
   return mkdtempSync(join(tmpdir(), "artshelf-provenance-"));
+}
+
+// A minimally valid legacy ledger row (no provenance field) for validation fixtures.
+function legacyRecord(path: string): Record<string, unknown> {
+  return {
+    id: "shf_legacy_1",
+    path,
+    kind: "scratch",
+    reason: "fixture",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    retention: { mode: "manual-review" },
+    cleanup: "review",
+    owner: "manual",
+    labels: [],
+    status: "active"
+  };
 }
 
 test("repo-local artifact records repo root, relative path, basename, and file fingerprint", () => {
@@ -126,4 +142,107 @@ test("prepareRecord stamps provenance derived from the ledger root onto new reco
   assert.equal(record.provenance?.basename, "scratch.txt");
   assert.equal(record.provenance?.pathKind, "file");
   assert.deepEqual(record.provenance?.fingerprint, { byteSize: 5 });
+});
+
+test("validateProvenance accepts well-formed repo and external provenance", () => {
+  assert.deepEqual(
+    validateProvenance({ root: "repo", rootPath: "/r", relativePath: "a/b.txt", basename: "b.txt", pathKind: "file" }),
+    []
+  );
+  assert.deepEqual(
+    validateProvenance({ root: "ledger", rootPath: "/r/.artshelf", relativePath: "trash/p/f", basename: "f", pathKind: "file", fingerprint: { byteSize: 0 } }),
+    []
+  );
+  assert.deepEqual(
+    validateProvenance({ root: "external", rootPath: null, relativePath: null, basename: "b.txt", pathKind: "file" }),
+    []
+  );
+});
+
+test("validateProvenance rejects a non-object provenance value", () => {
+  assert.ok(validateProvenance("nope").length > 0);
+  assert.ok(validateProvenance(null).length > 0);
+});
+
+test("validateProvenance rejects an unknown root kind", () => {
+  const problems = validateProvenance({ root: "bogus", rootPath: null, relativePath: null, basename: "b", pathKind: "file" });
+  assert.ok(problems.some((p) => p.includes("root")));
+});
+
+test("validateProvenance rejects an invalid pathKind", () => {
+  const problems = validateProvenance({ root: "repo", rootPath: "/r", relativePath: "b", basename: "b", pathKind: "weird" });
+  assert.ok(problems.some((p) => p.includes("pathKind")));
+});
+
+test("validateProvenance rejects a missing basename", () => {
+  const problems = validateProvenance({ root: "repo", rootPath: "/r", relativePath: "b", pathKind: "file" });
+  assert.ok(problems.some((p) => p.includes("basename")));
+});
+
+test("validateProvenance rejects reconstructable roots missing rootPath or relativePath", () => {
+  assert.ok(
+    validateProvenance({ root: "repo", rootPath: "/r", relativePath: null, basename: "b", pathKind: "file" }).length > 0
+  );
+  assert.ok(
+    validateProvenance({ root: "ledger", rootPath: null, relativePath: "b", basename: "b", pathKind: "file" }).length > 0
+  );
+});
+
+test("validateProvenance rejects external provenance that still carries reconstruct data", () => {
+  assert.ok(
+    validateProvenance({ root: "external", rootPath: "/r", relativePath: null, basename: "b", pathKind: "file" }).length > 0
+  );
+});
+
+test("validateProvenance rejects a fingerprint with a non-numeric byteSize", () => {
+  const problems = validateProvenance({ root: "repo", rootPath: "/r", relativePath: "b", basename: "b", pathKind: "file", fingerprint: { byteSize: "big" } });
+  assert.ok(problems.some((p) => p.includes("fingerprint")));
+});
+
+test("validateLedger accepts a legacy record that has no provenance field", () => {
+  const repo = fixture();
+  const artifact = join(repo, "a.txt");
+  writeFileSync(artifact, "a");
+  const ledger = join(repo, "ledger.jsonl");
+  writeFileSync(ledger, `${JSON.stringify(legacyRecord(artifact))}\n`);
+
+  const result = validateLedger(ledger);
+
+  assert.equal(result.ok, true);
+  assert.equal(result.errors.length, 0);
+  assert.ok(!result.errors.some((e) => e.includes("provenance")));
+});
+
+test("validateLedger flags a record whose provenance is structurally malformed", () => {
+  const repo = fixture();
+  const artifact = join(repo, "a.txt");
+  writeFileSync(artifact, "a");
+  const ledger = join(repo, "ledger.jsonl");
+  const record = {
+    ...legacyRecord(artifact),
+    provenance: { root: "bogus", rootPath: null, relativePath: null, basename: "a.txt", pathKind: "file" }
+  };
+  writeFileSync(ledger, `${JSON.stringify(record)}\n`);
+
+  const result = validateLedger(ledger);
+
+  assert.equal(result.ok, false);
+  assert.ok(result.errors.some((e) => e.includes("provenance")));
+});
+
+test("provenance round-trips through ledger append and read unchanged", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const artifact = join(repo, "out.bin");
+  writeFileSync(artifact, "abcd");
+
+  const record = prepareRecord({ path: artifact, reason: "scratch", ttl: "1d", labels: [] }, ledger);
+  appendPreparedRecord(ledger, record);
+  const [reread] = readLedger(ledger);
+
+  assert.deepEqual(reread?.provenance, record.provenance);
+  assert.equal(reread?.provenance?.root, "repo");
+  assert.equal(reread?.provenance?.relativePath, "out.bin");
+  assert.deepEqual(reread?.provenance?.fingerprint, { byteSize: 4 });
 });

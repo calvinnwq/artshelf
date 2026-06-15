@@ -659,6 +659,51 @@ the purge provenance:
 }
 ```
 
+### Path provenance
+
+New records carry a `provenance` block alongside the absolute `path`. The absolute
+path is still the audit record of where the artifact lived; provenance adds the data
+a future reconcile needs to reason about an artifact that moved because its root was
+renamed (for example `shelf` -> `artshelf` or `.shelf` -> `.artshelf`). Capturing it
+at write time is what lets reconcile remap paths later **without** Artshelf running as
+a daemon, watcher, or shell hook.
+
+```json
+{
+  "provenance": {
+    "root": "repo",
+    "rootPath": "/absolute/path/to/repo",
+    "relativePath": "build/out.txt",
+    "basename": "out.txt",
+    "pathKind": "file",
+    "fingerprint": { "byteSize": 1024 }
+  }
+}
+```
+
+- `root` is `repo`, `ledger`, or `external`. Ledger-owned paths (`trash/`, `plans/`,
+  `receipts/`) classify as `ledger`; other paths inside the repo classify as `repo`;
+  anything else is `external`.
+- `rootPath` and `relativePath` are the matched root and the POSIX path beneath it.
+  The relative path is what survives a root rename, so a reconcile can rebuild the
+  current absolute path from the current root. `external` paths cannot be rebuilt, so
+  both fields are `null`.
+- `basename`, `pathKind`, and the optional file `fingerprint` (byte size only) are
+  cheap matching hints for disambiguating rename candidates.
+
+Provenance is additive and backward compatible. Records written before provenance
+existed simply omit the field; they are treated as **legacy records with missing
+provenance, not malformed data**, and continue to validate, read, list, find, and get
+normally. `artshelf validate` only inspects provenance when the field is present: a
+present-but-structurally-invalid block (bad `root`, missing reconstruct data on a
+`repo`/`ledger` root, reconstruct data on an `external` root, non-numeric fingerprint)
+is reported as an error, while an absent block is not.
+
+Provenance only records evidence. It never moves, deletes, or rewrites artifacts, and
+capturing it does not change any path. Acting on provenance to remap a ledger remains
+an explicit, approval-gated reconcile step — never an automatic side effect of `put`,
+`doctor`, `status`, `review`, or `validate`.
+
 ## Cleanup Safety Model
 
 Cleanup execution is intentionally boring and approval-only. Five boundaries
