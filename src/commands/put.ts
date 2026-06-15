@@ -32,6 +32,6 @@ export function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean)
 
   if (json) return printJson({ ok: true, record, ledgerPath, registryPath, ...(ledger ? { ledger } : {}), ...(registryError ? { registryError } : {}) });
   process.stdout.write(`recorded ${record.id}\npath: ${record.path}\nretains until: ${record.retainUntil ?? "manual review"}\nledger: ${ledgerPath}\n`);
-  if (registryError) process.stdout.write(`registry warning: ${registryError}\n`);
+  if (registryError) process.stderr.write(`registry warning: ${registryError}\n`);
   return 0;
 }

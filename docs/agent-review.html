@@ -44,10 +44,15 @@
           <section>
             <h2>Daily review workflow</h2>
             <ol>
-              <li>Read <code>ledgers list --json</code>, <code>review --all --agent</code>, and <code>trash list --all --json</code>.</li>
+              <li>Start with health and registry-level context: <code>status --all --agent</code>,
+                then read raw pressure points from <code>review --all --agent</code>
+                and <code>trash list --all --json</code>.</li>
+              <li>For stale or missing path warnings, run <code>validate --all --json</code>
+                and then <code>reconcile --dry-run --all --json --registry &lt;registry-path&gt;</code>
+                to produce reviewed-safe plans.</li>
               <li>Run explicit-ledger purge dry-runs only when old trash needs review.</li>
               <li>Classify each candidate: <code>trash-safe</code>, <code>needs-human-review</code>, <code>resolve-candidate</code>, or <code>registry-problem</code>.</li>
-              <li>Ask only with exact ledger path, reviewed plan id, or ids.</li>
+              <li>Execute the exact approval path only after review packet verification: exact ledger path and reviewed plan id or ids.</li>
             </ol>
             <p>
               Prefer the built-in <code>--agent</code> packet when an acting agent
@@ -104,7 +109,8 @@ Dry-run only. No execute, resolve, or delete ran.</code></pre>
             </p>
             <pre><code>approve artshelf cleanup ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;
 approve artshelf trash purge ledger &lt;ledger-path&gt; plan &lt;purge-plan-id&gt;
-approve artshelf resolve missing ledger &lt;ledger-path&gt; ids &lt;id...&gt;</code></pre>
+approve artshelf resolve missing ledger &lt;ledger-path&gt; ids &lt;id...&gt;
+approve artshelf reconcile ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;</code></pre>
             <div class="callout" data-kind="boundary">
               <span class="callout-label">Hard boundary</span>
               <p>

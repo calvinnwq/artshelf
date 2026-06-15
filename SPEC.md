@@ -99,8 +99,9 @@ Defaults:
 `put` should refuse to record a path that does not exist unless a future flag
 explicitly supports planned artifacts. After appending the record, `put`
 registers the ledger in the ledger registry. Registry registration is
-best-effort: if it fails, the record remains appended and output includes a
-registry warning or `registryError`.
+best-effort: if it fails, the record remains appended and a registry warning is
+printed to stderr in human mode, or surfaced as a `registryError` field in
+`--json` output, so stdout stays machine-clean.
 
 ### `artshelf ledgers`
 
@@ -253,10 +254,13 @@ included with a `not-created` plan instead of writing a plan file.
 
 In `--all` mode, review emits an aggregate triage summary on top of the
 per-ledger detail. JSON includes a `summary` block with affected-ledger, due,
-manual-review, missing-path, executable, and skipped counts plus the preview
-plan ids; JSON also includes the next safe action. Human output adds a one-line
-triage count and states the same next safe action (repair broken ledgers, dry-run
-cleanup, inspect missing paths, or nothing to do). Review never writes a plan, so
+manual-review, missing-path, executable, skipped, and reconcile entry/blocked
+counts plus the preview plan ids; JSON also includes the next safe action. The
+per-ledger human detail appends a `reconcile` count when a ledger has reconcile
+drift. Human output adds a one-line triage count with the same reconcile counts
+and states the same next safe action (repair broken ledgers, dry-run cleanup,
+dry-run reconcile for missing-path or reconcile drift, or nothing to do). Review
+never writes a plan, so
 the next action always points at an explicit follow-up command.
 
 `review`, `status`, and `doctor` share three render modes. The default human
@@ -265,9 +269,13 @@ stays the full, backward-compatible public audit report; and `--agent` emits a c
 deterministic single-line JSON decision packet for agents, taking precedence over
 `--json` when both are passed. For `review`, the packet sorts records into
 ready-for-approval, needs-review-first, and blocked groups. Because review is
-read-only and never mints a cleanup plan, the only exact approval target it emits
-is `resolve missing`; cleanup-eligible records stay needs-review-first and point
-at `cleanup --dry-run`, which mints the reviewed plan id to approve.
+read-only and never mints a cleanup plan, the exact approval targets it emits are
+`resolve missing` and `reconcile`; the `reconcile` target appears only when a
+prior reviewed reconcile plan still matches the live drift. Cleanup-eligible
+records and reconcile drift without a reviewed plan stay needs-review-first and
+point at `cleanup --dry-run` or `reconcile --dry-run`, which mint the reviewed
+plan id to approve. Blocked or ambiguous reconcile findings surface in the
+blocked group with no approval target.
 
 ### `artshelf doctor`
 

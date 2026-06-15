@@ -3,12 +3,13 @@
 import { readFileSync } from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const APPROVAL_ACTIONS = new Set(["cleanup", "trash-purge", "resolve-missing"]);
-const NON_APPROVAL_ACTIONS = new Set(["inspect", "fix-registry", "keep-or-snooze", "change-retention"]);
+const APPROVAL_ACTIONS = new Set(["cleanup", "trash-purge", "resolve-missing", "reconcile"]);
+const NON_APPROVAL_ACTIONS = new Set(["inspect", "fix-registry", "keep-or-snooze", "change-retention", "reconcile"]);
 const APPROVAL_TARGET_PATTERNS = {
   cleanup: /^approve artshelf cleanup ledger .+ plan .+$/,
   "trash-purge": /^approve artshelf trash purge ledger .+ plan .+$/,
-  "resolve-missing": /^approve artshelf resolve missing ledger .+ ids .+$/
+  "resolve-missing": /^approve artshelf resolve missing ledger .+ ids .+$/,
+  reconcile: /^approve artshelf reconcile ledger .+ plan .+$/
 };
 
 function readInput() {

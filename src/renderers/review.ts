@@ -1,5 +1,5 @@
 import type { LedgerRegistryEntry } from "../registry.js";
-import type { CleanupPlan, DueEntry } from "../types.js";
+import type { CleanupPlan, DueEntry, ReconcilePlan, ReconcileFinding, ReconcileCategory } from "../types.js";
 import { attentionGlyph } from "./attention.js";
 import { statusCommand } from "./status.js";
 
@@ -14,6 +14,10 @@ export type ReviewResult = {
   };
   due: DueEntry[];
   plan: CleanupPlan;
+  reconcile: {
+    plan: ReconcilePlan;
+    reviewedPlan: ReconcilePlan | null;
+  } | null;
 };
 
 export type ReviewSummary = {
@@ -27,13 +31,15 @@ export type ReviewSummary = {
   missingPath: number;
   executable: number;
   skipped: number;
+  reconcileEntries: number;
+  reconcileBlocked: number;
   previewPlanIds: string[];
 };
 
 export type ReviewDecision = {
   label: string;
   itemIds: string[];
-  actionType: "cleanup" | "resolve-missing" | "inspect" | "fix-registry";
+  actionType: "cleanup" | "resolve-missing" | "inspect" | "fix-registry" | "reconcile";
   approvalTarget: string | null;
   reason: string;
   nextStep: string;
@@ -71,7 +77,7 @@ const REVIEW_SAFETY = {
   noDeleteRan: true
 } as const;
 
-export function reviewNextAction(summary: ReviewSummary, scope: "all" | "single", ledgerPath?: string): string {
+export function reviewNextAction(summary: ReviewSummary, scope: "all" | "single", ledgerPath?: string, registryPath?: string): string {
   const broken = summary.invalid + summary.stale;
   const review = statusCommand(scope, "review", ledgerPath);
   if (broken > 0) {
@@ -82,27 +88,34 @@ export function reviewNextAction(summary: ReviewSummary, scope: "all" | "single"
     const dryRun = scope === "all" ? "artshelf cleanup --dry-run --all" : `artshelf cleanup --dry-run${ledgerPath ? ` --ledger ${ledgerPath}` : ""}`;
     return `run \`${dryRun}\` to generate plans, then \`artshelf cleanup --execute --plan-id <id> --ledger <path>\` for each reviewed plan`;
   }
-  if (summary.missingPath > 0) {
-    return "inspect missing-path entries and `artshelf resolve` the ones no longer needed; nothing is auto-executable";
+  if (summary.missingPath > 0 || summary.reconcileEntries > 0 || summary.reconcileBlocked > 0) {
+    const reconcile = scope === "all" ? `artshelf reconcile --dry-run --all${registryPath ? ` --registry ${registryPath}` : ""}` : `artshelf reconcile --dry-run --ledger ${ledgerPath}`;
+    return `run \`${reconcile} --json\` and then \`${review}\` to surface reconcile-ready approvals; nothing is auto-executable`;
   }
   return "nothing to do — no broken ledgers and no due, manual-review, missing-path, or executable cleanup entries";
 }
 
 export function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAction: string, registryPath: string): void {
-  const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
+  const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath + summary.reconcileEntries + summary.reconcileBlocked > 0;
   process.stdout.write(`${attentionGlyph(needsAttention)} artshelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
   process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
   printReview(results);
-  process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
+  process.stdout.write(
+    `triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped} · reconcile ${summary.reconcileEntries} · blocked ${summary.reconcileBlocked}\n`
+  );
   process.stdout.write(`next: ${nextAction}\n`);
 }
 
 export function printReview(results: ReviewResult[]): void {
   for (const result of results) {
     const visibleDue = result.due.filter((entry) => entry.dueStatus !== "kept");
-    const needsAttention = !result.validate.ok || visibleDue.length > 0 || result.plan.entries.length > 0;
+    const reconcileEntries = result.reconcile?.plan.entries.length ?? 0;
+    const reconcileBlocked = result.reconcile?.plan.blocked.length ?? 0;
+    const reconcileDrift = reconcileEntries + reconcileBlocked;
+    const needsAttention = !result.validate.ok || visibleDue.length > 0 || result.plan.entries.length > 0 || reconcileDrift > 0;
+    const reconcileDetail = reconcileDrift > 0 ? `; reconcile: ${reconcileEntries} entries, ${reconcileBlocked} blocked` : "";
     process.stdout.write(`${attentionGlyph(needsAttention)} [${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
-    process.stdout.write(`due/manual/missing: ${visibleDue.length}; plan ${result.plan.planId}: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped\n`);
+    process.stdout.write(`due/manual/missing: ${visibleDue.length}; plan ${result.plan.planId}: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped${reconcileDetail}\n`);
     process.stdout.write(`ledger: ${result.ledger.path}\n`);
   }
 }
@@ -129,7 +142,16 @@ function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single"):
       continue;
     }
 
-    const missingPath = due.filter((entry) => entry.dueStatus === "missing-path");
+    const handledReconcileIds = new Set([
+      ...(result.reconcile?.plan.entries.map((entry) => entry.id) ?? []),
+      ...(result.reconcile?.plan.blocked.map((entry) => entry.id) ?? [])
+    ]);
+    const reconcileActions = buildReconcileDecisions(result, scope);
+    readyForApproval.push(...reconcileActions.readyForApproval);
+    needsReviewFirst.push(...reconcileActions.needsReviewFirst);
+    blocked.push(...reconcileActions.blocked);
+
+    const missingPath = due.filter((entry) => entry.dueStatus === "missing-path" && !handledReconcileIds.has(entry.id));
     const trashSafe = due.filter((entry) => entry.dueStatus === "due" && entry.cleanup === "trash");
     const inspectItems = due.filter(
       (entry) =>
@@ -180,6 +202,61 @@ function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single"):
   return { readyForApproval, needsReviewFirst, blocked };
 }
 
+function buildReconcileDecisions(result: ReviewResult, _scope: "all" | "single"): ReviewAgentGroups {
+  if (!result.reconcile) return { readyForApproval: [], needsReviewFirst: [], blocked: [] };
+
+  const readyForApproval: ReviewDecision[] = [];
+  const needsReviewFirst: ReviewDecision[] = [];
+  const blocked: ReviewDecision[] = [];
+  const hasReviewedPlan = Boolean(result.reconcile.reviewedPlan && result.reconcile.reviewedPlan.planId !== "not-created");
+  const reviewedPlanId = result.reconcile.reviewedPlan?.planId ?? null;
+
+  const byCategory: Record<ReconcileCategory, ReconcileFinding[]> = {
+    remap: [],
+    "resolve-missing": [],
+    "resolve-stale-trash": [],
+    "registry-remap": [],
+    blocked: []
+  };
+  for (const finding of result.reconcile.plan.entries.concat(result.reconcile.plan.blocked)) {
+    byCategory[finding.category].push(finding);
+  }
+
+  const reconcileActionCategories = ["remap", "resolve-missing", "resolve-stale-trash", "registry-remap"] as const;
+  for (const category of reconcileActionCategories) {
+    const entries = byCategory[category];
+    if (entries.length === 0) continue;
+    const ids = entries.map((entry) => entry.id).sort();
+    const label = `Review ${entries.length} reconcile ${category} finding(s) in ${result.ledger.name}`;
+    const reason = `recorded paths are ${category === "remap" ? "safe to remap" : "stale and require manual review before execution"}`;
+    const decision: ReviewDecision = {
+      label,
+      itemIds: ids,
+      actionType: "reconcile",
+      approvalTarget: hasReviewedPlan ? `approve artshelf reconcile ledger ${result.ledger.path} plan ${reviewedPlanId}` : null,
+      reason,
+      nextStep: hasReviewedPlan
+        ? `run \`artshelf reconcile --execute --plan-id ${reviewedPlanId} --ledger ${result.ledger.path}\``
+        : `run \`artshelf reconcile --dry-run --ledger ${result.ledger.path} --json\`, then approve with \`approve artshelf reconcile ledger ${result.ledger.path} plan <plan-id>\``
+    };
+    (hasReviewedPlan ? readyForApproval : needsReviewFirst).push(decision);
+  }
+
+  if (byCategory.blocked.length > 0) {
+    const entries = byCategory.blocked;
+    blocked.push({
+      label: `Review ${entries.length} blocked reconcile finding(s) in ${result.ledger.name}`,
+      itemIds: entries.map((entry) => entry.id).sort(),
+      actionType: "reconcile",
+      approvalTarget: null,
+      reason: "path drift is ambiguous or unsafe and needs manual investigation",
+      nextStep: `run \`artshelf reconcile --dry-run --ledger ${result.ledger.path} --json\`, then handle each item manually`
+    });
+  }
+
+  return { readyForApproval, needsReviewFirst, blocked };
+}
+
 function reviewCounts(summary: ReviewSummary): ReviewAgentPacket["counts"] {
   return {
     due: summary.due,
@@ -209,7 +286,7 @@ export function buildReviewAgentPacketAll(results: ReviewResult[], summary: Revi
     needsReviewFirst: groups.needsReviewFirst,
     blocked: groups.blocked,
     safety: REVIEW_SAFETY,
-    nextAction: reviewNextAction(summary, "all"),
+    nextAction: reviewNextAction(summary, "all", undefined, registry.path),
     verification: `artshelf review --all --agent --registry ${registry.path}`
   };
 }

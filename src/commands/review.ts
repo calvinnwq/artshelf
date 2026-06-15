@@ -17,7 +17,7 @@ export function handleReview(parsed: ParsedArgs, ledgerPath: string, json: boole
       printCompactJson(buildReviewAgentPacketAll(results, summary, { path: registryPath, exists: existsSync(registryPath) }));
       return ok ? 0 : 1;
     }
-    const nextAction = reviewNextAction(summary, "all");
+    const nextAction = reviewNextAction(summary, "all", undefined, registryPath);
     if (json) {
       printJson({ ok, registryPath, summary, nextAction, ledgers: results.map(reviewJsonResult) });
       return ok ? 0 : 1;

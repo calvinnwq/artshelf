@@ -27,27 +27,41 @@
     "skipped": 2,
     "refused": 0,
     "manualReview": 1,
-    "missingPath": 1,
+    "missingPath": 2,
     "trashed": 0
   },
   "decisionSummary": {
-    "readyForApproval": 2,
-    "needsReviewFirst": 1,
-    "blocked": 0
+    "readyForApproval": 3,
+    "needsReviewFirst": 2,
+    "blocked": 1
   },
   "decisionGroups": {
     "readyForApproval": [
       {
         "label": "Clean up temp debug output",
-        "itemIds": ["shf_20260606_120000_ab12"],
+        "itemIds": [
+          "shf_20260606_120000_ab12"
+        ],
         "actionType": "cleanup",
         "approvalTarget": "approve artshelf cleanup ledger /path/to/example-project/.artshelf/ledger.jsonl plan plan_20260606_120000_ab12",
         "reason": "Disposable temp artifact has a reviewed cleanup plan.",
         "nextStep": "Approve the exact cleanup plan to move the artifact into Artshelf trash."
       },
       {
+        "label": "Review 1 reconcile remap finding(s) in example-project",
+        "itemIds": [
+          "shf_20260606_121500_gh78"
+        ],
+        "actionType": "reconcile",
+        "approvalTarget": "approve artshelf reconcile ledger /path/to/example-project/.artshelf/ledger.jsonl plan plan_20260606_122000_repl",
+        "reason": "Parent folder drift looks safe to reconcile after inspection and review.",
+        "nextStep": "run `artshelf reconcile --execute --plan-id plan_20260606_122000_repl --ledger /path/to/example-project/.artshelf/ledger.jsonl` after approval."
+      },
+      {
         "label": "Resolve missing report record",
-        "itemIds": ["shf_20260606_120500_cd34"],
+        "itemIds": [
+          "shf_20260606_120500_cd34"
+        ],
         "actionType": "resolve-missing",
         "approvalTarget": "approve artshelf resolve missing ledger /path/to/example-project/.artshelf/ledger.jsonl ids shf_20260606_120500_cd34",
         "reason": "The report path is already missing.",
@@ -56,17 +70,40 @@
     ],
     "needsReviewFirst": [
       {
-        "label": "Inspect lifecycle smoke report",
-        "itemIds": ["shf_20260606_121000_ef56"],
-        "actionType": "inspect",
+        "label": "Review 1 reconcile resolve-stale-trash finding(s) in example-project",
+        "itemIds": [
+          "shf_20260606_121800_jk90"
+        ],
+        "actionType": "reconcile",
         "approvalTarget": null,
-        "reason": "cleanup=review means the artifact should be inspected before closing.",
-        "nextStep": "Inspect the path, then choose keep, change retention, resolve, or clean up later."
+        "reason": "Trash references point to trashed artifacts whose originals moved or got deleted.",
+        "nextStep": "run `artshelf reconcile --dry-run --ledger /path/to/example-project/.artshelf/ledger.jsonl --json`, then approve with `approve artshelf reconcile ledger /path/to/example-project/.artshelf/ledger.jsonl plan <plan-id>`"
+      },
+      {
+        "label": "Review 1 reconcile registry-remap finding(s) in example-project",
+        "itemIds": [
+          "shf_20260606_121900_lm01"
+        ],
+        "actionType": "reconcile",
+        "approvalTarget": null,
+        "reason": "Ledger name or registry path drift needs explicit review before remapping records.",
+        "nextStep": "run `artshelf reconcile --dry-run --ledger /path/to/example-project/.artshelf/ledger.jsonl --json`, then approve with `approve artshelf reconcile ledger /path/to/example-project/.artshelf/ledger.jsonl plan <plan-id>`"
       }
     ],
-    "blocked": []
+    "blocked": [
+      {
+        "label": "Review 1 reconcile blocked finding(s) in example-project",
+        "itemIds": [
+          "shf_20260606_122200_qr11"
+        ],
+        "actionType": "reconcile",
+        "approvalTarget": null,
+        "reason": "Path drift is ambiguous or unsafe and needs manual investigation.",
+        "nextStep": "Run a manual artifact-by-artifact review and decide whether to keep, resolve, or move the ledger entry."
+      }
+    ]
   },
-  "recommendation": "Approve the reviewed cleanup plan for the disposable temp directory, then resolve the missing record after confirming it is no longer needed.",
+  "recommendation": "Run reconcile dry-run for stale/missing path entries, then follow the exact approvals returned in the review packet.",
   "items": [
     {
       "id": "shf_20260606_120000_ab12",
@@ -87,13 +124,31 @@
       "note": "Resolution updates only the ledger and does not move or delete files."
     },
     {
-      "id": "shf_20260606_121000_ef56",
-      "path": "/tmp/lifecycle-smoke-report.json",
-      "classification": "needs-human-review",
-      "proposedAction": "inspect before choosing cleanup or retention",
+      "id": "shf_20260606_121800_jk90",
+      "path": "/tmp/stale-trash-record.json",
+      "classification": "resolve-candidate",
+      "proposedAction": "reconcile stale trashed entry after review",
+      "dueStatus": "trashed",
+      "reason": "trash path is stale after source artifact delete",
+      "note": "Run reconcile to confirm whether to rewrite the artifact path or resolve manually."
+    },
+    {
+      "id": "shf_20260606_121900_lm01",
+      "path": "/path/to/example-project/src/legacy/file.txt",
+      "classification": "registry-problem",
+      "proposedAction": "inspect registry-backed path drift",
+      "dueStatus": "missing-path",
+      "reason": "Artifact moved by repository migration from .shelf to .artshelf",
+      "note": "Review registry identity and run reconcile dry-run before executing any path updates."
+    },
+    {
+      "id": "shf_20260606_122200_qr11",
+      "path": "/tmp/blocked-dupe-path",
+      "classification": "registry-problem",
+      "proposedAction": "manual investigation required",
       "dueStatus": "manual-review",
-      "reason": "cleanup=review artifact retained for manual inspection",
-      "note": "No approval target is shown until the review decision is known."
+      "reason": "reconstructed paths conflicted with another active artifact",
+      "note": "Blocked finding intentionally requires human disambiguation."
     }
   ],
   "alternatives": [

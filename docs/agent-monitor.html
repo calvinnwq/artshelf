@@ -112,6 +112,13 @@ artshelf doctor --agent
 artshelf status --all --json
 artshelf status --all --agent</code></pre>
             <p>
+              If any ledger is stale or missing-path, run the safe sequence in order:
+              <code>review --all --json</code> for affected classifications,
+              <code>validate --all --json</code> for provenance signals, then
+              <code>reconcile --dry-run --all --json --registry &lt;registry-path&gt;</code>
+              before any approve/execute step.
+            </p>
+            <p>
               Use <code>--agent</code> for concise monitor decisions and exact next
               actions. Use <code>--json</code> instead when the job needs full
               audit/API detail for storage, debugging, or a custom report.

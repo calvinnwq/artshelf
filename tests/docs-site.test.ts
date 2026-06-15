@@ -532,12 +532,13 @@ test("portable skill stays concise and delegates deterministic review rendering"
 
   assert.match(rendered, /Artshelf daily review/);
   assert.match(rendered, /Status: attention; registry ok/);
-  assert.match(rendered, /Ready for approval: 2/);
-  assert.match(rendered, /Needs review first: 1/);
-  assert.match(rendered, /Blocked: 0/);
+  assert.match(rendered, /Ready for approval: 3/);
+  assert.match(rendered, /Needs review first: 2/);
+  assert.match(rendered, /Blocked: 1/);
   assert.match(rendered, /approve artshelf cleanup ledger .* plan plan_/);
   assert.match(rendered, /approve artshelf resolve missing ledger .* ids shf_/);
-  assert.match(rendered, /Suggested next step: Inspect the path/);
+  assert.match(rendered, /approve artshelf reconcile ledger .* plan <plan-id>/);
+  assert.match(rendered, /Suggested next step: run `artshelf reconcile --dry-run/);
   assert.match(rendered, /Dry-run only\. No execute, resolve, or delete ran\./);
 });
 
@@ -619,9 +620,9 @@ test("review report renderer derives visible counts and requires recommendation"
   );
 
   assert.equal(renderResult.status, 0, renderResult.stderr);
-  assert.match(renderResult.stdout, /Ready for approval: 2/);
-  assert.match(renderResult.stdout, /Needs review first: 1/);
-  assert.match(renderResult.stdout, /Blocked: 0/);
+  assert.match(renderResult.stdout, /Ready for approval: 3/);
+  assert.match(renderResult.stdout, /Needs review first: 2/);
+  assert.match(renderResult.stdout, /Blocked: 1/);
 
   const missingRecommendation = structuredClone(example);
   delete missingRecommendation.recommendation;
@@ -745,13 +746,15 @@ test("review report schema and example define the deterministic packet", () => {
   assert.deepEqual(schema.$defs.approvalDecision.allOf[1].properties.actionType.enum, [
     "cleanup",
     "trash-purge",
-    "resolve-missing"
+    "resolve-missing",
+    "reconcile"
   ]);
   assert.deepEqual(schema.$defs.nonApprovalDecision.allOf[1].properties.actionType.enum, [
     "inspect",
     "fix-registry",
     "keep-or-snooze",
-    "change-retention"
+    "change-retention",
+    "reconcile"
   ]);
   assert.equal(schema.$defs.nonApprovalDecision.allOf[1].properties.approvalTarget.type, "null");
   assert.match(
@@ -766,6 +769,10 @@ test("review report schema and example define the deterministic packet", () => {
     schema.$defs.approvalDecision.allOf[4].then.properties.approvalTarget.pattern,
     /approve artshelf resolve missing ledger/
   );
+  assert.match(
+    schema.$defs.approvalDecision.allOf[5].then.properties.approvalTarget.pattern,
+    /approve artshelf reconcile ledger/
+  );
   assert.deepEqual(schema.$defs.decision.properties.actionType.enum, [
     "cleanup",
     "trash-purge",
@@ -773,7 +780,8 @@ test("review report schema and example define the deterministic packet", () => {
     "inspect",
     "fix-registry",
     "keep-or-snooze",
-    "change-retention"
+    "change-retention",
+    "reconcile"
   ]);
   assert.deepEqual(schema.$defs.item.properties.classification.enum, [
     "trash-safe",
@@ -792,21 +800,25 @@ test("review report schema and example define the deterministic packet", () => {
   assert.equal(example.schemaVersion, 1);
   assert.equal(example.scope.health, "attention");
   assert.equal(example.scope.registryHealth, "ok");
-  assert.equal(example.decisionSummary.readyForApproval, 2);
-  assert.equal(example.decisionSummary.needsReviewFirst, 1);
-  assert.equal(example.decisionSummary.blocked, 0);
-  assert.equal(example.decisionGroups.readyForApproval.length, 2);
-  assert.equal(example.decisionGroups.needsReviewFirst.length, 1);
-  assert.equal(example.decisionGroups.blocked.length, 0);
+  assert.equal(example.decisionSummary.readyForApproval, 3);
+  assert.equal(example.decisionSummary.needsReviewFirst, 2);
+  assert.equal(example.decisionSummary.blocked, 1);
+  assert.equal(example.decisionGroups.readyForApproval.length, 3);
+  assert.equal(example.decisionGroups.needsReviewFirst.length, 2);
+  assert.equal(example.decisionGroups.blocked.length, 1);
   assert.equal(example.decisionGroups.readyForApproval[0].actionType, "cleanup");
-  assert.equal(example.decisionGroups.readyForApproval[1].actionType, "resolve-missing");
+  assert.equal(example.decisionGroups.readyForApproval[1].actionType, "reconcile");
+  assert.equal(example.decisionGroups.readyForApproval[2].actionType, "resolve-missing");
   assert.equal(example.decisionGroups.needsReviewFirst[0].approvalTarget, null);
+  assert.equal(example.decisionGroups.needsReviewFirst[1].approvalTarget, null);
   assert.match(example.plans[0].approvalTarget, /approve artshelf cleanup ledger .* plan plan_/);
-  assert.match(example.decisionGroups.readyForApproval[1].approvalTarget, /approve artshelf resolve missing ledger .* ids shf_/);
-  assert.equal(example.summary.missingPath, 1);
+  assert.match(example.decisionGroups.readyForApproval[2].approvalTarget, /approve artshelf resolve missing ledger .* ids shf_/);
+  assert.equal(example.decisionGroups.blocked[0].actionType, "reconcile");
+  assert.equal(example.decisionGroups.needsReviewFirst[1].actionType, "reconcile");
+  assert.equal(example.summary.missingPath, 2);
   assert.equal(example.items[0].classification, "trash-safe");
   assert.equal(example.items[1].classification, "resolve-candidate");
-  assert.equal(example.items[2].classification, "needs-human-review");
+  assert.equal(example.items[2].classification, "resolve-candidate");
   assert.equal(example.safety.dryRunOnly, true);
   assert.equal(example.safety.noDeleteRan, true);
   assert.match(example.verification.command, /artshelf review --all --json/);

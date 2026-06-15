@@ -130,10 +130,11 @@ artshelf doctor [--agent] [--json]</code></pre>
             <p>
               <code>review</code> runs validate, due, and a cleanup plan preview in one pass; no-op
               previews report <code>not-created</code>, and <code>--all</code> adds an aggregate triage
-              summary plus the next safe action. <code>status</code> is the lightweight dashboard of
-              counts; <code>--all --json</code> is cron-friendly. <code>doctor</code> reports CLI version,
-              resolved paths, registry health, and the cleanup safety posture. All three also accept
-              <code>--agent</code> for a deterministic, token-efficient decision packet (see Output mode).
+              summary, including reconcile entry and blocked counts, plus the next safe action.
+              <code>status</code> is the lightweight dashboard of counts; <code>--all --json</code> is
+              cron-friendly. <code>doctor</code> reports CLI version, resolved paths, registry health,
+              and the cleanup safety posture. All three also accept <code>--agent</code> for a
+              deterministic, token-efficient decision packet (see Output mode).
             </p>
           </section>
 

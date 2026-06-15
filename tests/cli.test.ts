@@ -743,6 +743,12 @@ test("put records the artifact when registry update fails", () => {
   ]);
 
   assert.equal(result.status, 0, result.stderr);
+  assert.match(result.stdout, /recorded \S+/);
+  assert.match(result.stdout, /path: .*artifact\.txt/);
+  assert.match(result.stdout, /retains until: /);
+  assert.match(result.stdout, /ledger: .*\/ledger\.jsonl/);
+  assert.doesNotMatch(result.stdout, /registry warning:/);
+  assert.match(result.stderr, /registry warning:/);
   assert.equal(existsSync(ledger), true);
   assert.equal(readLedger(ledger).length, 1);
 
@@ -760,6 +766,7 @@ test("put records the artifact when registry update fails", () => {
     "--json"
   ]);
   assert.equal(jsonResult.status, 0, jsonResult.stderr);
+  assert.equal(jsonResult.stderr, "");
   assert.match(JSON.parse(jsonResult.stdout).registryError, /Unexpected token|Expected property name/);
 });
 
@@ -1017,6 +1024,8 @@ test("review --all --json summarizes triage counts while preserving per-ledger d
   assert.equal(body.summary.missingPath, 0);
   assert.equal(body.summary.executable, 2);
   assert.equal(body.summary.skipped, 1);
+  assert.equal(body.summary.reconcileEntries, 0);
+  assert.equal(body.summary.reconcileBlocked, 0);
   assert.equal(body.summary.affected, 2);
   assert.equal(body.summary.planIds, undefined);
   assert.equal(body.summary.previewPlanIds.length, 2);
@@ -1057,6 +1066,8 @@ test("review --all human output states the next safe action", () => {
   assert.match(result.stdout, /triage: due 1/);
   assert.match(result.stdout, /manual-review 1/);
   assert.match(result.stdout, /executable 2/);
+  assert.match(result.stdout, /reconcile 0/);
+  assert.match(result.stdout, /blocked 0/);
   assert.match(result.stdout, /next: .*cleanup --dry-run --all/);
   assert.match(result.stdout, /registry:/);
 });
@@ -2385,7 +2396,27 @@ test("doctor --agent flags warnings as attention while the machine stays healthy
   assert.equal(packet.ledgers.warnings, 1);
   assert.deepEqual(packet.attention, ["warnings"]);
   assert.deepEqual(packet.blockers, []);
-  assert.match(packet.nextAction, /validate --all/);
+  assert.match(packet.nextAction, /reconcile --dry-run/);
+});
+
+test("doctor --agent keeps reconcile suggestions non-executable", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "artifact.txt");
+  const ledger = join(fixture, "repo", ".artshelf", "ledger.jsonl");
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "vanishing", "--ttl", "7d", "--ledger", ledger, "--registry", registry]);
+  rmSync(artifact);
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.ledgers.warnings, 1);
+  assert.equal(packet.blockers.length, 0);
+  assert.match(packet.nextAction, /reconcile --dry-run --all/);
+  assert.match(packet.nextAction, /review --all/);
+  assert.doesNotMatch(packet.nextAction, /--execute/);
 });
 
 test("status --all --json aggregates registry health and ledger counts for cron", () => {
@@ -2719,6 +2750,30 @@ test("status --all --agent emits a compact deterministic agent packet alongside 
   assert.equal(fullBody.attention, undefined, "full --json must not grow agent-only fields");
 });
 
+test("status --all --agent points missing-path warnings to reconcile dry-run guidance", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "gone.txt");
+  const ledger = join(fixture, "one", ".artshelf", "ledger.jsonl");
+
+  writeFileSync(artifact, "vanishes");
+  artshelf(["put", artifact, "--reason", "vanishing", "--ttl", "1d", "--ledger", ledger, "--registry", registry], "2026-06-01T00:00:00Z");
+  rmSync(artifact);
+
+  const result = artshelf(["status", "--all", "--registry", registry, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "ok");
+  assert.equal(packet.counts.missingPath, 1);
+  assert.deepEqual(packet.attention, ["missingPath"]);
+  assert.deepEqual(packet.blockers, []);
+  assert.match(packet.nextAction, /reconcile --dry-run --all --registry/);
+  assert.match(packet.nextAction, /review --all/);
+  assert.match(packet.nextAction, /nothing is auto-executable/i);
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+  assert.equal(packet.verification, `artshelf status --all --agent --registry ${registry}`);
+});
+
 test("status --all --agent surfaces broken ledgers as blockers and exits non-zero", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
@@ -2825,14 +2880,16 @@ test("review --all --agent emits a compact deterministic decision packet alongsi
   assert.deepEqual(packet.counts, { due: 1, manualReview: 1, missingPath: 1, executable: 2, skipped: 2 });
 
   // Decision groups reuse the ArtshelfReviewReport vocabulary.
-  assert.deepEqual(packet.decisionSummary, { readyForApproval: 1, needsReviewFirst: 2, blocked: 0 });
+  assert.deepEqual(packet.decisionSummary, { readyForApproval: 0, needsReviewFirst: 3, blocked: 0 });
 
-  // Ready-for-approval holds the exact, plan-less resolve target for the missing path.
-  assert.equal(packet.readyForApproval.length, 1);
-  const resolve = packet.readyForApproval[0];
-  assert.equal(resolve.actionType, "resolve-missing");
-  assert.ok(resolve.itemIds.includes(missingPut.record.id));
-  assert.match(resolve.approvalTarget, new RegExp(`^approve artshelf resolve missing ledger .+ ids ${escapeRegExp(missingPut.record.id)}$`));
+  // Reconcile findings are now surfaced in a separate action category, and become
+  // ready only after a reviewed reconcile plan exists.
+  assert.equal(packet.readyForApproval.length, 0);
+  const reconcile = packet.needsReviewFirst.find((decision: any) => decision.actionType === "reconcile");
+  assert.ok(reconcile, "reconcile action should be present for missing path");
+  assert.ok(reconcile.itemIds.includes(missingPut.record.id));
+  assert.equal(reconcile.approvalTarget, null);
+  assert.match(reconcile.nextStep, /artshelf reconcile --dry-run --ledger/);
 
   // Trash-safe cleanup is read-only here: it points at the dry-run that mints a
   // reviewed plan instead of leaking a preview plan id, so it stays needs-review.
@@ -2872,6 +2929,233 @@ test("review --all --agent emits a compact deterministic decision packet alongsi
   assert.equal(fullBody.readyForApproval, undefined);
 });
 
+test("review --all --agent points missing-path-only warnings to reconcile dry-run guidance", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const missingArtifact = join(fixture, "missing.txt");
+  const ledger = join(fixture, "missing-ledger", ".artshelf", "ledger.jsonl");
+
+  writeFileSync(missingArtifact, "hello");
+  artshelf(["put", missingArtifact, "--reason", "vanishing", "--ttl", "1d", "--ledger", ledger, "--registry", registry], "2026-06-01T00:00:00Z");
+  rmSync(missingArtifact);
+
+  const result = artshelf(["review", "--all", "--registry", registry, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+
+  assert.equal(packet.health, "ok");
+  assert.deepEqual(packet.counts, { due: 0, manualReview: 0, missingPath: 1, executable: 0, skipped: 1 });
+  assert.deepEqual(packet.decisionSummary, { readyForApproval: 0, needsReviewFirst: 1, blocked: 0 });
+  assert.equal(packet.ledgers.stale, 0);
+  assert.match(packet.nextAction, /reconcile --dry-run --all/);
+  assert.match(packet.nextAction, /review --all/);
+  assert.match(packet.nextAction, /nothing is auto-executable/i);
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+
+  const fullJson = artshelf(["review", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(fullJson.status, 0, fullJson.stderr);
+  const fullBody = JSON.parse(fullJson.stdout);
+  assert.equal(fullBody.summary.reconcileEntries, 1);
+  assert.equal(fullBody.summary.reconcileBlocked, 0);
+
+  const human = artshelf(["review", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /triage: .*missing 1 .*reconcile 1 .*blocked 0/);
+  assert.match(human.stdout, /next: .*reconcile --dry-run --all/);
+});
+
+test("review --all surfaces reconcile-only drift on a non-active record instead of reporting all clear", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  mkdirSync(dirname(ledger), { recursive: true });
+  // A trashed row (non-active) whose trash target has since vanished is reconcile's
+  // resolve-stale-trash case. dueEntries skips non-active rows and validateLedger only
+  // warns about the missing target, so every legacy summary count stays 0 even though
+  // the reconcile finding (and its decision) is real.
+  writeFileSync(ledger, `${JSON.stringify({
+    id: "shf_stale",
+    path: join(fixture, "stale", "original.txt"),
+    kind: "run-artifact",
+    reason: "stale trash target",
+    createdAt: "2026-06-01T00:00:00Z",
+    retention: { mode: "ttl", ttl: "1d" },
+    retainUntil: "2026-06-02T00:00:00Z",
+    cleanup: "trash",
+    owner: "user",
+    labels: [],
+    status: "trashed",
+    targetPath: join(fixture, "stale", ".artshelf", "trash", "plan_x", "artifact.txt"),
+    cleanedAt: "2026-06-01T00:00:00Z",
+    receiptPath: join(fixture, "stale", ".artshelf", "receipts", "plan_x.json"),
+    cleanupPlanId: "plan_x"
+  })}\n`);
+  artshelf(["ledgers", "add", "--ledger", ledger, "--name", "stale", "--registry", registry]);
+
+  const result = artshelf(["review", "--all", "--registry", registry, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+
+  // The ledger still validates (the missing target is a warning), so health stays ok and
+  // no legacy triage count fires — exactly the state that used to report "nothing to do".
+  assert.equal(packet.health, "ok");
+  assert.deepEqual(packet.counts, { due: 0, manualReview: 0, missingPath: 0, executable: 0, skipped: 0 });
+
+  // The reconcile finding is surfaced as a decision, so next-action must not contradict it.
+  assert.deepEqual(packet.decisionSummary, { readyForApproval: 0, needsReviewFirst: 1, blocked: 0 });
+  assert.equal(packet.needsReviewFirst[0].actionType, "reconcile");
+  assert.equal(packet.needsReviewFirst[0].approvalTarget, null);
+  assert.doesNotMatch(packet.nextAction, /nothing to do/);
+  assert.match(packet.nextAction, /reconcile --dry-run --all/);
+  assert.match(packet.nextAction, /review --all/);
+  assert.match(packet.nextAction, /nothing is auto-executable/i);
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+
+  // Human output mirrors the packet: no false "all clear", same read-only reconcile guidance.
+  const human = artshelf(["review", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /review --all: needs attention/);
+  assert.doesNotMatch(human.stdout, /all clear/);
+  assert.match(human.stdout, /⚠ \[stale\]/);
+  // The per-ledger detail line surfaces the reconcile count so the ⚠ glyph is never paired
+  // with all-zero legacy counts and no inline reason.
+  assert.match(human.stdout, /due\/manual\/missing: 0; plan not-created: 0 entries, 0 skipped; reconcile: 1 entries, 0 blocked/);
+  assert.match(human.stdout, /next: run `artshelf reconcile --dry-run --all/);
+});
+
+test("review --agent single-ledger surfaces reconcile-only drift on a non-active record", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  mkdirSync(dirname(ledger), { recursive: true });
+  writeFileSync(ledger, `${JSON.stringify({
+    id: "shf_stale",
+    path: join(fixture, "original.txt"),
+    kind: "run-artifact",
+    reason: "stale trash target",
+    createdAt: "2026-06-01T00:00:00Z",
+    retention: { mode: "ttl", ttl: "1d" },
+    retainUntil: "2026-06-02T00:00:00Z",
+    cleanup: "trash",
+    owner: "user",
+    labels: [],
+    status: "trashed",
+    targetPath: join(fixture, ".artshelf", "trash", "plan_x", "artifact.txt"),
+    cleanedAt: "2026-06-01T00:00:00Z",
+    receiptPath: join(fixture, ".artshelf", "receipts", "plan_x.json"),
+    cleanupPlanId: "plan_x"
+  })}\n`);
+
+  const result = artshelf(["review", "--ledger", ledger, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.scope, "single");
+  assert.equal(packet.health, "ok");
+  assert.deepEqual(packet.counts, { due: 0, manualReview: 0, missingPath: 0, executable: 0, skipped: 0 });
+  assert.equal(packet.decisionSummary.needsReviewFirst, 1);
+  assert.equal(packet.needsReviewFirst[0].actionType, "reconcile");
+  // Single-ledger guidance stays scoped to --ledger, never registry-wide --all, never executes.
+  assert.doesNotMatch(packet.nextAction, /nothing to do/);
+  assert.doesNotMatch(packet.nextAction, /--all/);
+  assert.match(packet.nextAction, new RegExp(`reconcile --dry-run --ledger ${escapeRegExp(ledger)}`));
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+});
+
+test("review --all surfaces a blocked reconcile finding on a non-active record instead of reporting all clear", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const ledgerDir = join(fixture, "blk", ".artshelf");
+  const ledger = join(ledgerDir, "ledger.jsonl");
+  mkdirSync(ledgerDir, { recursive: true });
+  // A review-required (non-active) row whose recorded path is gone but whose provenance
+  // reconstructs to a candidate that exists with a mismatching fingerprint is reconcile's
+  // ambiguous "blocked" case. validateLedger only warns, so every legacy count stays 0.
+  writeFileSync(join(ledgerDir, "candidate.txt"), "different-bytes-entirely");
+  writeFileSync(ledger, `${JSON.stringify({
+    id: "shf_blocked",
+    path: join(fixture, "missing.txt"),
+    kind: "run-artifact",
+    reason: "ambiguous drift",
+    createdAt: "2026-06-01T00:00:00Z",
+    retention: { mode: "manual-review" },
+    cleanup: "review",
+    owner: "user",
+    labels: [],
+    status: "review-required",
+    cleanupPlanId: "plan_y",
+    receiptPath: join(ledgerDir, "receipts", "plan_y.json"),
+    cleanedAt: "2026-06-01T00:00:00Z",
+    provenance: { root: "ledger", rootPath: ledgerDir, relativePath: "candidate.txt", basename: "candidate.txt", pathKind: "file", fingerprint: { byteSize: 999 } }
+  })}\n`);
+  artshelf(["ledgers", "add", "--ledger", ledger, "--name", "blk", "--registry", registry]);
+
+  const result = artshelf(["review", "--all", "--registry", registry, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.health, "ok");
+  assert.deepEqual(packet.counts, { due: 0, manualReview: 0, missingPath: 0, executable: 0, skipped: 0 });
+  // The drift surfaces only as a blocked reconcile decision; next-action must still route there.
+  assert.deepEqual(packet.decisionSummary, { readyForApproval: 0, needsReviewFirst: 0, blocked: 1 });
+  assert.equal(packet.blocked[0].actionType, "reconcile");
+  assert.doesNotMatch(packet.nextAction, /nothing to do/);
+  assert.match(packet.nextAction, /reconcile --dry-run --all/);
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+
+  const human = artshelf(["review", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /review --all: needs attention/);
+  assert.doesNotMatch(human.stdout, /all clear/);
+  assert.match(human.stdout, /⚠ \[blk\]/);
+  // A blocked-only reconcile finding still reports its count inline next to the ⚠ glyph.
+  assert.match(human.stdout, /due\/manual\/missing: 0; plan not-created: 0 entries, 0 skipped; reconcile: 0 entries, 1 blocked/);
+});
+
+test("review --agent surfaces reconcile findings and escalates to ready-for-approval after a reviewed dry-run", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const registry = join(fixture, "registry.json");
+  const artifact = join(fixture, "project", "artifact.txt");
+  mkdirSync(dirname(artifact), { recursive: true });
+  writeFileSync(artifact, "reconciled");
+  const putResult = artshelf(
+    ["put", artifact, "--reason", "reconciled artifact", "--ttl", "30d", "--ledger", ledger, "--registry", registry, "--json"],
+    "2026-06-01T00:00:00Z"
+  );
+  assert.equal(putResult.status, 0, putResult.stderr);
+  const put = JSON.parse(putResult.stdout);
+  const moved = `${fixture}-moved`;
+  renameSync(fixture, moved);
+  const movedLedger = join(moved, ".artshelf", "ledger.jsonl");
+
+  const initial = artshelf(["review", "--ledger", movedLedger, "--agent"], "2026-06-03T00:00:00Z");
+  assert.equal(initial.status, 0, initial.stderr);
+  const initialPacket = JSON.parse(initial.stdout);
+  assert.equal(initialPacket.scope, "single");
+  assert.equal(initialPacket.ledgerPath, movedLedger);
+  const initialReconcile = initialPacket.needsReviewFirst.find((decision: any) => decision.actionType === "reconcile");
+  assert.ok(initialReconcile, "missing-path reconciliation should be surfaced before dry-run");
+  assert.equal(initialReconcile.approvalTarget, null);
+  assert.match(initialReconcile.label, /reconcile/i);
+  assert.ok(initialReconcile.itemIds.includes(put.record.id));
+
+  const dryRun = JSON.parse(
+    artshelf(["reconcile", "--dry-run", "--ledger", movedLedger, "--json"], "2026-06-03T00:00:00Z").stdout
+  );
+  const plan = dryRun.plan;
+  assert.equal(plan.entries.length, 1);
+  assert.equal(plan.entries[0].category, "remap");
+  assert.equal(plan.entries[0].id, put.record.id);
+
+  const reviewed = artshelf(["review", "--ledger", movedLedger, "--agent"], "2026-06-03T00:00:01Z");
+  assert.equal(reviewed.status, 0, reviewed.stderr);
+  const reviewedPacket = JSON.parse(reviewed.stdout);
+  const reconcileReady = reviewedPacket.readyForApproval.find((decision: any) => decision.actionType === "reconcile");
+  assert.ok(reconcileReady, "a reviewed reconcile plan should become ready for exact approval");
+  assert.match(
+    reconcileReady.approvalTarget,
+    new RegExp(`^approve artshelf reconcile ledger ${escapeRegExp(movedLedger)} plan ${escapeRegExp(plan.planId)}$`)
+  );
+});
+
 test("review --all --agent surfaces broken ledgers as blocked decisions and exits non-zero", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
@@ -2907,7 +3191,8 @@ test("review --agent reports a single-ledger packet without registry aggregates"
   const ledger = ledgerPath(fixture);
   const missingArtifact = join(fixture, "missing.txt");
   writeFileSync(missingArtifact, "missing");
-  const put = JSON.parse(artshelf(["put", missingArtifact, "--reason", "gone", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger, "--json"], "2026-06-01T00:00:00Z").stdout);
+  const putResult = artshelf(["put", missingArtifact, "--reason", "gone", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger, "--json"], "2026-06-01T00:00:00Z");
+  assert.equal(putResult.status, 0, putResult.stderr);
   rmSync(missingArtifact);
 
   const result = artshelf(["review", "--ledger", ledger, "--agent"], "2026-06-03T00:00:00Z");
@@ -2924,9 +3209,11 @@ test("review --agent reports a single-ledger packet without registry aggregates"
   assert.equal(packet.ledgers, undefined);
   assert.equal(packet.health, "ok");
   assert.equal(packet.counts.missingPath, 1);
-  assert.equal(packet.readyForApproval.length, 1);
-  assert.equal(packet.readyForApproval[0].actionType, "resolve-missing");
-  assert.match(packet.readyForApproval[0].approvalTarget, new RegExp(`^approve artshelf resolve missing ledger .+ ids ${escapeRegExp(put.record.id)}$`));
+  assert.equal(packet.readyForApproval.length, 0);
+  assert.equal(packet.needsReviewFirst.length, 1);
+  assert.equal(packet.needsReviewFirst[0].actionType, "reconcile");
+  assert.match(packet.needsReviewFirst[0].nextStep, new RegExp(`artshelf reconcile --dry-run --ledger ${escapeRegExp(ledger)}`));
+  assert.equal(packet.needsReviewFirst[0].approvalTarget, null);
   assert.equal(packet.verification, `artshelf review --agent --ledger ${ledger}`);
 });
 
