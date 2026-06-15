@@ -92,6 +92,19 @@
   moving files or writing a receipt — the plan-id-bound posture trash purge
   already enforces.
 
+## [0.11.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.2...artshelf-v0.11.0) (2026-06-14)
+
+
+### Features
+
+* **ledger:** add cross-process advisory file lock and unique temp paths for atomic writes (NGX-428) ([0f553e4](https://github.com/calvinnwq/artshelf/commit/0f553e485737cf96390d451f4ae92f52e1abbf2a))
+
+
+### Bug Fixes
+
+* **cleanup:** reject unsafe plan-ids and mismatched plans before filesystem mutation (NGX-426) ([79debb7](https://github.com/calvinnwq/artshelf/commit/79debb7c3610984a969adea7f93b27ca08150647))
+* **ledger:** make ledger writes atomic and concurrency-safe and reject unsafe cleanup plans ([ac98c4e](https://github.com/calvinnwq/artshelf/commit/ac98c4eaf917b695e166f2ca7c40b6759d6e5f53))
+
 ## [0.10.2](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.1...artshelf-v0.10.2) (2026-06-13)
 
 
