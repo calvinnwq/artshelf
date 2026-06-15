@@ -688,6 +688,11 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
       }
 
       if (record.status !== "active") {
+        const prior = !existingReceipt?.completedAt ? priorResultById.get(entry.id) : undefined;
+        if (prior && priorCleanupResultMatchesLedger(record, prior, { planId, receiptPath, executedAt })) {
+          results.push(prior);
+          continue;
+        }
         results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: `record is ${record.status}` });
         continue;
       }
@@ -747,6 +752,30 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
     });
     return { planId, receiptPath, results };
   });
+}
+
+function priorCleanupResultMatchesLedger(
+  record: ArtshelfRecord,
+  result: { id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string },
+  receipt: { planId: string; receiptPath: string; executedAt: string }
+): boolean {
+  if (record.cleanupPlanId !== receipt.planId) return false;
+  if (record.receiptPath !== receipt.receiptPath) return false;
+  if (record.cleanedAt !== receipt.executedAt) return false;
+
+  if (result.status === "trashed") {
+    return record.status === "trashed" && !!result.target && record.targetPath === result.target;
+  }
+
+  if (result.status === "review-required") {
+    return record.status === "review-required";
+  }
+
+  if (result.status === "refused") {
+    return record.status === "cleanup-refused" && (!result.reason || record.cleanupReason === result.reason);
+  }
+
+  return false;
 }
 
 function readCleanupReceiptIfValid(receiptPath: string): ReturnType<typeof readCleanupReceipt> | null {

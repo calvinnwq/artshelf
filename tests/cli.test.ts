@@ -1616,6 +1616,38 @@ test("cleanup execute resumes from trash evidence when a started receipt is unre
   assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
 });
 
+test("cleanup execute replays terminal started receipt results after ledger update", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const first = JSON.parse(artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:01:00Z").stdout).receipt;
+  const startedReceipt = JSON.parse(readFileSync(first.receiptPath, "utf8"));
+  delete startedReceipt.completedAt;
+  startedReceipt.status = "started";
+  writeFileSync(first.receiptPath, `${JSON.stringify(startedReceipt, null, 2)}\n`);
+
+  const replayed = JSON.parse(artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z").stdout).receipt;
+  assert.equal(replayed.results[0].status, "trashed");
+  assert.equal(replayed.results[0].target, first.results[0].target);
+
+  const completed = JSON.parse(readFileSync(first.receiptPath, "utf8"));
+  assert.equal(completed.status, undefined);
+  assert.equal(completed.executedAt, "2026-06-03T00:01:00Z");
+  assert.equal(completed.completedAt, "2026-06-03T00:05:00Z");
+  assert.equal(completed.results[0].status, "trashed");
+  assert.equal(completed.results[0].target, first.results[0].target);
+
+  const record = readLedger(ledger).find((entry) => entry.id === first.results[0].id);
+  assert.ok(record);
+  assert.equal(record.status, "trashed");
+  assert.equal(record.cleanedAt, "2026-06-03T00:01:00Z");
+  assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
 test("cleanup execute replay after a completed receipt stays idempotent", () => {
   // NGX-427: replaying a completed cleanup plan must not move the artifact again,
   // must not duplicate the Artshelf-owned receipt record, and must keep the ledger valid.
