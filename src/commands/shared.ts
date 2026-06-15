@@ -171,6 +171,8 @@ export function summarizeReview(results: ReviewResult[]): ReviewSummary {
     missingPath: 0,
     executable: 0,
     skipped: 0,
+    reconcileEntries: 0,
+    reconcileBlocked: 0,
     previewPlanIds: []
   };
 
@@ -186,13 +188,17 @@ export function summarizeReview(results: ReviewResult[]): ReviewSummary {
     const due = result.due.filter((entry) => entry.dueStatus === "due").length;
     const manualReview = result.due.filter((entry) => entry.dueStatus === "manual-review").length;
     const missingPath = result.due.filter((entry) => entry.dueStatus === "missing-path").length;
+    const reconcileEntries = result.reconcile?.plan.entries.length ?? 0;
+    const reconcileBlocked = result.reconcile?.plan.blocked.length ?? 0;
     summary.due += due;
     summary.manualReview += manualReview;
     summary.missingPath += missingPath;
     summary.executable += result.plan.entries.length;
     summary.skipped += result.plan.skipped.length;
+    summary.reconcileEntries += reconcileEntries;
+    summary.reconcileBlocked += reconcileBlocked;
     if (result.plan.planId !== "not-created") summary.previewPlanIds.push(result.plan.planId);
-    if (!result.validate.ok || due + manualReview + missingPath > 0 || result.plan.entries.length > 0) {
+    if (!result.validate.ok || due + manualReview + missingPath + reconcileEntries + reconcileBlocked > 0 || result.plan.entries.length > 0) {
       summary.affected += 1;
     }
   }

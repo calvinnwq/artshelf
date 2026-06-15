@@ -31,6 +31,8 @@ export type ReviewSummary = {
   missingPath: number;
   executable: number;
   skipped: number;
+  reconcileEntries: number;
+  reconcileBlocked: number;
   previewPlanIds: string[];
 };
 
@@ -86,7 +88,7 @@ export function reviewNextAction(summary: ReviewSummary, scope: "all" | "single"
     const dryRun = scope === "all" ? "artshelf cleanup --dry-run --all" : `artshelf cleanup --dry-run${ledgerPath ? ` --ledger ${ledgerPath}` : ""}`;
     return `run \`${dryRun}\` to generate plans, then \`artshelf cleanup --execute --plan-id <id> --ledger <path>\` for each reviewed plan`;
   }
-  if (summary.missingPath > 0) {
+  if (summary.missingPath > 0 || summary.reconcileEntries > 0 || summary.reconcileBlocked > 0) {
     const reconcile = scope === "all" ? `artshelf reconcile --dry-run --all${registryPath ? ` --registry ${registryPath}` : ""}` : `artshelf reconcile --dry-run --ledger ${ledgerPath}`;
     return `run \`${reconcile} --json\` and then \`${review}\` to surface reconcile-ready approvals; nothing is auto-executable`;
   }
@@ -94,7 +96,7 @@ export function reviewNextAction(summary: ReviewSummary, scope: "all" | "single"
 }
 
 export function printReviewAll(results: ReviewResult[], summary: ReviewSummary, nextAction: string, registryPath: string): void {
-  const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath > 0;
+  const needsAttention = summary.invalid + summary.stale + summary.executable + summary.due + summary.manualReview + summary.missingPath + summary.reconcileEntries + summary.reconcileBlocked > 0;
   process.stdout.write(`${attentionGlyph(needsAttention)} artshelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
   process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
   printReview(results);
@@ -105,7 +107,8 @@ export function printReviewAll(results: ReviewResult[], summary: ReviewSummary, 
 export function printReview(results: ReviewResult[]): void {
   for (const result of results) {
     const visibleDue = result.due.filter((entry) => entry.dueStatus !== "kept");
-    const needsAttention = !result.validate.ok || visibleDue.length > 0 || result.plan.entries.length > 0;
+    const reconcileDrift = (result.reconcile?.plan.entries.length ?? 0) + (result.reconcile?.plan.blocked.length ?? 0);
+    const needsAttention = !result.validate.ok || visibleDue.length > 0 || result.plan.entries.length > 0 || reconcileDrift > 0;
     process.stdout.write(`${attentionGlyph(needsAttention)} [${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
     process.stdout.write(`due/manual/missing: ${visibleDue.length}; plan ${result.plan.planId}: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped\n`);
     process.stdout.write(`ledger: ${result.ledger.path}\n`);
