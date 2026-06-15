@@ -25,24 +25,56 @@
     "scope": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["registryPath", "ledgerCount", "health", "registryHealth"],
+      "required": [
+        "registryPath",
+        "ledgerCount",
+        "health",
+        "registryHealth"
+      ],
       "properties": {
-        "registryPath": { "type": "string" },
-        "ledgerCount": { "type": "integer", "minimum": 0 },
-        "health": { "type": "string", "enum": ["ok", "attention"] },
-        "registryHealth": { "type": "string", "enum": ["ok", "attention"] },
+        "registryPath": {
+          "type": "string"
+        },
+        "ledgerCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "health": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "attention"
+          ]
+        },
+        "registryHealth": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "attention"
+          ]
+        },
         "affectedLedgers": {
           "type": "array",
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["ledgerPath"],
+            "required": [
+              "ledgerPath"
+            ],
             "properties": {
-              "name": { "type": "string" },
-              "ledgerPath": { "type": "string" },
+              "name": {
+                "type": "string"
+              },
+              "ledgerPath": {
+                "type": "string"
+              },
               "validationStatus": {
                 "type": "string",
-                "enum": ["ok", "missing", "invalid"]
+                "enum": [
+                  "ok",
+                  "missing",
+                  "invalid"
+                ]
               }
             }
           }
@@ -51,35 +83,60 @@
     },
     "plans": {
       "type": "array",
-      "items": { "$ref": "#/$defs/plan" },
+      "items": {
+        "$ref": "#/$defs/plan"
+      },
       "default": []
     },
     "decisionSummary": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["readyForApproval", "needsReviewFirst", "blocked"],
+      "required": [
+        "readyForApproval",
+        "needsReviewFirst",
+        "blocked"
+      ],
       "properties": {
-        "readyForApproval": { "type": "integer", "minimum": 0 },
-        "needsReviewFirst": { "type": "integer", "minimum": 0 },
-        "blocked": { "type": "integer", "minimum": 0 }
+        "readyForApproval": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "needsReviewFirst": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
     "decisionGroups": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["readyForApproval", "needsReviewFirst", "blocked"],
+      "required": [
+        "readyForApproval",
+        "needsReviewFirst",
+        "blocked"
+      ],
       "properties": {
         "readyForApproval": {
           "type": "array",
-          "items": { "$ref": "#/$defs/approvalDecision" }
+          "items": {
+            "$ref": "#/$defs/approvalDecision"
+          }
         },
         "needsReviewFirst": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nonApprovalDecision" }
+          "items": {
+            "$ref": "#/$defs/nonApprovalDecision"
+          }
         },
         "blocked": {
           "type": "array",
-          "items": { "$ref": "#/$defs/nonApprovalDecision" }
+          "items": {
+            "$ref": "#/$defs/nonApprovalDecision"
+          }
         }
       }
     },
@@ -95,23 +152,49 @@
         "trashed"
       ],
       "properties": {
-        "executable": { "type": "integer", "minimum": 0 },
-        "skipped": { "type": "integer", "minimum": 0 },
-        "refused": { "type": "integer", "minimum": 0 },
-        "manualReview": { "type": "integer", "minimum": 0 },
-        "missingPath": { "type": "integer", "minimum": 0 },
-        "trashed": { "type": "integer", "minimum": 0 }
+        "executable": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "refused": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "manualReview": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "missingPath": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "trashed": {
+          "type": "integer",
+          "minimum": 0
+        }
       }
     },
-    "recommendation": { "type": "string", "minLength": 1 },
+    "recommendation": {
+      "type": "string",
+      "minLength": 1
+    },
     "items": {
       "type": "array",
-      "items": { "$ref": "#/$defs/item" }
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     },
     "alternatives": {
       "type": "array",
       "minItems": 1,
-      "items": { "type": "string", "minLength": 1 }
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
     },
     "safety": {
       "type": "object",
@@ -124,20 +207,39 @@
         "noDeleteRan"
       ],
       "properties": {
-        "dryRunOnly": { "type": "boolean" },
-        "executeAllRefused": { "type": "boolean" },
-        "noExecuteRan": { "type": "boolean" },
-        "noResolveRan": { "type": "boolean" },
-        "noDeleteRan": { "type": "boolean" }
+        "dryRunOnly": {
+          "type": "boolean"
+        },
+        "executeAllRefused": {
+          "type": "boolean"
+        },
+        "noExecuteRan": {
+          "type": "boolean"
+        },
+        "noResolveRan": {
+          "type": "boolean"
+        },
+        "noDeleteRan": {
+          "type": "boolean"
+        }
       }
     },
     "verification": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["command", "successCondition"],
+      "required": [
+        "command",
+        "successCondition"
+      ],
       "properties": {
-        "command": { "type": "string", "minLength": 1 },
-        "successCondition": { "type": "string", "minLength": 1 }
+        "command": {
+          "type": "string",
+          "minLength": 1
+        },
+        "successCondition": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     }
   },
@@ -145,19 +247,47 @@
     "plan": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["type", "ledgerPath", "planId", "approvalTarget"],
+      "required": [
+        "type",
+        "ledgerPath",
+        "planId",
+        "approvalTarget"
+      ],
       "properties": {
-        "type": { "type": "string", "enum": ["cleanup", "trash-purge"] },
-        "ledgerPath": { "type": "string" },
-        "planId": { "type": "string" },
-        "planPath": { "type": ["string", "null"] },
-        "approvalTarget": { "type": "string" }
+        "type": {
+          "type": "string",
+          "enum": [
+            "cleanup",
+            "trash-purge"
+          ]
+        },
+        "ledgerPath": {
+          "type": "string"
+        },
+        "planId": {
+          "type": "string"
+        },
+        "planPath": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "approvalTarget": {
+          "type": "string"
+        }
       },
       "allOf": [
         {
           "if": {
-            "properties": { "type": { "const": "cleanup" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "cleanup"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
@@ -169,8 +299,14 @@
         },
         {
           "if": {
-            "properties": { "type": { "const": "trash-purge" } },
-            "required": ["type"]
+            "properties": {
+              "type": {
+                "const": "trash-purge"
+              }
+            },
+            "required": [
+              "type"
+            ]
           },
           "then": {
             "properties": {
@@ -193,8 +329,12 @@
         "note"
       ],
       "properties": {
-        "id": { "type": "string" },
-        "path": { "type": "string" },
+        "id": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
         "classification": {
           "type": "string",
           "enum": [
@@ -204,28 +344,62 @@
             "registry-problem"
           ]
         },
-        "proposedAction": { "type": "string", "minLength": 1 },
+        "proposedAction": {
+          "type": "string",
+          "minLength": 1
+        },
         "dueStatus": {
           "type": "string",
-          "enum": ["kept", "due", "manual-review", "missing-path", "trashed"]
+          "enum": [
+            "kept",
+            "due",
+            "manual-review",
+            "missing-path",
+            "trashed"
+          ]
         },
-        "reason": { "type": "string", "minLength": 1 },
-        "note": { "type": "string", "minLength": 1 }
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "note": {
+          "type": "string",
+          "minLength": 1
+        }
       },
       "anyOf": [
-        { "required": ["id"] },
-        { "required": ["path"] }
+        {
+          "required": [
+            "id"
+          ]
+        },
+        {
+          "required": [
+            "path"
+          ]
+        }
       ]
     },
     "decision": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["label", "actionType", "reason", "nextStep"],
+      "required": [
+        "label",
+        "actionType",
+        "reason",
+        "nextStep"
+      ],
       "properties": {
-        "label": { "type": "string", "minLength": 1 },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
         "itemIds": {
           "type": "array",
-          "items": { "type": "string", "minLength": 1 },
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
           "default": []
         },
         "actionType": {
@@ -237,30 +411,59 @@
             "inspect",
             "fix-registry",
             "keep-or-snooze",
-            "change-retention"
+            "change-retention",
+            "reconcile"
           ]
         },
-        "approvalTarget": { "type": ["string", "null"] },
-        "reason": { "type": "string", "minLength": 1 },
-        "nextStep": { "type": "string", "minLength": 1 }
+        "approvalTarget": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nextStep": {
+          "type": "string",
+          "minLength": 1
+        }
       }
     },
     "approvalDecision": {
       "allOf": [
-        { "$ref": "#/$defs/decision" },
         {
-          "required": ["approvalTarget"],
+          "$ref": "#/$defs/decision"
+        },
+        {
+          "required": [
+            "approvalTarget"
+          ],
           "properties": {
             "actionType": {
-              "enum": ["cleanup", "trash-purge", "resolve-missing"]
+              "enum": [
+                "cleanup",
+                "trash-purge",
+                "resolve-missing"
+              ]
             },
-            "approvalTarget": { "type": "string", "minLength": 1 }
+            "approvalTarget": {
+              "type": "string",
+              "minLength": 1
+            }
           }
         },
         {
           "if": {
-            "properties": { "actionType": { "const": "cleanup" } },
-            "required": ["actionType"]
+            "properties": {
+              "actionType": {
+                "const": "cleanup"
+              }
+            },
+            "required": [
+              "actionType"
+            ]
           },
           "then": {
             "properties": {
@@ -272,8 +475,14 @@
         },
         {
           "if": {
-            "properties": { "actionType": { "const": "trash-purge" } },
-            "required": ["actionType"]
+            "properties": {
+              "actionType": {
+                "const": "trash-purge"
+              }
+            },
+            "required": [
+              "actionType"
+            ]
           },
           "then": {
             "properties": {
@@ -285,8 +494,14 @@
         },
         {
           "if": {
-            "properties": { "actionType": { "const": "resolve-missing" } },
-            "required": ["actionType"]
+            "properties": {
+              "actionType": {
+                "const": "resolve-missing"
+              }
+            },
+            "required": [
+              "actionType"
+            ]
           },
           "then": {
             "properties": {
@@ -295,18 +510,47 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "actionType": {
+                "const": "reconcile"
+              }
+            },
+            "required": [
+              "actionType"
+            ]
+          },
+          "then": {
+            "properties": {
+              "approvalTarget": {
+                "pattern": "^approve artshelf reconcile ledger .+ plan .+$"
+              }
+            }
+          }
         }
       ]
     },
     "nonApprovalDecision": {
       "allOf": [
-        { "$ref": "#/$defs/decision" },
+        {
+          "$ref": "#/$defs/decision"
+        },
         {
           "properties": {
             "actionType": {
-              "enum": ["inspect", "fix-registry", "keep-or-snooze", "change-retention"]
+              "enum": [
+                "inspect",
+                "fix-registry",
+                "keep-or-snooze",
+                "change-retention",
+                "reconcile"
+              ]
             },
-            "approvalTarget": { "type": "null" }
+            "approvalTarget": {
+              "type": "null"
+            }
           }
         }
       ]

@@ -140,19 +140,18 @@ artshelf trash purge --execute --plan-id <id>
 Daily Review Workflow: turn raw Artshelf output into a decision packet, not a
 count dump.
 
-1. Run read-only review first: `artshelf ledgers list --json`,
-   `artshelf review --all --agent`, and `artshelf trash list --all --json`.
-2. If cleanup attention exists, run `artshelf cleanup --dry-run --all --json`.
-3. Classify candidates as `trash-safe`, `needs-human-review`,
+1. Run read-only review first: `artshelf status --all --agent` for machine health,
+   then `artshelf review --all --agent`, and `artshelf trash list --all --json`.
+2. If stale/missing-path warnings exist, run `artshelf validate --all --json` then `artshelf reconcile --dry-run --all --json --registry <registry-path>` for renames, moves, deletes, stale topology after handoff/finalization, and `.shelf`/`.artshelf` migration fallout.
+3. If cleanup attention exists, run `artshelf cleanup --dry-run --all --json`.
+4. Classify candidates as `trash-safe`, `needs-human-review`,
    `resolve-candidate`, or `registry-problem`.
-4. Use the built-in `--agent` packet when the CLI output is enough to decide,
+5. Use the built-in `--agent` packet when the CLI output is enough to decide,
    because it is deterministic and token-efficient. Use
-   `ArtshelfReviewReport` from `schemas/artshelf-review-report.schema.json` and
-   `examples/artshelf-review-report.json` when you need a host-specific card,
-   attachment, or richer audit record.
-5. Render full packets with `scripts/render-review-report.mjs`; keep
+   `ArtshelfReviewReport` from `schemas/artshelf-review-report.schema.json` and `examples/artshelf-review-report.json` when you need a host-specific card, attachment, or richer audit record.
+6. Render full packets with `scripts/render-review-report.mjs`; keep
    `decisionSummary` in audit, while `decisionGroups` drive counts. Emojis are encouraged only in host-specific wrappers, not the renderer.
-6. Always include the exact approval target in the message body as a fallback.
+7. Always include the exact approval target in the message body as a fallback.
    Do not paste the whole packet into chat unless the user asks for it.
 
 ### Review Plan Report Schema
@@ -201,6 +200,7 @@ Approval wording:
 approve artshelf cleanup ledger <ledger-path> plan <plan-id>
 approve artshelf trash purge ledger <ledger-path> plan <purge-plan-id>
 approve artshelf resolve missing ledger <ledger-path> ids <id...>
+approve artshelf reconcile ledger <ledger-path> plan <plan-id>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and

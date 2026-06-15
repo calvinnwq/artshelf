@@ -110,6 +110,12 @@
   state drifted since review, stamps the reconcile audit trail (`previousPath`,
   `reconcilePlanId`, `reconcileReceiptPath`, `reconciledAt`, `reconcileReason`) on
   every touched row, and writes an Artshelf-owned reconcile receipt.
+- Integrated reconcile findings into `review --agent`, `status --agent`, and
+  `doctor --agent` triage: missing-path warnings now route to reconcile dry-run
+  guidance before approval, reconciled plans escalate to ready-for-approval, and
+  the `ArtshelfReviewReport` schema adds the `reconcile` action type (NGX-438).
+- Moved `artshelf put` registry-warning output from stdout to stderr in human
+  mode; `--json` output is unchanged (NGX-429).
 
 ## [0.12.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.11.0...artshelf-v0.12.0) (2026-06-15)
 
