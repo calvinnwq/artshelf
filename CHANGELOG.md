@@ -117,6 +117,20 @@
 - Moved `artshelf put` registry-warning output from stdout to stderr in human
   mode; `--json` output is unchanged (NGX-429).
 
+## [0.13.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.12.0...artshelf-v0.13.0) (2026-06-15)
+
+
+### Features
+
+* **review:** integrate reconcile findings into agent review packets ([878785e](https://github.com/calvinnwq/artshelf/commit/878785e72c4e65bd8e09572525b05cc020d2f1e1))
+* **review:** integrate reconcile findings into agent triage; move put registry-warning to stderr (NGX-438, NGX-429) ([2573470](https://github.com/calvinnwq/artshelf/commit/25734701b439f617a33609ac98c3fae895199640))
+
+
+### Bug Fixes
+
+* **review:** include reconcile counts in all-ledger triage ([2eeb2fe](https://github.com/calvinnwq/artshelf/commit/2eeb2fea6eae58bfd652be959f2bb6e28d7cb90f))
+* **review:** keep reconcile approval schema and blocked triage consistent ([0c8925a](https://github.com/calvinnwq/artshelf/commit/0c8925a851023622796f2b8d847fcc89cab3c5f0))
+
 ## [0.12.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.11.0...artshelf-v0.12.0) (2026-06-15)
 
 
