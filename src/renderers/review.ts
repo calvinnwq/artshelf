@@ -107,10 +107,13 @@ export function printReviewAll(results: ReviewResult[], summary: ReviewSummary, 
 export function printReview(results: ReviewResult[]): void {
   for (const result of results) {
     const visibleDue = result.due.filter((entry) => entry.dueStatus !== "kept");
-    const reconcileDrift = (result.reconcile?.plan.entries.length ?? 0) + (result.reconcile?.plan.blocked.length ?? 0);
+    const reconcileEntries = result.reconcile?.plan.entries.length ?? 0;
+    const reconcileBlocked = result.reconcile?.plan.blocked.length ?? 0;
+    const reconcileDrift = reconcileEntries + reconcileBlocked;
     const needsAttention = !result.validate.ok || visibleDue.length > 0 || result.plan.entries.length > 0 || reconcileDrift > 0;
+    const reconcileDetail = reconcileDrift > 0 ? `; reconcile: ${reconcileEntries} entries, ${reconcileBlocked} blocked` : "";
     process.stdout.write(`${attentionGlyph(needsAttention)} [${result.ledger.name}] ${result.validate.ok ? "ok" : "invalid"}: ${result.validate.entries} entries, ${result.validate.errors.length} errors, ${result.validate.warnings.length} warnings\n`);
-    process.stdout.write(`due/manual/missing: ${visibleDue.length}; plan ${result.plan.planId}: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped\n`);
+    process.stdout.write(`due/manual/missing: ${visibleDue.length}; plan ${result.plan.planId}: ${result.plan.entries.length} entries, ${result.plan.skipped.length} skipped${reconcileDetail}\n`);
     process.stdout.write(`ledger: ${result.ledger.path}\n`);
   }
 }

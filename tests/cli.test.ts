@@ -3002,6 +3002,9 @@ test("review --all surfaces reconcile-only drift on a non-active record instead 
   assert.match(human.stdout, /review --all: needs attention/);
   assert.doesNotMatch(human.stdout, /all clear/);
   assert.match(human.stdout, /⚠ \[stale\]/);
+  // The per-ledger detail line surfaces the reconcile count so the ⚠ glyph is never paired
+  // with all-zero legacy counts and no inline reason.
+  assert.match(human.stdout, /due\/manual\/missing: 0; plan not-created: 0 entries, 0 skipped; reconcile: 1 entries, 0 blocked/);
   assert.match(human.stdout, /next: run `artshelf reconcile --dry-run --all/);
 });
 
@@ -3086,6 +3089,9 @@ test("review --all surfaces a blocked reconcile finding on a non-active record i
   assert.equal(human.status, 0, human.stderr);
   assert.match(human.stdout, /review --all: needs attention/);
   assert.doesNotMatch(human.stdout, /all clear/);
+  assert.match(human.stdout, /⚠ \[blk\]/);
+  // A blocked-only reconcile finding still reports its count inline next to the ⚠ glyph.
+  assert.match(human.stdout, /due\/manual\/missing: 0; plan not-created: 0 entries, 0 skipped; reconcile: 0 entries, 1 blocked/);
 });
 
 test("review --agent surfaces reconcile findings and escalates to ready-for-approval after a reviewed dry-run", () => {
