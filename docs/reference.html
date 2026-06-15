@@ -170,7 +170,9 @@ artshelf cleanup --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]
               <code>--dry-run</code> creates and registers a cleanup plan without moving files;
               no-op dry-runs report <code>not-created</code>, and matching dry-runs reuse the
               existing plan id. <code>--execute</code> is approval-only for one reviewed plan id:
-              it writes a receipt, registers the receipt artifact, and updates touched records in the ledger.
+              it writes a started receipt before the first move, completes and registers the receipt
+              artifact, updates touched records in the ledger, and can resume or idempotently replay
+              the same plan id from durable receipt/trash evidence.
             </p>
             <div class="callout" data-kind="boundary">
               <span class="callout-label">Hard boundary</span>

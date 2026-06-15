@@ -440,10 +440,19 @@ Rules:
   ledger, and its entries must be well-formed. A mismatched or malformed plan is
   refused without moving files or writing a receipt, mirroring the live-record
   re-checks `trash purge --execute` performs.
-- Writes a cleanup receipt and appends or refreshes an Artshelf-owned ledger record
-  for that receipt with `owner=artshelf`, `kind=run-artifact`, `ttl=30d`,
-  `cleanup=review`, and labels including `artshelf`, `cleanup-receipt`, and the
-  plan id.
+- Writes a `started` cleanup receipt to `<ledger-dir>/receipts/<plan-id>.json` before
+  the first filesystem move, then completes the receipt with `completedAt` and the
+  per-entry `trashed`, `review-required`, `refused`, or `skipped` results.
+- Appends or refreshes an Artshelf-owned ledger record for the completed receipt with
+  `owner=artshelf`, `kind=run-artifact`, `ttl=30d`, `cleanup=review`, and labels
+  including `artshelf`, `cleanup-receipt`, and the plan id.
+- Resumes an interrupted run on rerun of the same plan id: terminal receipt evidence
+  for an artifact keeps its original `executedAt`/`cleanedAt`, an artifact already
+  moved into the plan's trash directory without terminal receipt evidence is recorded
+  as `trashed` at resume time without moving it again, a missing original path with no
+  trash target and no receipt evidence stays a skipped missing path rather than a
+  success, and a completed receipt replays idempotently without duplicating the
+  Artshelf-owned receipt record.
 - Updates touched ledger records so handled artifacts stop appearing as active
   cleanup candidates.
 - Uses trash/review behavior by default.
@@ -829,11 +838,15 @@ Operational rules that back those boundaries:
 - Dry-run first.
 - Execute only by plan id.
 - Trash/review before delete.
-- Execute updates ledger state after writing the cleanup receipt. A trashed,
-  review-required, or refused record no longer participates in future `due` or
-  cleanup dry-run output by default.
-- Missing paths update the report; they are not treated as a successful cleanup
-  unless the user explicitly repairs the ledger later.
+- Execute writes a `started` cleanup receipt before the first filesystem move,
+  updates ledger state after recording per-entry outcomes, and completes the
+  receipt with `completedAt`. A trashed, review-required, or refused record no
+  longer participates in future `due` or cleanup dry-run output by default.
+- Rerunning the same plan id resumes or replays durable receipt/trash evidence:
+  terminal receipt evidence keeps its original cleanup timestamp, existing
+  plan-trash targets are not moved again, completed receipts are idempotent,
+  and missing paths without receipt or trash evidence stay skipped rather than
+  successful.
 - Cleanup never scans arbitrary filesystem paths for deletion in v1.
 - Cleanup only acts on ledger entries.
 - Trash purge is scoped to one ledger, requires a reviewed purge plan id, and
@@ -957,7 +970,9 @@ human review.
   creates.
 - Cleanup execute refuses to run without a plan id, and refuses an unsafe,
   mismatched, or malformed plan before moving files or writing a receipt.
-- Cleanup execute writes a receipt.
+- Cleanup execute writes a started receipt before moving files, resumes or
+  replays the same plan id from receipt/trash evidence, and completes the
+  receipt idempotently.
 - CLI can list trashed records (single ledger or `--all`) and purge them through
   an approval-first, ledger-scoped dry-run/execute boundary that writes a purge
   receipt; purge refuses `--all` and never deletes without a reviewed plan id.
