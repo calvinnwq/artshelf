@@ -1,10 +1,28 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
-import { readLedger, registerArtshelfArtifact } from "./ledger.js";
-import { resolveLedgerRoot, resolveRepoRoot } from "./provenance.js";
+import { readLedger, registerArtshelfArtifact, writeLedger } from "./ledger.js";
+import { withPathLock } from "./locks.js";
+import { computeProvenance, resolveLedgerRoot, resolveRepoRoot } from "./provenance.js";
 import { now, toIso } from "./time.js";
-import type { ArtshelfRecord, PathProvenance, ReconcileCategory, ReconcileField, ReconcileFinding, ReconcilePlan } from "./types.js";
+import type {
+  ArtshelfRecord,
+  PathProvenance,
+  ReconcileCategory,
+  ReconcileExecution,
+  ReconcileField,
+  ReconcileFinding,
+  ReconcilePlan,
+  ReconcileResult
+} from "./types.js";
+
+const RECONCILE_CATEGORIES: ReadonlySet<string> = new Set<ReconcileCategory>([
+  "remap",
+  "resolve-missing",
+  "resolve-stale-trash",
+  "registry-remap",
+  "blocked"
+]);
 
 type Roots = {
   ledgerRoot: string;
@@ -64,6 +82,152 @@ export function createReconcilePlan(ledgerPath: string): ReconcilePlan {
     labels: ["artshelf", "reconcile-plan", reviewed.planId]
   });
   return reviewed;
+}
+
+// Apply a reviewed reconcile plan (NGX-437 `reconcile --execute`). This is the only
+// mutating reconcile entrypoint and it is deliberately conservative:
+//   * It refuses up front when the plan id is missing, the plan file is absent, or the
+//     plan file's declared id/ledger does not match the scoped request (no fresh plan,
+//     no `--all`; the command layer enforces those, this binds to one exact plan id).
+//   * Before applying any entry it re-classifies the live ledger and only acts when the
+//     current finding still matches the reviewed entry, so a plan executed against a
+//     drifted ledger refuses the stale entries instead of mutating the wrong rows.
+// Reconcile is ledger/registry housekeeping only: it rewrites paths and resolves rows
+// and writes a receipt; it never creates or deletes filesystem artifacts.
+export function executeReconcilePlan(ledgerPath: string, planId: string): ReconcileExecution {
+  if (!planId) throw new Error("reconcile --execute requires --plan-id");
+
+  const planPath = reconcilePlanPath(ledgerPath, planId);
+  if (!existsSync(planPath)) throw new Error(`Reconcile plan not found: ${planId}`);
+  const plan = JSON.parse(readFileSync(planPath, "utf8")) as ReconcilePlan;
+  assertReconcilePlanExecutable(plan, planId, ledgerPath);
+
+  const receiptPath = reconcileReceiptPath(ledgerPath, planId);
+  return withPathLock(ledgerPath, () => {
+    const records = readLedger(ledgerPath);
+    const recordsById = new Map(records.map((record) => [record.id, record]));
+    const liveById = new Map(classifyReconcileFindings(ledgerPath).map((finding) => [finding.id, finding]));
+    const executedAt = toIso(now());
+    const audit = { reconcilePlanId: planId, reconcileReceiptPath: receiptPath, reconciledAt: executedAt };
+    const results: ReconcileResult[] = [];
+
+    for (const entry of plan.entries) {
+      const record = recordsById.get(entry.id);
+      const live = liveById.get(entry.id);
+      if (!record || !live || !sameReconcileTarget(live, entry)) {
+        results.push(skippedResult(entry));
+        continue;
+      }
+      const applied = applyReconcileEntry(record, entry, audit, ledgerPath);
+      recordsById.set(entry.id, applied);
+      results.push(appliedResult(entry, applied));
+    }
+
+    writeReconcileReceipt(receiptPath, { planId, ledgerPath, executedAt, results });
+    writeLedger(ledgerPath, records.map((record) => recordsById.get(record.id) ?? record));
+    registerArtshelfArtifact(ledgerPath, receiptPath, {
+      reason: `Artshelf reconcile receipt for plan ${planId}`,
+      ttl: "30d",
+      kind: "run-artifact",
+      cleanup: "review",
+      labels: ["artshelf", "reconcile-receipt", planId]
+    });
+    return { planId, receiptPath, executedAt, results };
+  }, "Artshelf ledger");
+}
+
+type ReconcileAudit = { reconcilePlanId: string; reconcileReceiptPath: string; reconciledAt: string };
+
+// Produce the mutated record for one applicable entry. A remap rewrites the path and
+// recomputes provenance against the new location (so the row is reconcile-healthy
+// afterwards) while keeping the row's status; every resolve category archives the row
+// ledger-only as `resolved`. previousPath always preserves the pre-action path.
+function applyReconcileEntry(record: ArtshelfRecord, entry: ReconcileFinding, audit: ReconcileAudit, ledgerPath: string): ArtshelfRecord {
+  if (entry.category === "remap" && entry.proposedPath) {
+    return {
+      ...record,
+      path: entry.proposedPath,
+      provenance: computeProvenance(entry.proposedPath, { ledgerPath }),
+      previousPath: entry.currentPath,
+      ...audit,
+      reconcileReason: entry.reason
+    };
+  }
+  return {
+    ...record,
+    status: "resolved",
+    resolvedAt: audit.reconciledAt,
+    resolutionReason: entry.reason,
+    previousPath: entry.currentPath,
+    ...audit,
+    reconcileReason: entry.reason
+  };
+}
+
+function appliedResult(entry: ReconcileFinding, applied: ArtshelfRecord): ReconcileResult {
+  return {
+    id: entry.id,
+    category: entry.category,
+    field: entry.field,
+    status: applied.status === "resolved" ? "resolved" : "remapped",
+    previousPath: entry.currentPath,
+    newPath: entry.category === "remap" ? entry.proposedPath : null,
+    reason: entry.reason
+  };
+}
+
+function skippedResult(entry: ReconcileFinding): ReconcileResult {
+  return {
+    id: entry.id,
+    category: entry.category,
+    field: entry.field,
+    status: "skipped",
+    previousPath: entry.currentPath,
+    newPath: null,
+    reason: "live ledger state no longer matches the reviewed plan"
+  };
+}
+
+// Two findings describe the same drift only when every structural field agrees; this
+// is the execute-time safety check that refuses entries whose live state has moved on.
+function sameReconcileTarget(live: ReconcileFinding, entry: ReconcileFinding): boolean {
+  return (
+    live.category === entry.category &&
+    live.field === entry.field &&
+    live.status === entry.status &&
+    live.currentPath === entry.currentPath &&
+    live.proposedPath === entry.proposedPath
+  );
+}
+
+// Bind a loaded reconcile plan to the request before any ledger mutation, mirroring
+// cleanup's assertCleanupPlanExecutable: the plan must declare the requested id, belong
+// to the executing ledger, and carry well-formed entries.
+function assertReconcilePlanExecutable(plan: ReconcilePlan, planId: string, ledgerPath: string): void {
+  if (plan.planId !== planId) {
+    throw new Error(`Reconcile plan id mismatch: plan file declares ${plan.planId}, requested ${planId}`);
+  }
+  if (plan.ledgerPath !== ledgerPath) {
+    throw new Error(`Reconcile plan ledger mismatch: plan was created for ${plan.ledgerPath}, executing ${ledgerPath}`);
+  }
+  if (!Array.isArray(plan.entries)) {
+    throw new Error(`Reconcile plan entries are malformed: ${planId}`);
+  }
+  for (const entry of plan.entries) {
+    if (!entry || typeof entry.id !== "string" || typeof entry.currentPath !== "string" || !RECONCILE_CATEGORIES.has(entry.category)) {
+      throw new Error(`Reconcile plan entries are malformed: ${planId}`);
+    }
+  }
+}
+
+function reconcileReceiptPath(ledgerPath: string, planId: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(planId)) throw new Error(`Invalid reconcile plan id: ${planId}`);
+  return join(dirname(ledgerPath), "reconcile-receipts", `${planId}.json`);
+}
+
+function writeReconcileReceipt(receiptPath: string, value: unknown): void {
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function classifyRecord(record: ArtshelfRecord, roots: Roots): ReconcileFinding | null {

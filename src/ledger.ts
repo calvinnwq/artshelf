@@ -823,7 +823,10 @@ function appendRecord(ledgerPath: string, record: ArtshelfRecord): void {
   });
 }
 
-function writeLedger(ledgerPath: string, records: ArtshelfRecord[]): void {
+// Exported so the reconcile execute layer (src/reconcile.ts) persists its mutated
+// records through the canonical JSONL writer + ledger lock instead of duplicating the
+// atomic-write format, keeping the reconcile -> ledger import direction one-way.
+export function writeLedger(ledgerPath: string, records: ArtshelfRecord[]): void {
   withLedgerLock(ledgerPath, () => {
     mkdirSync(dirname(ledgerPath), { recursive: true });
     atomicWriteFileSync(ledgerPath, records.map((record) => JSON.stringify(record)).join("\n") + (records.length > 0 ? "\n" : ""));

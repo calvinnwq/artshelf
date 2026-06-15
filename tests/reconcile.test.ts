@@ -1,10 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { readLedger } from "../src/ledger.js";
-import { classifyReconcileFindings, createReconcilePlan, previewReconcilePlan } from "../src/reconcile.js";
+import { readLedger, validateLedger } from "../src/ledger.js";
+import { classifyReconcileFindings, createReconcilePlan, executeReconcilePlan, previewReconcilePlan } from "../src/reconcile.js";
 
 function fixture(): string {
   return mkdtempSync(join(tmpdir(), "artshelf-reconcile-"));
@@ -416,4 +416,137 @@ test("createReconcilePlan separates blocked findings from actionable entries", (
 
   assert.deepEqual(plan.entries.map((entry) => entry.id), ["shf_good"]);
   assert.deepEqual(plan.blocked.map((entry) => entry.id), ["shf_bad"]);
+});
+
+test("executeReconcilePlan remaps a record path and stamps reconcile audit provenance", () => {
+  const { ledger, current } = remapFixture();
+  const plan = createReconcilePlan(ledger);
+
+  const execution = executeReconcilePlan(ledger, plan.planId);
+
+  // Receipt: one remapped result pointing from the stale path to the reconstructed one.
+  assert.equal(execution.planId, plan.planId);
+  assert.equal(execution.results.length, 1);
+  const result = execution.results[0];
+  assert.equal(result?.id, "shf_remap");
+  assert.equal(result?.category, "remap");
+  assert.equal(result?.status, "remapped");
+  assert.equal(result?.previousPath, "/old-shelf/build/out.txt");
+  assert.equal(result?.newPath, current);
+  assert.equal(existsSync(execution.receiptPath), true);
+  const receipt = JSON.parse(readFileSync(execution.receiptPath, "utf8"));
+  assert.equal(receipt.planId, plan.planId);
+  assert.deepEqual(receipt.results, execution.results);
+
+  // Ledger row: path rewritten, audit trail stamped, provenance recomputed for the
+  // new location, and the row stays active (a remap fixes the path, it never resolves).
+  const record = readLedger(ledger).find((row) => row.id === "shf_remap");
+  assert.ok(record, "the remapped record should still be present");
+  assert.equal(record?.status, "active");
+  assert.equal(record?.path, current);
+  assert.equal(record?.previousPath, "/old-shelf/build/out.txt");
+  assert.equal(record?.reconcilePlanId, plan.planId);
+  assert.equal(record?.reconcileReceiptPath, execution.receiptPath);
+  assert.ok(record?.reconciledAt, "reconciledAt should be stamped");
+  assert.ok(record?.reconcileReason, "reconcileReason should be stamped");
+  assert.equal(record?.provenance?.root, "repo");
+  assert.equal(record?.provenance?.relativePath, "build/out.txt");
+
+  // The remapped ledger is still valid (path now exists, no malformed rows).
+  assert.deepEqual(validateLedger(ledger).errors, []);
+});
+
+test("executeReconcilePlan resolves a missing active record ledger-only", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  writeLedgerFile(ledger, [
+    baseRecord({
+      id: "shf_gone",
+      path: join(repo, "deleted.txt"),
+      provenance: { root: "repo", rootPath: repo, relativePath: "deleted.txt", basename: "deleted.txt", pathKind: "file", fingerprint: { byteSize: 9 } }
+    })
+  ]);
+  const plan = createReconcilePlan(ledger);
+
+  const execution = executeReconcilePlan(ledger, plan.planId);
+
+  assert.equal(execution.results[0]?.category, "resolve-missing");
+  assert.equal(execution.results[0]?.status, "resolved");
+  assert.equal(execution.results[0]?.newPath, null);
+
+  const record = readLedger(ledger).find((row) => row.id === "shf_gone");
+  assert.equal(record?.status, "resolved");
+  assert.ok(record?.resolvedAt, "resolvedAt should be stamped");
+  assert.ok(record?.resolutionReason, "resolutionReason should be stamped");
+  assert.equal(record?.reconcilePlanId, plan.planId);
+  assert.equal(record?.previousPath, join(repo, "deleted.txt"));
+  assert.deepEqual(validateLedger(ledger).errors, []);
+});
+
+test("executeReconcilePlan resolves a stale trashed record without touching the filesystem", () => {
+  const repo = fixture();
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const missingTarget = join(repo, ".artshelf", "trash", "plan_1", "shf_stale-original.txt");
+  writeLedgerFile(ledger, [
+    baseRecord({
+      id: "shf_stale",
+      status: "trashed",
+      path: join(repo, "original.txt"),
+      targetPath: missingTarget,
+      cleanupPlanId: "plan_1",
+      receiptPath: join(repo, ".artshelf", "receipts", "plan_1.json"),
+      cleanedAt: "2026-02-01T00:00:00.000Z",
+      provenance: { root: "repo", rootPath: repo, relativePath: "original.txt", basename: "original.txt", pathKind: "file" }
+    })
+  ]);
+  const plan = createReconcilePlan(ledger);
+
+  const execution = executeReconcilePlan(ledger, plan.planId);
+
+  assert.equal(execution.results[0]?.category, "resolve-stale-trash");
+  assert.equal(execution.results[0]?.status, "resolved");
+
+  const record = readLedger(ledger).find((row) => row.id === "shf_stale");
+  assert.equal(record?.status, "resolved");
+  assert.equal(record?.reconcilePlanId, plan.planId);
+  assert.ok(record?.reconciledAt, "reconciledAt should be stamped");
+  // Reconcile is ledger housekeeping: it never creates or deletes filesystem nodes.
+  assert.equal(existsSync(missingTarget), false);
+  assert.deepEqual(validateLedger(ledger).errors, []);
+});
+
+test("executeReconcilePlan refuses when no plan id is supplied", () => {
+  const { ledger } = remapFixture();
+  assert.throws(() => executeReconcilePlan(ledger, ""), /requires --plan-id/);
+});
+
+test("executeReconcilePlan refuses an unknown plan id", () => {
+  const { ledger } = remapFixture();
+  assert.throws(() => executeReconcilePlan(ledger, "reconcile_19990101_000000_dead"), /not found/i);
+});
+
+test("executeReconcilePlan refuses a plan whose declared id does not match the requested one", () => {
+  const { ledger } = remapFixture();
+  const plan = createReconcilePlan(ledger);
+  const tampered = { ...JSON.parse(readFileSync(plan.planPath as string, "utf8")), planId: "reconcile_19990101_000000_beef" };
+  writeFileSync(plan.planPath as string, `${JSON.stringify(tampered, null, 2)}\n`);
+
+  assert.throws(() => executeReconcilePlan(ledger, plan.planId), /mismatch/i);
+});
+
+test("executeReconcilePlan skips entries whose live ledger state diverged from the plan", () => {
+  const { ledger, current } = remapFixture();
+  const plan = createReconcilePlan(ledger);
+  // The reviewed plan said "remap to current", but the target vanished before execute:
+  // the live finding is no longer a safe remap, so the entry must be refused, not applied.
+  rmSync(current);
+
+  const execution = executeReconcilePlan(ledger, plan.planId);
+
+  assert.equal(execution.results[0]?.status, "skipped");
+  const record = readLedger(ledger).find((row) => row.id === "shf_remap");
+  assert.equal(record?.path, "/old-shelf/build/out.txt");
+  assert.equal(record?.reconcilePlanId, undefined);
+  assert.equal(record?.previousPath, undefined);
 });

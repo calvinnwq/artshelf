@@ -72,6 +72,15 @@ export type ArtshelfRecord = {
   // Absent on legacy records written before path provenance existed. Legacy rows are
   // treated as missing provenance, not malformed data.
   provenance?: PathProvenance;
+  // Reconcile audit trail (NGX-437), set by `reconcile --execute`. previousPath is the
+  // path the row held before a remap (or the stale path resolved away); reconcilePlanId
+  // /reconcileReceiptPath/reconciledAt/reconcileReason record which reviewed plan acted
+  // on the row and why, so executed changes stay auditable.
+  previousPath?: string;
+  reconcilePlanId?: string;
+  reconcileReceiptPath?: string;
+  reconciledAt?: string;
+  reconcileReason?: string;
 };
 
 export type DueStatus = "due" | "manual-review" | "missing-path" | "kept";
@@ -159,4 +168,30 @@ export type ReconcilePlan = {
   entries: ReconcileFinding[];
   blocked: ReconcileFinding[];
   planPath: string | null;
+};
+
+// Outcome of applying one reviewed plan entry during `reconcile --execute` (NGX-437):
+// - remapped: the row's path was rewritten to newPath and provenance recomputed.
+// - resolved: the row was archived/resolved ledger-only (resolve-missing / stale-trash).
+// - skipped: the live ledger no longer matched the reviewed plan, so the entry was
+//   refused rather than applied to stale state.
+export type ReconcileResultStatus = "remapped" | "resolved" | "skipped";
+
+export type ReconcileResult = {
+  id: string;
+  category: ReconcileCategory;
+  field: ReconcileField;
+  status: ReconcileResultStatus;
+  previousPath: string;
+  newPath: string | null;
+  reason: string;
+};
+
+// Receipt returned (and persisted) by `reconcile --execute`. Mirrors the cleanup
+// receipt shape so executed reconcile actions leave the same kind of audit artifact.
+export type ReconcileExecution = {
+  planId: string;
+  receiptPath: string;
+  executedAt: string;
+  results: ReconcileResult[];
 };
