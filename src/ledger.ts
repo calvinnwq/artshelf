@@ -668,7 +668,7 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
     // receipt before the first move and reconciles a prior interrupted run on rerun:
     // an artifact already moved into trash must not be moved again, and the ledger is
     // only advanced on receipt/filesystem evidence. This mirrors trash purge resume.
-    const existingReceipt = existsSync(receiptPath) ? readCleanupReceipt(receiptPath) : null;
+    const existingReceipt = existsSync(receiptPath) ? readCleanupReceiptIfValid(receiptPath) : null;
     const priorResultById = new Map((existingReceipt?.results ?? []).map((result) => [result.id, result]));
     const records = readLedger(ledgerPath);
     const recordsById = new Map(records.map((record) => [record.id, record]));
@@ -726,9 +726,8 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
       results.push({ id: entry.id, action: entry.action, status: "review-required", path: entry.path });
     }
 
+    writeCleanupReceipt(receiptPath, { planId, executedAt, status: "started", results });
     if (moves.length > 0) {
-      // Durable started receipt before the first move, so an interrupted run is resumable.
-      writeCleanupReceipt(receiptPath, { planId, executedAt, status: "started", results });
       for (const move of moves) {
         mkdirSync(trashRoot, { recursive: true });
         renameSync(move.entry.path, move.target);
@@ -748,6 +747,14 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
     });
     return { planId, receiptPath, results };
   });
+}
+
+function readCleanupReceiptIfValid(receiptPath: string): ReturnType<typeof readCleanupReceipt> | null {
+  try {
+    return readCleanupReceipt(receiptPath);
+  } catch {
+    return null;
+  }
 }
 
 function readCleanupReceipt(receiptPath: string): {
@@ -1137,5 +1144,5 @@ function assertCleanupPlanExecutable(plan: CleanupPlan, planId: string, ledgerPa
 
 function writeJson(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
+  atomicWriteFileSync(path, `${JSON.stringify(value, null, 2)}\n`);
 }

@@ -5,6 +5,8 @@ import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { executeCleanupPlan } from "../src/ledger.js";
+import { withPathLock } from "../src/locks.js";
 
 const CLI = new URL("../src/cli.js", import.meta.url);
 const PACKAGE_JSON = decodeURIComponent(new URL("../../package.json", import.meta.url).pathname);
@@ -1496,6 +1498,36 @@ test("cleanup execute records review and refused outcomes as terminal ledger sta
   assert.equal(followupPlan.entries.length, 0);
 });
 
+test("cleanup execute leaves receipt evidence when ledger update fails for review and refused outcomes", () => {
+  const fixture = fixtureDir();
+  const review = join(fixture, "review.txt");
+  const refused = join(fixture, "refused.txt");
+  writeFileSync(review, "review");
+  writeFileSync(refused, "refused");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", review, "--reason", "needs eyes", "--manual-review", "--cleanup", "review", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  artshelf(["put", refused, "--reason", "delete later", "--ttl", "1d", "--cleanup", "delete", "--ledger", ledger], "2026-06-01T00:00:00Z");
+
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const artshelfDir = dirname(ledger);
+  const receiptPath = join(artshelfDir, "receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+
+  withPathLock(ledger, () => {
+    try {
+      chmodSync(artshelfDir, 0o555);
+      assert.throws(() => executeCleanupPlan(ledger, plan.planId));
+      assert.equal(existsSync(receiptPath), true);
+      const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+      assert.equal(receipt.status, "started");
+      assert.deepEqual(receipt.results.map((entry: any) => entry.status).sort(), ["refused", "review-required"]);
+    } finally {
+      chmodSync(artshelfDir, 0o755);
+    }
+  });
+});
+
 test("cleanup execute resumes an interrupted move from a started receipt", () => {
   // NGX-427: cleanup execution moves a file into Artshelf trash before it writes the
   // receipt and updates the ledger. If the process exits in that window the artifact
@@ -1549,6 +1581,38 @@ test("cleanup execute resumes an interrupted move from a started receipt", () =>
   assert.equal(record.targetPath, target);
   assert.equal(record.cleanedAt, "2026-06-03T00:01:00Z");
 
+  assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("cleanup execute resumes from trash evidence when a started receipt is unreadable", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const entry = plan.entries[0];
+  const target = join(dirname(ledger), "trash", plan.planId, `${entry.id}-artifact.txt`);
+  mkdirSync(dirname(target), { recursive: true });
+  renameSync(artifact, target);
+  const receiptPath = join(dirname(ledger), "receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, "{");
+
+  const resumed = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const receipt = JSON.parse(resumed.stdout).receipt;
+  assert.equal(receipt.results[0].status, "trashed");
+  assert.equal(receipt.results[0].target, target);
+  assert.equal(existsSync(target), true);
+
+  const record = readLedger(ledger).find((entry2) => entry2.id === entry.id);
+  assert.ok(record);
+  assert.equal(record.status, "trashed");
+  assert.equal(record.receiptPath, receiptPath);
+  assert.equal(record.targetPath, target);
+  assert.equal(record.cleanedAt, "2026-06-03T00:05:00Z");
   assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
 });
 
