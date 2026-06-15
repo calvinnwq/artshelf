@@ -206,7 +206,8 @@ Resolved records stay in the audit trail but no longer participate in due or cle
 
 Review runs validate, due, and cleanup plan preview without moving files or
 writing a plan. With --all, review adds aggregate triage counts and the next
-safe action.
+safe action, including reconcile entry and blocked counts when path drift is
+detected.
 
 Render modes:
   (default)  Human summary of validation, triage counts, and the next safe action.

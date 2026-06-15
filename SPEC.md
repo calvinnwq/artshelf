@@ -257,9 +257,10 @@ per-ledger detail. JSON includes a `summary` block with affected-ledger, due,
 manual-review, missing-path, executable, skipped, and reconcile entry/blocked
 counts plus the preview plan ids; JSON also includes the next safe action. The
 per-ledger human detail appends a `reconcile` count when a ledger has reconcile
-drift. Human output adds a one-line triage count and states the same next safe
-action (repair broken ledgers, dry-run cleanup, dry-run reconcile for
-missing-path or reconcile drift, or nothing to do). Review never writes a plan, so
+drift. Human output adds a one-line triage count with the same reconcile counts
+and states the same next safe action (repair broken ledgers, dry-run cleanup,
+dry-run reconcile for missing-path or reconcile drift, or nothing to do). Review
+never writes a plan, so
 the next action always points at an explicit follow-up command.
 
 `review`, `status`, and `doctor` share three render modes. The default human

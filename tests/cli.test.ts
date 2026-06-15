@@ -1024,6 +1024,8 @@ test("review --all --json summarizes triage counts while preserving per-ledger d
   assert.equal(body.summary.missingPath, 0);
   assert.equal(body.summary.executable, 2);
   assert.equal(body.summary.skipped, 1);
+  assert.equal(body.summary.reconcileEntries, 0);
+  assert.equal(body.summary.reconcileBlocked, 0);
   assert.equal(body.summary.affected, 2);
   assert.equal(body.summary.planIds, undefined);
   assert.equal(body.summary.previewPlanIds.length, 2);
@@ -1064,6 +1066,8 @@ test("review --all human output states the next safe action", () => {
   assert.match(result.stdout, /triage: due 1/);
   assert.match(result.stdout, /manual-review 1/);
   assert.match(result.stdout, /executable 2/);
+  assert.match(result.stdout, /reconcile 0/);
+  assert.match(result.stdout, /blocked 0/);
   assert.match(result.stdout, /next: .*cleanup --dry-run --all/);
   assert.match(result.stdout, /registry:/);
 });
@@ -2947,6 +2951,17 @@ test("review --all --agent points missing-path-only warnings to reconcile dry-ru
   assert.match(packet.nextAction, /review --all/);
   assert.match(packet.nextAction, /nothing is auto-executable/i);
   assert.doesNotMatch(packet.nextAction, /--execute/);
+
+  const fullJson = artshelf(["review", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(fullJson.status, 0, fullJson.stderr);
+  const fullBody = JSON.parse(fullJson.stdout);
+  assert.equal(fullBody.summary.reconcileEntries, 1);
+  assert.equal(fullBody.summary.reconcileBlocked, 0);
+
+  const human = artshelf(["review", "--all", "--registry", registry], "2026-06-03T00:00:00Z");
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /triage: .*missing 1 .*reconcile 1 .*blocked 0/);
+  assert.match(human.stdout, /next: .*reconcile --dry-run --all/);
 });
 
 test("review --all surfaces reconcile-only drift on a non-active record instead of reporting all clear", () => {

@@ -100,7 +100,9 @@ export function printReviewAll(results: ReviewResult[], summary: ReviewSummary, 
   process.stdout.write(`${attentionGlyph(needsAttention)} artshelf review --all: ${needsAttention ? "needs attention" : "all clear"}\n`);
   process.stdout.write(`registry: ${registryPath} — ${summary.ledgers} ledgers (${summary.ok} ok, ${summary.invalid} invalid, ${summary.stale} stale)\n`);
   printReview(results);
-  process.stdout.write(`triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped}\n`);
+  process.stdout.write(
+    `triage: due ${summary.due} · manual-review ${summary.manualReview} · missing ${summary.missingPath} · executable ${summary.executable} · skipped ${summary.skipped} · reconcile ${summary.reconcileEntries} · blocked ${summary.reconcileBlocked}\n`
+  );
   process.stdout.write(`next: ${nextAction}\n`);
 }
 
