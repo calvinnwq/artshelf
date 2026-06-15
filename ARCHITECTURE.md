@@ -44,6 +44,7 @@ src/
   commands/shared.ts shared command helpers for registry validation and common output
   ledger.ts           ledger domain rules, cleanup planning/execution, validation
   registry.ts         ledger registry domain and persistence helpers
+  provenance.ts       reconcile-safe path provenance capture for new records
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger and cleanup domain contracts
@@ -54,8 +55,8 @@ src/
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
-(`ledger.ts`, `registry.ts`, `locks.ts`, `time.ts`, and `types.ts`) are the existing
-core/domain modules for this closeout. A future issue may move them under `src/core/`,
+(`ledger.ts`, `registry.ts`, `provenance.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
+the existing core/domain modules for this closeout. A future issue may move them under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
 
 ### `commands/`

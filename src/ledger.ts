@@ -13,6 +13,7 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { withPathLock } from "./locks.js";
+import { computeProvenance } from "./provenance.js";
 import { addTtl, assertIsoDate, ageOf, now, ttlToMs, toIso } from "./time.js";
 import type {
   CleanupAction,
@@ -86,12 +87,12 @@ export function normalizeLedgerPath(path?: string): string {
 }
 
 export function putRecord(ledgerPath: string, input: PutInput): ArtshelfRecord {
-  const record = prepareRecord(input);
+  const record = prepareRecord(input, ledgerPath);
   appendPreparedRecord(ledgerPath, record);
   return record;
 }
 
-export function prepareRecord(input: PutInput): ArtshelfRecord {
+export function prepareRecord(input: PutInput, ledgerPath: string): ArtshelfRecord {
   const artifactPath = resolve(input.path);
   if (!existsSync(artifactPath)) {
     throw new Error(`Path does not exist: ${input.path}`);
@@ -121,7 +122,8 @@ export function prepareRecord(input: PutInput): ArtshelfRecord {
     cleanup,
     owner: input.owner ?? "manual",
     labels: input.labels,
-    status: "active"
+    status: "active",
+    provenance: computeProvenance(artifactPath, { ledgerPath })
   };
 
   return record;
@@ -719,7 +721,7 @@ function registerArtshelfArtifact(
     cleanup: input.cleanup,
     owner: "artshelf",
     labels: input.labels
-  });
+  }, ledgerPath);
   withLedgerLock(ledgerPath, () => {
     const records = readLedger(ledgerPath);
     const index = records.findIndex((record) => (
