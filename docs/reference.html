@@ -276,7 +276,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>--ledger &lt;path&gt;</td><td>target an explicit JSONL ledger</td></tr>
               <tr><td>--registry &lt;path&gt;</td><td>target an explicit ledger registry</td></tr>
-              <tr><td>--all</td><td>read every registered ledger on commands that support discovery (<code>list</code>, <code>find</code>, <code>get</code>, <code>due</code>, <code>validate</code>, <code>review</code>, <code>status</code>, <code>cleanup --dry-run</code>, <code>trash list</code>)</td></tr>
+              <tr><td>--all</td><td>read every registered ledger on commands that support discovery (<code>list</code>, <code>find</code>, <code>get</code>, <code>due</code>, <code>validate</code>, <code>review</code>, <code>status</code>, <code>cleanup --dry-run</code>, <code>reconcile --dry-run</code>, <code>trash list</code>)</td></tr>
             </table>
           </section>
 
@@ -316,7 +316,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               Inside a git repo, Artshelf defaults to <code>.artshelf/ledger.jsonl</code>. Outside a
               repo it defaults to <code>~/.artshelf/ledger.jsonl</code>. A user-level registry at
               <code>~/.artshelf/ledgers.json</code> is the discovery index for <code>--all</code>
-              review, status, cleanup dry-run, and trash-list; project records stay in their own
+              review, status, cleanup dry-run, reconcile dry-run, and trash-list; project records stay in their own
               repo-local ledgers. Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed

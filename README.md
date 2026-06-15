@@ -141,6 +141,8 @@ artshelf doctor
 artshelf update [--json]
 artshelf cleanup --dry-run [--all]
 artshelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
+artshelf reconcile --dry-run [--all] [--ledger <path>] [--json]
+artshelf reconcile --execute --plan-id <id> --ledger <path> [--json]
 artshelf trash list [--all] [--ledger <path>] [--json]
 artshelf trash purge --older-than <ttl> --dry-run [--ledger <path>] [--json]
 artshelf trash purge --execute --plan-id <id> [--ledger <path>] [--json]

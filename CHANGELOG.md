@@ -91,6 +91,25 @@
   entries must be well-formed, so mismatched or malformed plans are refused before
   moving files or writing a receipt — the plan-id-bound posture trash purge
   already enforces.
+- Added path provenance to new ledger records: each record now captures a
+  `provenance` block (root class, root-relative path, basename, path kind, and an
+  optional byte-size fingerprint) so a later reconcile can rebuild a moved
+  artifact's path after a root rename without a daemon, watcher, or shell hook.
+  Provenance is additive and backward compatible — records written before it
+  simply omit the field and still validate, read, list, find, and get as legacy
+  rows, while `validate` reports a malformed provenance block only when the field
+  is present.
+- Added the approval-gated `artshelf reconcile` command for ledger/registry
+  housekeeping that never creates, moves, or deletes files. `--dry-run`
+  classifies recorded-path drift into a reviewed plan (`remap`, `resolve-missing`,
+  `resolve-stale-trash`, or `blocked`), writing and registering an Artshelf-owned
+  plan only when actionable entries exist and reusing a matching plan id
+  otherwise, and `--all` previews every registered ledger as dry-run only.
+  `--execute` applies exactly one reviewed `--plan-id` against one explicit
+  `--ledger`, refuses missing, unknown, or mismatched plans and entries whose live
+  state drifted since review, stamps the reconcile audit trail (`previousPath`,
+  `reconcilePlanId`, `reconcileReceiptPath`, `reconciledAt`, `reconcileReason`) on
+  every touched row, and writes an Artshelf-owned reconcile receipt.
 
 ## [0.11.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.2...artshelf-v0.11.0) (2026-06-14)
 

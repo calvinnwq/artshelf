@@ -953,6 +953,17 @@ human review.
 - CLI can list trashed records (single ledger or `--all`) and purge them through
   an approval-first, ledger-scoped dry-run/execute boundary that writes a purge
   receipt; purge refuses `--all` and never deletes without a reviewed plan id.
+- New records capture path provenance (root class, root-relative path, basename,
+  path kind, and an optional byte-size fingerprint); provenance is additive and
+  backward compatible, so legacy records without it still validate and read, and
+  `validate` reports a malformed provenance block only when the field is present.
+- CLI can reconcile drifted recorded paths through `artshelf reconcile` without
+  ever creating, moving, or deleting files: `--dry-run` classifies drift into a
+  reviewed plan (`remap`, `resolve-missing`, `resolve-stale-trash`, `blocked`) and
+  `--all` previews every registered ledger as dry-run only, while `--execute`
+  applies one reviewed plan id against one explicit ledger, refuses `--all`,
+  mismatched plans, and entries whose live state drifted since review, and writes
+  the reconcile audit trail and receipt.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`.
@@ -961,7 +972,8 @@ human review.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent
-  ledger writes, and trash list/purge behavior.
+  ledger writes, trash list/purge, path provenance validation, and reconcile
+  dry-run/execute behavior.
 
 ## Deferred
 

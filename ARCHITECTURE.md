@@ -103,10 +103,13 @@ Current domain ownership:
 - `ledger.ts`: ledger record lifecycle and validation, due classification,
   cleanup and trash plan/receipt rules
 - `registry.ts`: registry-backed all-ledger reads and registrations
+- `provenance.ts`: reconcile-safe path provenance capture for new records
+- `reconcile.ts`: path-drift classification plus reconcile dry-run plan and execute layers
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
-- `types.ts`: ledger, cleanup, trash, and registry-adjacent domain contracts
+- `types.ts`: ledger, cleanup, trash, provenance, reconcile, and registry-adjacent
+  domain contracts
 
 ### `adapters/`
 
