@@ -126,6 +126,14 @@
 - Moved `artshelf put` registry-warning output from stdout to stderr in human
   mode; `--json` output is unchanged (NGX-429).
 
+## [0.13.1](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.13.0...artshelf-v0.13.1) (2026-06-15)
+
+
+### Bug Fixes
+
+* **cleanup:** make cleanup --execute resumable after interruption ([d0188f7](https://github.com/calvinnwq/artshelf/commit/d0188f73a62b1ff2d173e26c61c826a67bbc9542))
+* **cleanup:** make cleanup execution resumable ([7ec0ebe](https://github.com/calvinnwq/artshelf/commit/7ec0ebe113f589ccd00ed0fdd1a54034afc242ec))
+
 ## [0.13.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.12.0...artshelf-v0.13.0) (2026-06-15)
 
 
