@@ -1040,7 +1040,7 @@ function pathExistsForPurge(path: string): boolean {
   }
 }
 
-function assertSafeGeneratedId(value: string, label: string): void {
+export function assertSafeGeneratedId(value: string, label: string): void {
   if (!/^[A-Za-z0-9_-]+$/.test(value)) {
     throw new Error(`Invalid ${label}: ${value}`);
   }

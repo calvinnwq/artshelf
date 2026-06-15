@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, join, sep } from "node:path";
-import { readLedger, registerArtshelfArtifact, writeLedger } from "./ledger.js";
+import { assertSafeGeneratedId, readLedger, registerArtshelfArtifact, writeLedger } from "./ledger.js";
 import { withPathLock } from "./locks.js";
 import { computeProvenance, resolveLedgerRoot, resolveRepoRoot } from "./provenance.js";
 import { now, toIso } from "./time.js";
@@ -221,7 +221,7 @@ function assertReconcilePlanExecutable(plan: ReconcilePlan, planId: string, ledg
 }
 
 function reconcileReceiptPath(ledgerPath: string, planId: string): string {
-  if (!/^[A-Za-z0-9_-]+$/.test(planId)) throw new Error(`Invalid reconcile plan id: ${planId}`);
+  assertSafeGeneratedId(planId, "reconcile plan id");
   return join(dirname(ledgerPath), "reconcile-receipts", `${planId}.json`);
 }
 
@@ -388,6 +388,6 @@ function makeReconcilePlanId(date: Date): string {
 }
 
 function reconcilePlanPath(ledgerPath: string, planId: string): string {
-  if (!/^[A-Za-z0-9_-]+$/.test(planId)) throw new Error(`Invalid reconcile plan id: ${planId}`);
+  assertSafeGeneratedId(planId, "reconcile plan id");
   return join(dirname(ledgerPath), "reconcile-plans", `${planId}.json`);
 }
