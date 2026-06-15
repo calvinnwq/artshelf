@@ -1,8 +1,10 @@
-import { existsSync, statSync } from "node:fs";
-import { basename, join, sep } from "node:path";
-import { readLedger } from "./ledger.js";
+import { randomBytes } from "node:crypto";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, join, sep } from "node:path";
+import { readLedger, registerArtshelfArtifact } from "./ledger.js";
 import { resolveLedgerRoot, resolveRepoRoot } from "./provenance.js";
-import type { ArtshelfRecord, PathProvenance, ReconcileCategory, ReconcileField, ReconcileFinding } from "./types.js";
+import { now, toIso } from "./time.js";
+import type { ArtshelfRecord, PathProvenance, ReconcileCategory, ReconcileField, ReconcileFinding, ReconcilePlan } from "./types.js";
 
 type Roots = {
   ledgerRoot: string;
@@ -27,6 +29,41 @@ export function classifyReconcileFindings(ledgerPath: string): ReconcileFinding[
     if (finding) findings.push(finding);
   }
   return findings;
+}
+
+// Build the reconcile plan without persisting anything (NGX-437 dry-run preview).
+// This is fully read-only: it classifies drift and returns the plan a `--dry-run`
+// would create, but never writes a plan file or touches the ledger. An empty plan
+// (no actionable entries) collapses to the not-created shape so callers can render
+// "nothing to reconcile" the same way cleanup does.
+export function previewReconcilePlan(ledgerPath: string): ReconcilePlan {
+  const plan = buildReconcilePlan(ledgerPath);
+  return plan.entries.length === 0 ? noCreatedReconcilePlan(plan) : plan;
+}
+
+// Create (or reuse) a reviewed reconcile plan (NGX-437 dry-run). This is the only
+// part of dry-run that writes: it persists the plan JSON and registers it as an
+// artshelf-owned artifact so the plan file is tracked and a later `--execute` can
+// bind to an exact reviewed plan id. When an earlier plan already covers the same
+// findings it is reused verbatim (stable plan id), and when nothing is actionable
+// no plan artifact is created at all, keeping dry-run side-effect-free in that case.
+export function createReconcilePlan(ledgerPath: string): ReconcilePlan {
+  const plan = buildReconcilePlan(ledgerPath);
+  if (plan.entries.length === 0) return noCreatedReconcilePlan(plan);
+
+  const existing = matchingExistingReconcilePlan(ledgerPath, plan);
+  const reviewed = existing ? { ...plan, planId: existing.planId, planPath: existing.planPath } : plan;
+  if (!reviewed.planPath) throw new Error("reconcile plan path was not created");
+
+  writeReconcilePlanFile(reviewed.planPath, reviewed);
+  registerArtshelfArtifact(ledgerPath, reviewed.planPath, {
+    reason: `Artshelf reconcile dry-run plan ${reviewed.planId}`,
+    ttl: "14d",
+    kind: "run-artifact",
+    cleanup: "trash",
+    labels: ["artshelf", "reconcile-plan", reviewed.planId]
+  });
+  return reviewed;
 }
 
 function classifyRecord(record: ArtshelfRecord, roots: Roots): ReconcileFinding | null {
@@ -119,4 +156,74 @@ function finding(
 
 function fromPosix(path: string): string {
   return sep === "/" ? path : path.split("/").join(sep);
+}
+
+// Split classified findings into a plan: actionable entries (everything a scoped
+// `--execute` may apply) versus blocked findings (surfaced for review only). The
+// plan id/path are computed up front so a dry-run can persist deterministically.
+function buildReconcilePlan(ledgerPath: string): ReconcilePlan {
+  const generatedAt = now();
+  const findings = classifyReconcileFindings(ledgerPath);
+  const entries = findings.filter((finding) => finding.category !== "blocked");
+  const blocked = findings.filter((finding) => finding.category === "blocked");
+  const planId = makeReconcilePlanId(generatedAt);
+  return {
+    planId,
+    generatedAt: toIso(generatedAt),
+    ledgerPath,
+    entries,
+    blocked,
+    planPath: reconcilePlanPath(ledgerPath, planId)
+  };
+}
+
+function noCreatedReconcilePlan(plan: ReconcilePlan): ReconcilePlan {
+  return { ...plan, planId: "not-created", planPath: null };
+}
+
+// Reuse an earlier plan whose actionable entries match this one's, so repeated
+// dry-runs converge on a single stable plan id (mirrors cleanup plan reuse). Only
+// the structural entry fields are fingerprinted; volatile fields (generatedAt) and
+// the review-only blocked list do not affect reuse.
+function matchingExistingReconcilePlan(ledgerPath: string, plan: ReconcilePlan): ReconcilePlan | null {
+  const plansDir = join(dirname(ledgerPath), "reconcile-plans");
+  if (!existsSync(plansDir)) return null;
+
+  const filenames = readdirSync(plansDir).filter((name) => name.endsWith(".json")).sort().reverse();
+  for (const filename of filenames) {
+    const planPath = join(plansDir, filename);
+    try {
+      const candidate = JSON.parse(readFileSync(planPath, "utf8")) as ReconcilePlan;
+      if (candidate.ledgerPath !== ledgerPath) continue;
+      if (reconcilePlanFingerprint(candidate) !== reconcilePlanFingerprint(plan)) continue;
+      return { ...candidate, planPath };
+    } catch {
+      continue;
+    }
+  }
+  return null;
+}
+
+function reconcilePlanFingerprint(plan: ReconcilePlan): string {
+  return JSON.stringify(plan.entries.map((entry) => ({
+    id: entry.id,
+    category: entry.category,
+    field: entry.field,
+    currentPath: entry.currentPath,
+    proposedPath: entry.proposedPath
+  })));
+}
+
+function writeReconcilePlanFile(planPath: string, plan: ReconcilePlan): void {
+  mkdirSync(dirname(planPath), { recursive: true });
+  writeFileSync(planPath, `${JSON.stringify(plan, null, 2)}\n`);
+}
+
+function makeReconcilePlanId(date: Date): string {
+  return `reconcile_${toIso(date).replace(/[-:]/g, "").replace("T", "_").replace("Z", "")}_${randomBytes(2).toString("hex")}`;
+}
+
+function reconcilePlanPath(ledgerPath: string, planId: string): string {
+  if (!/^[A-Za-z0-9_-]+$/.test(planId)) throw new Error(`Invalid reconcile plan id: ${planId}`);
+  return join(dirname(ledgerPath), "reconcile-plans", `${planId}.json`);
 }

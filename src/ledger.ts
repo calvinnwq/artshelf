@@ -715,7 +715,10 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   });
 }
 
-function registerArtshelfArtifact(
+// Exported so the reconcile plan layer (src/reconcile.ts) registers its dry-run plan
+// artifacts through the same upsert-by-path-and-labels path that cleanup plans use,
+// keeping plan files tracked and reused under a stable plan id.
+export function registerArtshelfArtifact(
   ledgerPath: string,
   path: string,
   input: Pick<PutInput, "reason" | "ttl" | "kind" | "cleanup" | "labels">

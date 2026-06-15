@@ -145,3 +145,18 @@ export type ReconcileFinding = {
   proposedPath: string | null;
   reason: string;
 };
+
+// A reviewed reconcile plan produced by `reconcile --dry-run` (NGX-437). It mirrors
+// CleanupPlan's plan-id-bound shape so execution can later require an exact reviewed
+// plan id. `entries` are the actionable findings (remap / resolve-missing /
+// resolve-stale-trash) that a scoped `--execute` may apply; `blocked` carries the
+// findings surfaced for review but never auto-applied. `planPath` is null until the
+// plan is actually persisted (it stays null for an empty preview).
+export type ReconcilePlan = {
+  planId: string;
+  generatedAt: string;
+  ledgerPath: string;
+  entries: ReconcileFinding[];
+  blocked: ReconcileFinding[];
+  planPath: string | null;
+};
