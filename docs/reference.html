@@ -203,6 +203,30 @@ artshelf trash purge --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--j
             <p>Mark a handled, missing, or no-longer-needed record as manually resolved. Updates the ledger only; never moves or deletes files.</p>
           </section>
 
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf reconcile</h2><span class="cmd-flag approval">approval-gated</span></div>
+            <pre><code><span class="c"># classify path drift into a reviewed plan</span>
+artshelf reconcile --dry-run [--all] [--ledger &lt;path&gt;] [--json]
+
+<span class="c"># apply exactly one reviewed plan id for one explicit ledger</span>
+artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]</code></pre>
+            <p>
+              Approval-gated ledger housekeeping for drifted recorded paths, not cleanup: it never
+              creates, moves, or deletes files. <code>--dry-run</code> classifies each drifted record as
+              <code>remap</code> (a moved path safely rewritten from provenance), <code>resolve-missing</code>,
+              <code>resolve-stale-trash</code>, or <code>blocked</code>, and registers a reviewed plan when
+              actionable entries exist. <code>--execute</code> applies one reviewed plan id, refuses
+              missing/unknown/mismatched plans and entries whose live state drifted, and stamps the
+              reconcile audit trail (<code>previousPath</code>, <code>reconcilePlanId</code>,
+              <code>reconciledAt</code>) on every touched row.
+            </p>
+            <div class="callout" data-kind="boundary">
+              <span class="callout-label">Hard boundary</span>
+              <p>No file deletion, no auto-execute, and no global execute.
+              <code>reconcile --execute --all</code> does not exist, and a fresh plan cannot be executed in one command.</p>
+            </div>
+          </section>
+
           <section>
             <h2>Global flags</h2>
             <p>Only these apply to every command.</p>

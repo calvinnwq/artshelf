@@ -526,6 +526,76 @@ Rules:
 - Keeps the record visible through `list` and `list --status resolved`.
 - Refuses records that are already `resolved`; the original reason is preserved.
 
+### `artshelf reconcile`
+
+Approval-gated ledger/registry housekeeping that turns recorded-path drift into a
+reviewed plan and then applies exactly one reviewed plan id. Reconcile is **not**
+cleanup: it never creates, moves, or deletes files. It only rewrites drifted ledger
+paths and resolves rows that can no longer be acted on, mirroring the cleanup
+dry-run/execute boundary.
+
+```bash
+artshelf reconcile --dry-run [--ledger <path>] [--json]
+artshelf reconcile --dry-run --all [--registry <path>] [--json]
+artshelf reconcile --execute --plan-id <id> --ledger <path> [--json]
+```
+
+Dry-run classifies each drifted record into one finding category:
+
+- `remap`: the recorded path is gone, but provenance reconstructs the artifact under
+  the current ledger/repo root (for example after a `shelf` -> `artshelf` or
+  `.shelf` -> `.artshelf` rename) and the basename plus optional file fingerprint
+  still match. The path can be safely rewritten to the reconstructed location.
+- `resolve-missing`: an `active` or `review-required` record's path is gone and no
+  safe remap target was found (external path, legacy row, or nothing matches). The
+  row can be resolved after review.
+- `resolve-stale-trash`: an already-`trashed` record's trash target is gone. The
+  ledger row is resolved ledger-only; the filesystem is never touched.
+- `blocked`: a candidate exists at the reconstructed location but its name or
+  fingerprint does not match, or evidence is otherwise ambiguous or unsafe. Blocked
+  findings are surfaced for review and never auto-applied.
+
+`registry-remap` is reserved in the finding taxonomy for a future registry pass that
+updates a registered ledger whose path moved; the current dry-run classifies drift
+within a single ledger's records and does not yet emit `registry-remap`.
+
+Dry-run rules:
+
+- Read-only except for reviewed plan artifact creation/reuse. It classifies drift
+  and, when actionable entries exist, persists the plan to
+  `<ledger-dir>/reconcile-plans/<id>.json` and registers an Artshelf-owned plan
+  record (`owner=artshelf`, `kind=run-artifact`, `ttl=14d`, `cleanup=trash`, labels
+  including `artshelf`, `reconcile-plan`, and the plan id).
+- A no-op dry-run (only blocked or no findings) reports `planId=not-created`,
+  `planPath=null`, and writes no plan file. A later dry-run whose actionable entries
+  match an existing plan reuses that plan id and refreshes its plan artifact.
+- `--all` is dry-run only and previews every registered ledger after the registry
+  validates. There is no global execute.
+
+Execute rules:
+
+- Requires `--plan-id` and one explicit `--ledger`. It binds to one reviewed plan id
+  and refuses a missing, unknown, or id/ledger-mismatched plan before any mutation.
+  There is no `reconcile --execute --all` and no fresh-plan-then-execute.
+- Before applying each entry it re-classifies the live ledger and refuses entries
+  whose live state has drifted since review (record gone, status changed, remap
+  target vanished, or path reappeared), skipping them instead of mutating stale rows.
+- A `remap` rewrites the record `path` and recomputes its provenance for the new
+  location while keeping the row's status; every resolve category archives the row
+  ledger-only as `resolved`.
+- Preserves audit provenance on every touched row (`previousPath`, the rewritten
+  `path` for a remap, `reconcilePlanId`, `reconcileReceiptPath`, `reconciledAt`, and
+  `reconcileReason`), and writes a reconcile receipt to
+  `<ledger-dir>/reconcile-receipts/<id>.json` registered as an Artshelf-owned
+  artifact (`ttl=30d`, `cleanup=review`, labels including `artshelf`,
+  `reconcile-receipt`, and the plan id).
+- Never creates or deletes filesystem artifacts. Reconcile is ledger/registry
+  bookkeeping only, and `doctor`, `status`, `review`, and `validate` never perform
+  silent reconcile edits.
+
+JSON output is deterministic (findings preserve ledger order) so agents can render a
+decision packet and approve a specific plan id.
+
 ## Ledger Storage
 
 V1 supports two scopes:
@@ -658,6 +728,24 @@ the purge provenance:
   "purgeReceiptPath": "/absolute/path/.artshelf/purge-receipts/purge_20260601_061000_ef56.json"
 }
 ```
+
+Records touched by `artshelf reconcile --execute` carry the reconcile audit trail so a
+remap or resolve stays traceable to the reviewed plan that produced it:
+
+```json
+{
+  "previousPath": "/old-absolute/path/build/out.txt",
+  "reconcilePlanId": "reconcile_20260601_062000_ab12",
+  "reconcileReceiptPath": "/absolute/path/.artshelf/reconcile-receipts/reconcile_20260601_062000_ab12.json",
+  "reconciledAt": "2026-06-01T06:20:00Z",
+  "reconcileReason": "recorded path is missing; reconstructed at the current root"
+}
+```
+
+`previousPath` preserves the path the row held before the action; for a `remap` the new
+location is the rewritten `path`, while resolve categories leave `path` and set
+`status=resolved`. These fields are additive and absent on records reconcile never
+touched.
 
 ### Path provenance
 
