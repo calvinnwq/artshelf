@@ -111,3 +111,37 @@ export type TrashPurgePlan = {
   skipped: Array<{ id: string; targetPath: string; reason: string }>;
   planPath: string | null;
 };
+
+// How a drifted path can be reconciled. Mirrors NGX-437's classification taxonomy:
+// - remap: a moved/renamed path can be safely rewritten to its current location
+//   using provenance (e.g. repo-root or `.shelf` -> `.artshelf` renames).
+// - resolve-missing: an active record's path is gone with no safe remap target;
+//   it can be resolved after confirmation.
+// - resolve-stale-trash: an already-trashed record's trash target is gone; the
+//   ledger row can be resolved/archived without touching the filesystem.
+// - registry-remap: a registered ledger path moved (emitted by the registry pass).
+// - blocked: ambiguous, unsafe, multiple candidates, outside safe roots, or
+//   insufficient evidence to act automatically.
+export type ReconcileCategory =
+  | "remap"
+  | "resolve-missing"
+  | "resolve-stale-trash"
+  | "registry-remap"
+  | "blocked";
+
+// Which recorded path on a ledger row drifted.
+export type ReconcileField = "path" | "targetPath";
+
+// A single reconcile observation about one drifted path. Read-only: findings never
+// mutate the ledger. `currentPath` is the stale path recorded today; `proposedPath`
+// is the reconstructed current location for a `remap`, and null for every other
+// category (where there is nothing safe to point at).
+export type ReconcileFinding = {
+  id: string;
+  category: ReconcileCategory;
+  field: ReconcileField;
+  status: ArtshelfStatus;
+  currentPath: string;
+  proposedPath: string | null;
+  reason: string;
+};

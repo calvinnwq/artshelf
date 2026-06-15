@@ -13,7 +13,7 @@ export type ProvenanceContext = {
 // filesystem to classify the node and fingerprint files; it never mutates anything.
 export function computeProvenance(targetPath: string, context: ProvenanceContext): PathProvenance {
   const absolute = resolve(targetPath);
-  const ledgerRoot = resolve(dirname(context.ledgerPath));
+  const ledgerRoot = resolveLedgerRoot(context.ledgerPath);
   const repoRoot = findRepoRoot(ledgerRoot);
   const node = classifyNode(absolute);
 
@@ -86,6 +86,20 @@ export function validateProvenance(provenance: unknown): string[] {
   }
 
   return problems;
+}
+
+// The current ledger root: the directory that owns trash/, plans/, and receipts/.
+// Provenance with a `ledger` root stores paths relative to this, so a reconcile can
+// re-root them under the current ledger directory after a `.shelf` -> `.artshelf` move.
+export function resolveLedgerRoot(ledgerPath: string): string {
+  return resolve(dirname(ledgerPath));
+}
+
+// The current repo root for a ledger, using the same resolution as capture time:
+// the enclosing git checkout, or the parent of a dotted ledger directory. Returns
+// null when no repo root can be determined (e.g. a user-global ledger).
+export function resolveRepoRoot(ledgerPath: string): string | null {
+  return findRepoRoot(resolveLedgerRoot(ledgerPath));
 }
 
 function reconstructable(
