@@ -64,7 +64,13 @@ export function statusCommand(scope: "all" | "single", command: "status" | "revi
   return ledgerPath ? `artshelf ${command} --ledger ${ledgerPath}` : `artshelf ${command}`;
 }
 
-function statusNextAction(blockers: string[], counts: StatusCounts, scope: "all" | "single", ledgerPath?: string): string {
+function statusNextAction(
+  blockers: string[],
+  counts: StatusCounts,
+  scope: "all" | "single",
+  ledgerPath?: string,
+  registryPath?: string
+): string {
   if (blockers.length > 0) {
     const verify = statusCommand(scope, "status", ledgerPath);
     return `repair ${blockers.length} broken ledger(s) above, then re-run \`${verify}\``;
@@ -77,7 +83,8 @@ function statusNextAction(blockers: string[], counts: StatusCounts, scope: "all"
     return `run \`${review}\` to inspect manual-review records; nothing is auto-executed`;
   }
   if (counts.missingPath > 0) {
-    return "inspect missing-path records and `artshelf resolve` the ones no longer needed; nothing is auto-executable";
+    const reconcile = scope === "all" ? `artshelf reconcile --dry-run --all${registryPath ? ` --registry ${registryPath}` : ""}` : `artshelf reconcile --dry-run --ledger ${ledgerPath}`;
+    return `run \`${reconcile} --json\` and then \`${review}\` to surface reconcile-ready approvals; nothing is auto-executable`;
   }
   return "nothing due — no broken ledgers and no due, manual-review, missing-path, or pending cleanup entries";
 }
@@ -108,7 +115,7 @@ export function buildStatusAgentPacketAll(report: StatusReport): StatusAgentPack
     counts,
     attention: statusAttention(counts),
     blockers,
-    nextAction: statusNextAction(blockers, counts, "all"),
+    nextAction: statusNextAction(blockers, counts, "all", undefined, report.registryPath),
     verification: `artshelf status --all --agent --registry ${report.registryPath}`
   };
 }

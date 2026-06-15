@@ -55,12 +55,12 @@ function doctorAttention(summary: DoctorReport["summary"]): string[] {
   return DOCTOR_ATTENTION_CATEGORIES.filter((key) => summary[key] > 0);
 }
 
-function doctorNextAction(blockers: string[], summary: DoctorReport["summary"]): string {
+function doctorNextAction(blockers: string[], summary: DoctorReport["summary"], registryPath: string): string {
   if (blockers.length > 0) {
     return `repair ${blockers.length} registry/ledger issue(s) above, then re-run \`artshelf doctor\``;
   }
   if (summary.warnings > 0) {
-    return `healthy, but ${summary.warnings} warning(s) noted — run \`artshelf validate --all\` to inspect; nothing is auto-executed`;
+    return `healthy, but ${summary.warnings} warning(s) noted — run \`artshelf reconcile --dry-run --all --registry ${registryPath}\` to prepare reconcile-ready approvals, then run \`artshelf review --all --registry ${registryPath}\`; nothing is auto-executed`;
   }
   return "artshelf is healthy on this machine — cleanup safety enforced; no action needed";
 }
@@ -91,7 +91,7 @@ export function buildDoctorAgentPacket(report: DoctorReport): DoctorAgentPacket 
     attention: doctorAttention(report.summary),
     blockers,
     cleanupSafety: report.cleanupSafety,
-    nextAction: doctorNextAction(blockers, report.summary),
+    nextAction: doctorNextAction(blockers, report.summary, report.registryPath),
     verification: `artshelf doctor --agent --registry ${report.registryPath}`
   };
 }

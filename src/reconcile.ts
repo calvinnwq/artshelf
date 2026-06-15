@@ -84,6 +84,10 @@ export function createReconcilePlan(ledgerPath: string): ReconcilePlan {
   return reviewed;
 }
 
+export function matchingReconcilePlan(ledgerPath: string, plan: ReconcilePlan): ReconcilePlan | null {
+  return matchingExistingReconcilePlan(ledgerPath, plan);
+}
+
 // Apply a reviewed reconcile plan (NGX-437 `reconcile --execute`). This is the only
 // mutating reconcile entrypoint and it is deliberately conservative:
 //   * It refuses up front when the plan id is missing, the plan file is absent, or the

@@ -2,7 +2,8 @@ import { existsSync } from "node:fs";
 import { dueEntries, listTrashedRecords, previewCleanupPlan, readLedger, validateLedger } from "../ledger.js";
 import { listRegisteredLedgers } from "../registry.js";
 import type { LedgerRegistryEntry } from "../registry.js";
-import type { CleanupPlan, DueEntry, ArtshelfRecord, ReconcilePlan } from "../types.js";
+import { matchingReconcilePlan, previewReconcilePlan } from "../reconcile.js";
+import type { CleanupPlan, DueEntry, ReconcilePlan, ArtshelfRecord } from "../types.js";
 import { printJson } from "../renderers/json.js";
 import { type ReviewResult, type ReviewSummary } from "../renderers/review.js";
 
@@ -52,16 +53,21 @@ export function reviewLedger(ledger: LedgerRegistryEntry, registered = true): Re
       ledgerExists,
       validate,
       due: [],
-      plan: emptyReviewPlan(ledger.path)
+      plan: emptyReviewPlan(ledger.path),
+      reconcile: null
     };
   }
+
+  const reconcilePlan = previewReconcilePlan(ledger.path);
+  const reviewedReconcilePlan = reconcilePlan.entries.length > 0 || reconcilePlan.blocked.length > 0 ? matchingReconcilePlan(ledger.path, reconcilePlan) : null;
 
   return {
     ledger,
     ledgerExists,
     validate,
     due: dueEntries(readLedger(ledger.path)),
-    plan: previewCleanupPlan(ledger.path)
+    plan: previewCleanupPlan(ledger.path),
+    reconcile: { plan: reconcilePlan, reviewedPlan: reviewedReconcilePlan }
   };
 }
 
