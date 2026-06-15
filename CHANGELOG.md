@@ -111,6 +111,19 @@
   `reconcilePlanId`, `reconcileReceiptPath`, `reconciledAt`, `reconcileReason`) on
   every touched row, and writes an Artshelf-owned reconcile receipt.
 
+## [0.12.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.11.0...artshelf-v0.12.0) (2026-06-15)
+
+
+### Features
+
+* **ledger:** add path-provenance foundation for NGX-436 ([f0bf797](https://github.com/calvinnwq/artshelf/commit/f0bf797223e5032e326842cc1dd8fcb47130ed3e))
+* **ledger:** add provenance validation distinguishing legacy from malformed rows (NGX-436) ([ce5128a](https://github.com/calvinnwq/artshelf/commit/ce5128a85bcc6353f73c3b47bd9a433918236ee0))
+* **reconcile:** add path-provenance foundation and approval-gated reconcile command ([ad4bcec](https://github.com/calvinnwq/artshelf/commit/ad4bcec7839e004a0f7ca3cc9a8ecebb0caaac0f))
+* **reconcile:** add read-only classification engine for NGX-437 ([3245738](https://github.com/calvinnwq/artshelf/commit/3245738c8d7b3e3dfd95c49fae414596b35c22e1))
+* **reconcile:** add reconcile dry-run plan layer for NGX-437 ([ddc8881](https://github.com/calvinnwq/artshelf/commit/ddc8881713d26f1e43575b3097e49558c22cc2e7))
+* **reconcile:** add reconcile execute layer with audit trail and stale-state refusals (NGX-437) ([50a12d4](https://github.com/calvinnwq/artshelf/commit/50a12d49cdf0552b675bfaa75a0220c886bd64e5))
+* **reconcile:** wire reconcile CLI command with integration tests (NGX-437) ([0ea033b](https://github.com/calvinnwq/artshelf/commit/0ea033b73e96910de87a832e5ada835bc603ff12))
+
 ## [0.11.0](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.10.2...artshelf-v0.11.0) (2026-06-14)
 
 
