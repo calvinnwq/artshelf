@@ -242,7 +242,7 @@ function buildReconcileDecisions(result: ReviewResult, _scope: "all" | "single")
       actionType: "reconcile",
       approvalTarget: null,
       reason: "path drift is ambiguous or unsafe and needs manual investigation",
-      nextStep: "run artshelf reconcile --dry-run --ledger " + result.ledger.path + " --json, then handle each item manually"
+      nextStep: `run \`artshelf reconcile --dry-run --ledger ${result.ledger.path} --json\`, then handle each item manually`
     });
   }
 
