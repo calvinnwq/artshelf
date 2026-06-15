@@ -60,6 +60,7 @@ const PUBLIC_COMMANDS = [
   "ledgers",
   "list",
   "put",
+  "reconcile",
   "resolve",
   "review",
   "status",

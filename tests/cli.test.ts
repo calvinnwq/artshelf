@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -1483,6 +1483,186 @@ test("cleanup execute records review and refused outcomes as terminal ledger sta
   assert.equal(followupPlan.planId, "not-created");
   assert.equal(followupPlan.planPath, null);
   assert.equal(followupPlan.entries.length, 0);
+});
+
+test("reconcile dry-run remaps a moved repo path and execute rewrites the row with audit provenance", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  mkdirSync(join(fixture, "sub"), { recursive: true });
+  const artifact = join(fixture, "sub", "a.txt");
+  writeFileSync(artifact, "payload");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "keep", "--ttl", "30d", "--ledger", ledger, "--registry", registry], "2026-06-01T00:00:00Z");
+
+  // Simulate moving/renaming the repo checkout: artifact and ledger move together,
+  // so the recorded absolute path is now stale but provenance can reconstruct the
+  // current location under the new repo root.
+  const moved = `${fixture}-moved`;
+  renameSync(fixture, moved);
+  const movedLedger = join(moved, ".artshelf", "ledger.jsonl");
+  const movedArtifact = join(moved, "sub", "a.txt");
+
+  const dryRun = artshelf(["reconcile", "--dry-run", "--ledger", movedLedger, "--json"], "2026-06-02T00:00:00Z");
+  assert.equal(dryRun.status, 0, dryRun.stderr);
+  const plan = JSON.parse(dryRun.stdout).plan;
+  assert.equal(plan.entries.length, 1);
+  assert.equal(plan.entries[0].category, "remap");
+  assert.equal(plan.entries[0].field, "path");
+  assert.equal(plan.entries[0].proposedPath, movedArtifact);
+  assert.equal(existsSync(plan.planPath), true);
+
+  // Dry-run is read-only except for the reviewed plan artifact: the target row is untouched.
+  const beforeExecute = readLedger(movedLedger);
+  assert.equal(beforeExecute[0]?.path, artifact);
+  const preservedStatus = beforeExecute[0]?.status;
+
+  const executed = artshelf(["reconcile", "--execute", "--plan-id", plan.planId, "--ledger", movedLedger, "--json"], "2026-06-02T00:05:00Z");
+  assert.equal(executed.status, 0, executed.stderr);
+  const receipt = JSON.parse(executed.stdout).receipt;
+  assert.equal(receipt.results[0].status, "remapped");
+  assert.equal(receipt.results[0].newPath, movedArtifact);
+
+  const remapped = readLedger(movedLedger)[0];
+  assert.equal(remapped.path, movedArtifact);
+  assert.equal(remapped.status, preservedStatus);
+  assert.equal(remapped.previousPath, artifact);
+  assert.equal(remapped.reconcilePlanId, plan.planId);
+  assert.equal(remapped.reconcileReceiptPath, receipt.receiptPath);
+  assert.equal(remapped.reconciledAt, "2026-06-02T00:05:00Z");
+  assert.equal(remapped.provenance.relativePath, "sub/a.txt");
+
+  // The row is reconcile-healthy now: a second dry-run finds nothing actionable.
+  const followup = JSON.parse(artshelf(["reconcile", "--dry-run", "--ledger", movedLedger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  assert.equal(followup.planId, "not-created");
+  assert.equal(followup.entries.length, 0);
+});
+
+test("reconcile dry-run resolves a missing path and execute binds to one reviewed plan id", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "gone.txt");
+  writeFileSync(artifact, "temp");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "scratch", "--ttl", "1d", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  rmSync(artifact); // recorded artifact disappears with no safe remap target
+
+  // Execute refuses without a reviewed plan id.
+  const refusal = artshelf(["reconcile", "--execute", "--ledger", ledger]);
+  assert.equal(refusal.status, 1);
+  assert.match(refusal.stderr, /Missing required --plan-id/);
+
+  const dryRun = artshelf(["reconcile", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(dryRun.status, 0, dryRun.stderr);
+  const plan = JSON.parse(dryRun.stdout).plan;
+  assert.equal(plan.entries.length, 1);
+  assert.equal(plan.entries[0].category, "resolve-missing");
+  assert.equal(plan.entries[0].id, readLedger(ledger)[0].id);
+  assert.equal(existsSync(plan.planPath), true);
+
+  // The plan is registered as a tracked artshelf-owned artifact.
+  const planRecord = readLedger(ledger).find((record) => record.path === plan.planPath);
+  assert.ok(planRecord);
+  assert.equal(planRecord.owner, "artshelf");
+  assert.deepEqual(planRecord.labels, ["artshelf", "reconcile-plan", plan.planId]);
+
+  // Execute refuses an unknown plan id.
+  const unknown = artshelf(["reconcile", "--execute", "--plan-id", "reconcile_nope", "--ledger", ledger]);
+  assert.equal(unknown.status, 1);
+  assert.match(unknown.stderr, /Reconcile plan not found/);
+
+  const executed = artshelf(["reconcile", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
+  assert.equal(executed.status, 0, executed.stderr);
+  const receipt = JSON.parse(executed.stdout).receipt;
+  assert.equal(receipt.results[0].status, "resolved");
+  assert.equal(existsSync(receipt.receiptPath), true);
+
+  const resolved = readLedger(ledger)[0];
+  assert.equal(resolved.status, "resolved");
+  assert.equal(resolved.previousPath, artifact);
+  assert.equal(resolved.reconcilePlanId, plan.planId);
+  assert.equal(resolved.reconcileReceiptPath, receipt.receiptPath);
+  assert.equal(resolved.reconciledAt, "2026-06-03T00:05:00Z");
+
+  // Re-running execute against the now-resolved ledger refuses the stale entry.
+  const replay = artshelf(["reconcile", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:06:00Z");
+  assert.equal(replay.status, 0, replay.stderr);
+  assert.equal(JSON.parse(replay.stdout).receipt.results[0].status, "skipped");
+
+  // Nothing left to reconcile, and the ledger still validates.
+  const followup = JSON.parse(artshelf(["reconcile", "--dry-run", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).plan;
+  assert.equal(followup.planId, "not-created");
+  assert.equal(followup.entries.length, 0);
+  assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("reconcile refuses unsafe execution modes", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  mkdirSync(dirname(ledger), { recursive: true });
+  writeFileSync(ledger, "");
+
+  const both = artshelf(["reconcile", "--dry-run", "--execute", "--ledger", ledger]);
+  assert.equal(both.status, 1);
+  assert.match(both.stderr, /either --dry-run or --execute/);
+
+  const executeAll = artshelf(["reconcile", "--execute", "--all", "--plan-id", "reconcile_x"]);
+  assert.equal(executeAll.status, 1);
+  assert.match(executeAll.stderr, /--all is dry-run only/);
+
+  const neither = artshelf(["reconcile", "--ledger", ledger]);
+  assert.equal(neither.status, 1);
+  assert.match(neither.stderr, /requires --dry-run or --execute/);
+});
+
+test("reconcile --dry-run --all aggregates plans and refuses invalid ledgers", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const goodLedger = join(fixture, "good", ".artshelf", "ledger.jsonl");
+  const artifact = join(fixture, "good", "art.txt");
+  mkdirSync(join(fixture, "good"), { recursive: true });
+  writeFileSync(artifact, "hello");
+  artshelf(["put", artifact, "--reason", "scratch", "--ttl", "1d", "--ledger", goodLedger, "--registry", registry], "2026-06-01T00:00:00Z");
+  rmSync(artifact); // missing-path drift on the registered ledger
+
+  // Healthy registry: --all aggregates a per-ledger reconcile plan.
+  const healthy = artshelf(["reconcile", "--dry-run", "--all", "--registry", registry, "--json"], "2026-06-03T00:00:00Z");
+  assert.equal(healthy.status, 0, healthy.stderr);
+  const healthyBody = JSON.parse(healthy.stdout);
+  assert.equal(healthyBody.ok, true);
+  assert.equal(healthyBody.plans.length, 1);
+  assert.equal(healthyBody.plans[0].plan.entries[0].category, "resolve-missing");
+
+  // A broken registered ledger aborts the whole --all dry-run.
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const refused = artshelf(["reconcile", "--dry-run", "--all", "--registry", registry, "--json"], "2026-06-03T00:01:00Z");
+  assert.equal(refused.status, 1);
+  assert.equal(JSON.parse(refused.stdout).ok, false);
+});
+
+test("reconcile --execute --all is refused so housekeeping stays scoped to one ledger", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const result = artshelf(["reconcile", "--execute", "--all", "--plan-id", "reconcile_x", "--registry", registry]);
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--all is dry-run only/);
+});
+
+test("reconcile help explains approval-gated ledger housekeeping, not cleanup", () => {
+  const help = artshelf(["help", "reconcile"]);
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /artshelf reconcile --dry-run/);
+  assert.match(help.stdout, /artshelf reconcile --execute --plan-id <id>/);
+  assert.match(help.stdout, /housekeeping/);
+  assert.match(help.stdout, /not cleanup/);
+  assert.doesNotMatch(help.stdout, /Available Commands:/);
+
+  const top = artshelf(["help"]);
+  assert.match(top.stdout, /\n\s+reconcile\s+\S/);
 });
 
 test("trash list reports trashed entries with target/receipt/plan metadata and age", () => {

@@ -2,7 +2,7 @@ import { existsSync } from "node:fs";
 import { dueEntries, listTrashedRecords, previewCleanupPlan, readLedger, validateLedger } from "../ledger.js";
 import { listRegisteredLedgers } from "../registry.js";
 import type { LedgerRegistryEntry } from "../registry.js";
-import type { CleanupPlan, DueEntry, ArtshelfRecord } from "../types.js";
+import type { CleanupPlan, DueEntry, ArtshelfRecord, ReconcilePlan } from "../types.js";
 import { printJson } from "../renderers/json.js";
 import { type ReviewResult, type ReviewSummary } from "../renderers/review.js";
 
@@ -117,6 +117,25 @@ export function printPlans(results: Array<{ ledger: LedgerRegistryEntry; plan: C
 export function printPlan(plan: CleanupPlan, ledgerPath: string): void {
   process.stdout.write(`plan ${plan.planId}: ${plan.entries.length} entries, ${plan.skipped.length} skipped\n`);
   process.stdout.write(`plan: ${plan.planPath ?? "not created"}\nledger: ${ledgerPath}\n`);
+}
+
+export function printReconcilePlan(plan: ReconcilePlan, ledgerPath: string): void {
+  process.stdout.write(`plan ${plan.planId}: ${plan.entries.length} entries, ${plan.blocked.length} blocked\n`);
+  for (const entry of plan.entries) {
+    const target = entry.proposedPath ? `${entry.currentPath} -> ${entry.proposedPath}` : entry.currentPath;
+    process.stdout.write(`${entry.category} ${entry.id} ${entry.field} ${target} :: ${entry.reason}\n`);
+  }
+  for (const blocked of plan.blocked) {
+    process.stdout.write(`blocked ${blocked.id} ${blocked.field} ${blocked.currentPath} :: ${blocked.reason}\n`);
+  }
+  process.stdout.write(`plan: ${plan.planPath ?? "not created"}\nledger: ${ledgerPath}\n`);
+}
+
+export function printReconcilePlans(results: Array<{ ledger: LedgerRegistryEntry; plan: ReconcilePlan }>): void {
+  for (const result of results) {
+    process.stdout.write(`plan ${result.plan.planId} [${result.ledger.name}]: ${result.plan.entries.length} entries, ${result.plan.blocked.length} blocked\n`);
+    process.stdout.write(`plan: ${result.plan.planPath ?? "not created"}\nledger: ${result.ledger.path}\n`);
+  }
 }
 
 export function printTrashListEntries(results: Array<{ ledger: LedgerRegistryEntry; entries: ReturnType<typeof listTrashedRecords> }>): void {

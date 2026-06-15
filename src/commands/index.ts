@@ -9,6 +9,7 @@ import { handleGet } from "./get.js";
 import { handleLedgers } from "./ledgers.js";
 import { handleList } from "./list.js";
 import { handlePut } from "./put.js";
+import { handleReconcile } from "./reconcile.js";
 import { handleResolve } from "./resolve.js";
 import { handleReview } from "./review.js";
 import { handleStatus } from "./status.js";
@@ -46,6 +47,9 @@ export async function runCommand(parsed: ParsedArgs): Promise<CommandRunResult> 
       break;
     case "cleanup":
       status = handleCleanup(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      break;
+    case "reconcile":
+      status = handleReconcile(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       break;
     case "trash":
       status = handleTrash(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));

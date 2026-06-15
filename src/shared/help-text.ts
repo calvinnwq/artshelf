@@ -61,6 +61,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
     group: "Clean",
     commands: [
       { name: "cleanup", summary: "Plan and execute approved cleanups" },
+      { name: "reconcile", summary: "Reconcile drifted ledger paths via approval-gated plans" },
       { name: "trash", summary: "Inspect and purge Artshelf trash" },
       { name: "resolve", summary: "Mark a record manually resolved" }
     ]
@@ -119,6 +120,32 @@ cleanup=delete records cleanup-refused instead of deleting files; physical trash
 Dry-run writes and registers a plan only when executable cleanup entries exist; no-op dry-runs report not-created.
 Matching dry-runs reuse the existing plan id and refresh its Artshelf-owned plan artifact.
 Execute writes and registers an Artshelf-owned receipt artifact.
+Global --all mode is dry-run only.
+`;
+  }
+
+  if (command === "reconcile") {
+    return `Usage:
+  artshelf reconcile --dry-run [--ledger <path>] [--json]
+  artshelf reconcile --dry-run --all [--registry <path>] [--json]
+  artshelf reconcile --execute --plan-id <id> --ledger <path> [--json]
+
+Reconcile is approval-gated ledger/registry housekeeping, not cleanup: it never
+creates, moves, or deletes files. It rewrites drifted ledger paths and resolves
+rows that can no longer be acted on, always through one reviewed plan id.
+
+Dry-run classifies path drift into a reviewed plan:
+  remap                a safe moved/renamed path is rewritten to its current location
+  resolve-missing      an active path is gone with no safe target; resolve after review
+  resolve-stale-trash  a trashed target is gone; resolve the ledger row, files untouched
+  blocked              ambiguous or unsafe findings surfaced for review, never auto-applied
+
+Execute applies one reviewed plan id against one explicit --ledger and refuses
+missing, unknown, or mismatched plan ids and entries whose live ledger state has
+drifted since review. There is no reconcile --execute --all and no fresh-plan-then-execute.
+Dry-run writes and registers a plan only when actionable entries exist; no-op dry-runs report not-created.
+Matching dry-runs reuse the existing plan id and refresh its Artshelf-owned plan artifact.
+Execute writes and registers an Artshelf-owned reconcile receipt artifact.
 Global --all mode is dry-run only.
 `;
   }

@@ -45,7 +45,7 @@ src/
   ledger.ts           ledger domain rules, cleanup planning/execution, validation
   registry.ts         ledger registry domain and persistence helpers
   provenance.ts       reconcile-safe path provenance capture for new records
-  reconcile.ts        read-only path-drift classification for reconcile findings
+  reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger and cleanup domain contracts
@@ -79,6 +79,7 @@ Public commands currently routed through real command modules:
 - `validate`
 - `review`
 - `cleanup`
+- `reconcile`
 - `trash`
 - `ledgers`
 - `doctor`
@@ -87,8 +88,8 @@ Public commands currently routed through real command modules:
 
 Each public command has a discoverable module named after the CLI surface:
 `put.ts`, `list.ts`, `find.ts`, `get.ts`, `resolve.ts`, `due.ts`, `validate.ts`,
-`review.ts`, `cleanup.ts`, `trash.ts`, `ledgers.ts`, `doctor.ts`, `status.ts`,
-and `update.ts`. Marker modules that merely export a command name are refused;
+`review.ts`, `cleanup.ts`, `reconcile.ts`, `trash.ts`, `ledgers.ts`, `doctor.ts`,
+`status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
 these files must contain real command-family implementation code.
 
 ### Domain files
@@ -184,6 +185,9 @@ Artshelf's public contract is safety-first:
 - `--agent` output should be compact, deterministic, and approval-target aware.
 - cleanup execution stays approval-only and plan-id bound.
 - `cleanup --execute --all` remains refused.
+- reconcile is approval-gated ledger/registry housekeeping, not cleanup: it never
+  creates, moves, or deletes files. Execution stays plan-id bound and scoped to one
+  explicit `--ledger`; `reconcile --execute --all` is refused and `--all` is dry-run only.
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, and `list`
   remain read-only surfaces.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
