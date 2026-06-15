@@ -1712,6 +1712,71 @@ test("cleanup execute rechecks duplicate plan paths after each move", () => {
   assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
 });
 
+test("cleanup execute ignores foreign receipt results at the requested plan path", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const entry = plan.entries[0];
+  const receiptPath = join(dirname(ledger), "receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: "cleanup_foreign",
+    executedAt: "2026-06-03T00:01:00Z",
+    status: "started",
+    results: [{ id: entry.id, action: "trash", status: "review-required", path: artifact, executedAt: "2026-06-03T00:01:00Z" }]
+  }, null, 2)}\n`);
+
+  const resumed = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const receipt = JSON.parse(resumed.stdout).receipt;
+  assert.equal(receipt.planId, plan.planId);
+  assert.equal(receipt.results[0].status, "trashed");
+  assert.equal(existsSync(artifact), false);
+  assert.equal(existsSync(receipt.results[0].target), true);
+
+  const record = readLedger(ledger).find((entry2) => entry2.id === entry.id);
+  assert.ok(record);
+  assert.equal(record.status, "trashed");
+  assert.equal(record.cleanupPlanId, plan.planId);
+  assert.equal(record.cleanedAt, "2026-06-03T00:05:00Z");
+  assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("cleanup execute replays an existing trash target before moving a recreated source", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const entry = plan.entries[0];
+  const target = join(dirname(ledger), "trash", plan.planId, `${entry.id}-artifact.txt`);
+  mkdirSync(dirname(target), { recursive: true });
+  renameSync(artifact, target);
+  writeFileSync(artifact, "recreated source");
+  writeFileSync(target, "original trash evidence");
+
+  const resumed = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const receipt = JSON.parse(resumed.stdout).receipt;
+  assert.equal(receipt.results[0].status, "trashed");
+  assert.equal(receipt.results[0].target, target);
+  assert.equal(readFileSync(target, "utf8"), "original trash evidence");
+  assert.equal(readFileSync(artifact, "utf8"), "recreated source");
+
+  const record = readLedger(ledger).find((entry2) => entry2.id === entry.id);
+  assert.ok(record);
+  assert.equal(record.status, "trashed");
+  assert.equal(record.targetPath, target);
+  assert.equal(record.cleanedAt, "2026-06-03T00:05:00Z");
+  assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
 test("cleanup execute stamps resumed moves without terminal receipt evidence at resume time", () => {
   const fixture = fixtureDir();
   const artifact = join(fixture, "artifact.txt");
