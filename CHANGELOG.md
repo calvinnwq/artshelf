@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Hardened `cleanup --execute` with durable resumability: a `started` receipt is
+  written before the first filesystem move so an interrupted run is detectable, an
+  artifact already moved into the plan's trash directory is recorded as `trashed`
+  without moving it again, a missing original path with no trash target and no
+  receipt evidence stays a skipped missing path rather than a success, and a
+  completed receipt replays idempotently without duplicating the Artshelf-owned
+  receipt record. The original `executedAt` is preserved across resumes (NGX-427).
 - Renamed the published package and CLI binary from `shelf` to `artshelf`,
   moved project URLs to `calvinnwq/artshelf`, and prepared public npm publishing.
 - Added a user-level ledger registry plus `--all` review commands so Artshelf can

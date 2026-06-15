@@ -662,12 +662,25 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   const plan = JSON.parse(readFileSync(planPath, "utf8")) as CleanupPlan;
   assertCleanupPlanExecutable(plan, planId, ledgerPath);
   const trashRoot = join(dirname(ledgerPath), "trash", planId);
+  const receiptPath = receiptPathFor(ledgerPath, planId);
   return withLedgerLock(ledgerPath, () => {
+    // Cleanup is the first operation that moves user artifacts, so it leaves a durable
+    // receipt before the first move and reconciles a prior interrupted run on rerun:
+    // an artifact already moved into trash must not be moved again, and the ledger is
+    // only advanced on receipt/filesystem evidence. This mirrors trash purge resume.
+    const existingReceipt = existsSync(receiptPath) ? readCleanupReceipt(receiptPath) : null;
+    const priorResultById = new Map((existingReceipt?.results ?? []).map((result) => [result.id, result]));
     const records = readLedger(ledgerPath);
     const recordsById = new Map(records.map((record) => [record.id, record]));
-    const results = [];
+    // Preserve the original execution timestamp so a resumed run records the moment the
+    // artifact was actually moved, not the resume time.
+    const executedAt = existingReceipt?.executedAt ?? toIso(now());
+
+    const results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }> = [];
+    const moves: Array<{ index: number; entry: CleanupPlanEntry; target: string }> = [];
 
     for (const entry of plan.entries) {
+      const index = results.length;
       const record = recordsById.get(entry.id);
       if (!record) {
         results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "record is missing from ledger" });
@@ -676,6 +689,26 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
 
       if (record.status !== "active") {
         results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: `record is ${record.status}` });
+        continue;
+      }
+
+      if (entry.action === "trash") {
+        const target = join(trashRoot, `${entry.id}-${basename(entry.path)}`);
+        if (existsSync(entry.path)) {
+          // Defer the move so a started receipt lands before the first filesystem mutation.
+          results.push({ id: entry.id, action: entry.action, status: "pending", path: entry.path, target });
+          moves.push({ index, entry, target });
+          continue;
+        }
+        // The original path is gone. Only treat it as already-trashed when the moved
+        // trash target exists or a prior started receipt recorded the move; otherwise this
+        // is a missing path, not a successful cleanup.
+        const prior = priorResultById.get(entry.id);
+        if (existsSync(target) || prior?.status === "trashed") {
+          results.push({ id: entry.id, action: entry.action, status: "trashed", path: entry.path, target });
+          continue;
+        }
+        results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "path is missing" });
         continue;
       }
 
@@ -689,21 +722,23 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
         continue;
       }
 
-      if (entry.action === "review") {
-        results.push({ id: entry.id, action: entry.action, status: "review-required", path: entry.path });
-        continue;
-      }
-
-      mkdirSync(trashRoot, { recursive: true });
-      const target = join(trashRoot, `${entry.id}-${basename(entry.path)}`);
-      renameSync(entry.path, target);
-      results.push({ id: entry.id, action: entry.action, status: "trashed", path: entry.path, target });
+      // entry.action === "review"
+      results.push({ id: entry.id, action: entry.action, status: "review-required", path: entry.path });
     }
 
-    const receiptPath = receiptPathFor(ledgerPath, planId);
-    const executedAt = toIso(now());
-    writeJson(receiptPath, { planId, executedAt, results });
+    if (moves.length > 0) {
+      // Durable started receipt before the first move, so an interrupted run is resumable.
+      writeCleanupReceipt(receiptPath, { planId, executedAt, status: "started", results });
+      for (const move of moves) {
+        mkdirSync(trashRoot, { recursive: true });
+        renameSync(move.entry.path, move.target);
+        results[move.index] = { id: move.entry.id, action: move.entry.action, status: "trashed", path: move.entry.path, target: move.target };
+        writeCleanupReceipt(receiptPath, { planId, executedAt, status: "started", results });
+      }
+    }
+
     updateLedgerAfterCleanup(ledgerPath, records, { planId, receiptPath, executedAt, results });
+    writeCleanupReceipt(receiptPath, { planId, executedAt, completedAt: toIso(now()), results });
     registerArtshelfArtifact(ledgerPath, receiptPath, {
       reason: `Artshelf cleanup receipt for plan ${planId}`,
       ttl: "30d",
@@ -713,6 +748,39 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
     });
     return { planId, receiptPath, results };
   });
+}
+
+function readCleanupReceipt(receiptPath: string): {
+  planId?: string;
+  executedAt?: string;
+  completedAt?: string;
+  results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+} {
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as {
+    planId?: string;
+    executedAt?: string;
+    completedAt?: string;
+    results?: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+  };
+  return {
+    ...(typeof receipt.planId === "string" ? { planId: receipt.planId } : {}),
+    ...(typeof receipt.executedAt === "string" ? { executedAt: receipt.executedAt } : {}),
+    ...(typeof receipt.completedAt === "string" ? { completedAt: receipt.completedAt } : {}),
+    results: Array.isArray(receipt.results) ? receipt.results : []
+  };
+}
+
+function writeCleanupReceipt(
+  receiptPath: string,
+  receipt: {
+    planId: string;
+    executedAt: string;
+    completedAt?: string;
+    status?: string;
+    results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+  }
+): void {
+  writeJson(receiptPath, receipt);
 }
 
 // Exported so the reconcile plan layer (src/reconcile.ts) registers its dry-run plan
