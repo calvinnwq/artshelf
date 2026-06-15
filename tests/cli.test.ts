@@ -1378,12 +1378,12 @@ test("cleanup dry-run creates a plan and execute requires a plan id", () => {
 
   const replayed = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:02:00Z");
   assert.equal(replayed.status, 0, replayed.stderr);
-  assert.equal(JSON.parse(replayed.stdout).receipt.results[0].status, "skipped");
+  assert.deepEqual(JSON.parse(replayed.stdout).receipt.results, receipt.results);
   const afterReplay = readLedger(ledger);
   const receiptRecords = afterReplay.filter((entry: any) => entry.owner === "artshelf" && entry.labels.includes("cleanup-receipt"));
   assert.equal(receiptRecords.length, 1);
-  assert.equal(receiptRecords[0].createdAt, "2026-06-03T00:02:00Z");
-  assert.equal(receiptRecords[0].retainUntil, "2026-07-03T00:02:00Z");
+  assert.equal(receiptRecords[0].createdAt, "2026-06-03T00:01:00Z");
+  assert.equal(receiptRecords[0].retainUntil, "2026-07-03T00:01:00Z");
 
   const due = JSON.parse(artshelf(["due", "--ledger", ledger, "--json"], "2026-06-04T00:00:00Z").stdout).entries;
   assert.deepEqual(due.map((entry: any) => entry.reason), [
@@ -1567,9 +1567,8 @@ test("cleanup execute resumes an interrupted move from a started receipt", () =>
   // The artifact is not moved again; it stays at the original trash target.
   assert.equal(existsSync(target), true);
 
-  // The completed receipt preserves the original executedAt and stamps completion.
   const receiptFile = JSON.parse(readFileSync(receiptPath, "utf8"));
-  assert.equal(receiptFile.executedAt, "2026-06-03T00:01:00Z");
+  assert.equal(receiptFile.executedAt, "2026-06-03T00:05:00Z");
   assert.equal(receiptFile.completedAt, "2026-06-03T00:05:00Z");
   assert.equal(receiptFile.status, undefined);
 
@@ -1579,7 +1578,7 @@ test("cleanup execute resumes an interrupted move from a started receipt", () =>
   assert.equal(record.cleanupPlanId, plan.planId);
   assert.equal(record.receiptPath, receiptPath);
   assert.equal(record.targetPath, target);
-  assert.equal(record.cleanedAt, "2026-06-03T00:01:00Z");
+  assert.equal(record.cleanedAt, "2026-06-03T00:05:00Z");
 
   assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
 });
@@ -1669,8 +1668,11 @@ test("cleanup execute replay after a completed receipt stays idempotent", () => 
 
   const replayOne = JSON.parse(artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:02:00Z").stdout).receipt;
   const replayTwo = JSON.parse(artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:03:00Z").stdout).receipt;
-  assert.equal(replayOne.results[0].status, "skipped");
-  assert.equal(replayTwo.results[0].status, "skipped");
+  assert.equal(replayOne.results[0].status, "trashed");
+  assert.equal(replayOne.results[0].target, target);
+  assert.deepEqual(replayOne.results, first.results);
+  assert.deepEqual(replayTwo.results, first.results);
+  assert.deepEqual(JSON.parse(readFileSync(first.receiptPath, "utf8")), completed);
   // The trashed artifact is never moved again and stays in place.
   assert.equal(existsSync(target), true);
 
@@ -1681,6 +1683,64 @@ test("cleanup execute replay after a completed receipt stays idempotent", () => 
   assert.equal(trashedRecords.length, 1);
   // The original cleanup timestamp is preserved across replays.
   assert.equal(trashedRecords[0].cleanedAt, "2026-06-03T00:01:00Z");
+  assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("cleanup execute rechecks duplicate plan paths after each move", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "expired one", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  artshelf(["put", artifact, "--reason", "expired two", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:01Z");
+  artshelf(["put", artifact, "--reason", "review duplicate", "--manual-review", "--cleanup", "review", "--ledger", ledger], "2026-06-01T00:00:02Z");
+
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  assert.equal(plan.entries.length, 3);
+
+  const execution = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
+  assert.equal(execution.status, 0, execution.stderr);
+  const receipt = JSON.parse(execution.stdout).receipt;
+  assert.deepEqual(receipt.results.map((result: any) => result.status), ["trashed", "skipped", "skipped"]);
+  assert.deepEqual(receipt.results.slice(1).map((result: any) => result.reason), ["path is missing", "path is missing"]);
+  assert.equal(existsSync(receipt.results[0].target), true);
+  assert.equal(existsSync(artifact), false);
+
+  const records = readLedger(ledger).filter((record) => record.owner !== "artshelf");
+  assert.deepEqual(records.map((record) => record.status), ["trashed", "active", "active"]);
+  assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("cleanup execute stamps resumed moves without terminal receipt evidence at resume time", () => {
+  const fixture = fixtureDir();
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "hello");
+  const ledger = ledgerPath(fixture);
+
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+  const entry = plan.entries[0];
+  const target = join(dirname(ledger), "trash", plan.planId, `${entry.id}-artifact.txt`);
+  const receiptPath = join(dirname(ledger), "receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: plan.planId,
+    executedAt: "2026-06-03T00:01:00Z",
+    status: "started",
+    results: [{ id: entry.id, action: "trash", status: "pending", path: artifact, target }]
+  }, null, 2)}\n`);
+
+  const resumed = artshelf(["cleanup", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
+  assert.equal(resumed.status, 0, resumed.stderr);
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  assert.equal(receipt.executedAt, "2026-06-03T00:05:00Z");
+  assert.equal(receipt.results[0].status, "trashed");
+  assert.equal(receipt.results[0].executedAt, "2026-06-03T00:05:00Z");
+
+  const record = readLedger(ledger).find((entry2) => entry2.id === entry.id);
+  assert.ok(record);
+  assert.equal(record.cleanedAt, "2026-06-03T00:05:00Z");
   assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
 });
 

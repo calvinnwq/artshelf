@@ -42,6 +42,24 @@ const CLEANUP_ACTIONS = new Set<CleanupAction>(["trash", "review", "delete"]);
 const STATUSES = new Set<ArtshelfStatus>(["active", "review-required", "trashed", "cleanup-refused", "resolved"]);
 const RESOLVE_STATUSES = new Set<ArtshelfStatus>(["resolved"]);
 
+type CleanupExecutionResult = {
+  id: string;
+  action: CleanupAction;
+  status: string;
+  path: string;
+  target?: string;
+  reason?: string;
+  executedAt?: string;
+};
+
+type CleanupReceiptFile = {
+  planId?: string;
+  executedAt?: string;
+  completedAt?: string;
+  status?: string;
+  results: CleanupExecutionResult[];
+};
+
 export type PutInput = {
   path: string;
   reason: string;
@@ -653,7 +671,7 @@ function buildTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgeP
 export function executeCleanupPlan(ledgerPath: string, planId: string): {
   planId: string;
   receiptPath: string;
-  results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+  results: CleanupExecutionResult[];
 } {
   if (!planId) throw new Error("cleanup --execute requires --plan-id");
 
@@ -664,85 +682,103 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
   const trashRoot = join(dirname(ledgerPath), "trash", planId);
   const receiptPath = receiptPathFor(ledgerPath, planId);
   return withLedgerLock(ledgerPath, () => {
-    // Cleanup is the first operation that moves user artifacts, so it leaves a durable
-    // receipt before the first move and reconciles a prior interrupted run on rerun:
-    // an artifact already moved into trash must not be moved again, and the ledger is
-    // only advanced on receipt/filesystem evidence. This mirrors trash purge resume.
     const existingReceipt = existsSync(receiptPath) ? readCleanupReceiptIfValid(receiptPath) : null;
     const priorResultById = new Map((existingReceipt?.results ?? []).map((result) => [result.id, result]));
     const records = readLedger(ledgerPath);
+
+    if (existingReceipt?.completedAt && existingReceipt.planId === planId) {
+      if (!records.some((record) => record.status === "active" && isMatchingArtshelfArtifact(record, receiptPath, ["artshelf", "cleanup-receipt", planId]))) {
+        registerArtshelfArtifact(ledgerPath, receiptPath, {
+          reason: `Artshelf cleanup receipt for plan ${planId}`,
+          ttl: "30d",
+          kind: "run-artifact",
+          cleanup: "review",
+          labels: ["artshelf", "cleanup-receipt", planId]
+        });
+      }
+      return { planId, receiptPath, results: existingReceipt.results };
+    }
+
     const recordsById = new Map(records.map((record) => [record.id, record]));
-    // Preserve the original execution timestamp so a resumed run records the moment the
-    // artifact was actually moved, not the resume time.
-    const executedAt = existingReceipt?.executedAt ?? toIso(now());
+    const executedAt = toIso(now());
+    const results: CleanupExecutionResult[] = plan.entries.map((entry) => {
+      const prior = priorResultById.get(entry.id);
+      if (prior && isTerminalCleanupResult(prior)) {
+        return withCleanupResultExecutedAt(prior, cleanupResultExecutedAt(prior, existingReceipt, executedAt));
+      }
+      return { id: entry.id, action: entry.action, status: "pending", path: entry.path };
+    });
 
-    const results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }> = [];
-    const moves: Array<{ index: number; entry: CleanupPlanEntry; target: string }> = [];
+    writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
 
-    for (const entry of plan.entries) {
-      const index = results.length;
+    for (const [index, entry] of plan.entries.entries()) {
       const record = recordsById.get(entry.id);
+      const prior = priorResultById.get(entry.id);
+      const priorExecutedAt = prior && isTerminalCleanupResult(prior)
+        ? cleanupResultExecutedAt(prior, existingReceipt, executedAt)
+        : executedAt;
+
       if (!record) {
-        results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "record is missing from ledger" });
+        results[index] = { id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "record is missing from ledger" };
+        writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
         continue;
       }
 
       if (record.status !== "active") {
-        const prior = !existingReceipt?.completedAt ? priorResultById.get(entry.id) : undefined;
-        if (prior && priorCleanupResultMatchesLedger(record, prior, { planId, receiptPath, executedAt })) {
-          results.push(prior);
+        if (prior && priorCleanupResultMatchesLedger(record, prior, { planId, receiptPath, executedAt: priorExecutedAt })) {
+          results[index] = withCleanupResultExecutedAt(prior, priorExecutedAt);
+          writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
           continue;
         }
-        results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: `record is ${record.status}` });
+        results[index] = { id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: `record is ${record.status}` };
+        writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
+        continue;
+      }
+
+      if (prior && isTerminalCleanupResult(prior)) {
+        results[index] = withCleanupResultExecutedAt(prior, priorExecutedAt);
+        writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
         continue;
       }
 
       if (entry.action === "trash") {
         const target = join(trashRoot, `${entry.id}-${basename(entry.path)}`);
         if (existsSync(entry.path)) {
-          // Defer the move so a started receipt lands before the first filesystem mutation.
-          results.push({ id: entry.id, action: entry.action, status: "pending", path: entry.path, target });
-          moves.push({ index, entry, target });
+          mkdirSync(trashRoot, { recursive: true });
+          renameSync(entry.path, target);
+          results[index] = { id: entry.id, action: entry.action, status: "trashed", path: entry.path, target, executedAt };
+          writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
           continue;
         }
-        // The original path is gone. Only treat it as already-trashed when the moved
-        // trash target exists or a prior started receipt recorded the move; otherwise this
-        // is a missing path, not a successful cleanup.
-        const prior = priorResultById.get(entry.id);
-        if (existsSync(target) || prior?.status === "trashed") {
-          results.push({ id: entry.id, action: entry.action, status: "trashed", path: entry.path, target });
+        if (existsSync(target)) {
+          results[index] = { id: entry.id, action: entry.action, status: "trashed", path: entry.path, target, executedAt };
+          writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
           continue;
         }
-        results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "path is missing" });
+        results[index] = { id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "path is missing" };
+        writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
         continue;
       }
 
       if (!existsSync(entry.path)) {
-        results.push({ id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "path is missing" });
+        results[index] = { id: entry.id, action: entry.action, status: "skipped", path: entry.path, reason: "path is missing" };
+        writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
         continue;
       }
 
       if (entry.action === "delete") {
-        results.push({ id: entry.id, action: entry.action, status: "refused", path: entry.path, reason: "delete is disabled in v1" });
+        results[index] = { id: entry.id, action: entry.action, status: "refused", path: entry.path, reason: "delete is disabled in v1", executedAt };
+        writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
         continue;
       }
 
-      // entry.action === "review"
-      results.push({ id: entry.id, action: entry.action, status: "review-required", path: entry.path });
+      results[index] = { id: entry.id, action: entry.action, status: "review-required", path: entry.path, executedAt };
+      writeCleanupReceipt(receiptPath, { planId, executedAt: cleanupReceiptExecutedAt(results, executedAt), status: "started", results });
     }
 
-    writeCleanupReceipt(receiptPath, { planId, executedAt, status: "started", results });
-    if (moves.length > 0) {
-      for (const move of moves) {
-        mkdirSync(trashRoot, { recursive: true });
-        renameSync(move.entry.path, move.target);
-        results[move.index] = { id: move.entry.id, action: move.entry.action, status: "trashed", path: move.entry.path, target: move.target };
-        writeCleanupReceipt(receiptPath, { planId, executedAt, status: "started", results });
-      }
-    }
-
-    updateLedgerAfterCleanup(ledgerPath, records, { planId, receiptPath, executedAt, results });
-    writeCleanupReceipt(receiptPath, { planId, executedAt, completedAt: toIso(now()), results });
+    const receiptExecutedAt = cleanupReceiptExecutedAt(results, executedAt);
+    updateLedgerAfterCleanup(ledgerPath, records, { planId, receiptPath, executedAt: receiptExecutedAt, results });
+    writeCleanupReceipt(receiptPath, { planId, executedAt: receiptExecutedAt, completedAt: toIso(now()), results });
     registerArtshelfArtifact(ledgerPath, receiptPath, {
       reason: `Artshelf cleanup receipt for plan ${planId}`,
       ttl: "30d",
@@ -756,7 +792,7 @@ export function executeCleanupPlan(ledgerPath: string, planId: string): {
 
 function priorCleanupResultMatchesLedger(
   record: ArtshelfRecord,
-  result: { id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string },
+  result: CleanupExecutionResult,
   receipt: { planId: string; receiptPath: string; executedAt: string }
 ): boolean {
   if (record.cleanupPlanId !== receipt.planId) return false;
@@ -778,7 +814,33 @@ function priorCleanupResultMatchesLedger(
   return false;
 }
 
-function readCleanupReceiptIfValid(receiptPath: string): ReturnType<typeof readCleanupReceipt> | null {
+function isTerminalCleanupResult(result: CleanupExecutionResult): boolean {
+  return result.status === "trashed" || result.status === "review-required" || result.status === "refused";
+}
+
+function cleanupResultExecutedAt(result: CleanupExecutionResult, receipt: CleanupReceiptFile | null, fallback: string): string {
+  if (typeof result.executedAt === "string") return result.executedAt;
+  if (isTerminalCleanupResult(result) && typeof receipt?.executedAt === "string") return receipt.executedAt;
+  return fallback;
+}
+
+function withCleanupResultExecutedAt(result: CleanupExecutionResult, executedAt: string): CleanupExecutionResult {
+  return { ...result, executedAt };
+}
+
+function cleanupReceiptExecutedAt(results: CleanupExecutionResult[], fallback: string): string {
+  const terminalExecutedAt = results
+    .filter(isTerminalCleanupResult)
+    .map((result) => result.executedAt)
+    .filter((value): value is string => typeof value === "string");
+  const firstExecutedAt = terminalExecutedAt[0];
+  if (firstExecutedAt && terminalExecutedAt.every((value) => value === firstExecutedAt)) {
+    return firstExecutedAt;
+  }
+  return fallback;
+}
+
+function readCleanupReceiptIfValid(receiptPath: string): CleanupReceiptFile | null {
   try {
     return readCleanupReceipt(receiptPath);
   } catch {
@@ -786,22 +848,19 @@ function readCleanupReceiptIfValid(receiptPath: string): ReturnType<typeof readC
   }
 }
 
-function readCleanupReceipt(receiptPath: string): {
-  planId?: string;
-  executedAt?: string;
-  completedAt?: string;
-  results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
-} {
+function readCleanupReceipt(receiptPath: string): CleanupReceiptFile {
   const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as {
     planId?: string;
     executedAt?: string;
     completedAt?: string;
-    results?: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+    status?: string;
+    results?: CleanupExecutionResult[];
   };
   return {
     ...(typeof receipt.planId === "string" ? { planId: receipt.planId } : {}),
     ...(typeof receipt.executedAt === "string" ? { executedAt: receipt.executedAt } : {}),
     ...(typeof receipt.completedAt === "string" ? { completedAt: receipt.completedAt } : {}),
+    ...(typeof receipt.status === "string" ? { status: receipt.status } : {}),
     results: Array.isArray(receipt.results) ? receipt.results : []
   };
 }
@@ -813,7 +872,7 @@ function writeCleanupReceipt(
     executedAt: string;
     completedAt?: string;
     status?: string;
-    results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+    results: CleanupExecutionResult[];
   }
 ): void {
   writeJson(receiptPath, receipt);
@@ -944,7 +1003,7 @@ function updateLedgerAfterCleanup(
     planId: string;
     receiptPath: string;
     executedAt: string;
-    results: Array<{ id: string; action: CleanupAction; status: string; path: string; target?: string; reason?: string }>;
+    results: CleanupExecutionResult[];
   }
 ): void {
   const resultById = new Map(receipt.results.map((result) => [result.id, result]));
@@ -953,33 +1012,36 @@ function updateLedgerAfterCleanup(
     if (!result) return record;
 
     if (result.status === "trashed") {
+      const cleanedAt = result.executedAt ?? receipt.executedAt;
       return {
         ...record,
         status: "trashed" as const,
         cleanupPlanId: receipt.planId,
         receiptPath: receipt.receiptPath,
-        cleanedAt: receipt.executedAt,
+        cleanedAt,
         ...(result.target ? { targetPath: result.target } : {})
       };
     }
 
     if (result.status === "review-required") {
+      const cleanedAt = result.executedAt ?? receipt.executedAt;
       return {
         ...record,
         status: "review-required" as const,
         cleanupPlanId: receipt.planId,
         receiptPath: receipt.receiptPath,
-        cleanedAt: receipt.executedAt
+        cleanedAt
       };
     }
 
     if (result.status === "refused") {
+      const cleanedAt = result.executedAt ?? receipt.executedAt;
       return {
         ...record,
         status: "cleanup-refused" as const,
         cleanupPlanId: receipt.planId,
         receiptPath: receipt.receiptPath,
-        cleanedAt: receipt.executedAt,
+        cleanedAt,
         ...(result.reason ? { cleanupReason: result.reason } : {})
       };
     }
