@@ -225,8 +225,9 @@ Cleanup execution requires approval naming the reviewed ledger and plan id:
 artshelf cleanup --execute --plan-id <id> --ledger <ledger-path> --json
 ```
 
-Cleanup with `cleanup=trash` quarantines files into Artshelf trash. Physical
-deletion belongs to the separate Purge stage.
+If cleanup is interrupted, rerun the same plan id; durable receipt/trash
+evidence resumes or replays without a fresh plan. `cleanup=trash` quarantines
+files into Artshelf trash. Physical deletion belongs to the separate Purge stage.
 
 Resolve only after confirmation; it updates the ledger and does not move or
 delete files:

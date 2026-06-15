@@ -38,8 +38,8 @@
           <h1>Execute only what was reviewed and approved.</h1>
           <p class="lede">
             Clean is meant to be boring. The human approves one plan, the agent runs
-            exactly that plan, writes a receipt, and checks that the next review
-            comes back quiet.
+            exactly that plan, leaves durable receipt evidence before moving files,
+            and checks that the next review comes back quiet.
           </p>
 
           <section>
@@ -90,10 +90,11 @@ artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code></pre>
             <h2>Verify quiet</h2>
             <p>After cleanup execute or resolve, verify with <code>artshelf review --all --json</code>.</p>
             <p>
-              Execution writes a receipt and updates touched ledger records to
-              <code>trashed</code>, <code>review-required</code>, or
-              <code>cleanup-refused</code>. Generated plans and receipts are recorded as
-              <code>owner=artshelf</code> artifacts.
+              Execution writes a started receipt before the first move, completes it after
+              ledger updates, and updates touched ledger records to <code>trashed</code>,
+              <code>review-required</code>, or <code>cleanup-refused</code>. Rerunning the same
+              plan id resumes or idempotently replays durable receipt/trash evidence.
+              Generated plans and receipts are recorded as <code>owner=artshelf</code> artifacts.
             </p>
           </section>
         </article>
