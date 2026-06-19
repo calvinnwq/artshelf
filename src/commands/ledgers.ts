@@ -122,7 +122,7 @@ function printRegistryPruneReceipt(receipt: RegistryPruneReceipt): void {
   for (const entry of receipt.skipped) {
     process.stdout.write(`[${entry.name}] skipped ${entry.scope}: live registry no longer matches the reviewed plan — ${entry.path}\n`);
   }
-  process.stdout.write(`rollback: ${receipt.rollbackPath}\n`);
+  if (receipt.rollbackPath) process.stdout.write(`rollback: ${receipt.rollbackPath}\n`);
   process.stdout.write(`receipt: ${receipt.receiptPath}\n`);
   process.stdout.write(`verification: ${receipt.verification.ok ? "ok" : "failed"} — ${receipt.verification.detail}\n`);
 }

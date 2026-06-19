@@ -62,15 +62,14 @@ export type RegistryPruneVerification = {
   detail: string;
 };
 
-// The receipt written after `ledgers prune --execute` mutates the registry. It records
-// the removed registrations, the entries skipped as stale, the pre-mutation rollback
-// copy, the bound plan id, when it ran, and the verification result — everything an
-// audit needs to understand and, via the rollback copy, undo the prune.
+// The receipt written after `ledgers prune --execute` records the removed registrations,
+// the entries skipped as stale, the pre-mutation rollback copy when the registry changed,
+// the bound plan id, when it ran, and the verification result.
 export type RegistryPruneReceipt = {
   planId: string;
   registryPath: string;
   executedAt: string;
-  rollbackPath: string;
+  rollbackPath: string | null;
   removed: RegistryPruneRemoval[];
   skipped: RegistryPruneRemoval[];
   verification: RegistryPruneVerification;
@@ -155,6 +154,9 @@ export function executeRegistryPrunePlan(registryPath: string | undefined, planI
   const rollbackPath = registryPruneRollbackPath(normalized, planId);
 
   return withPathLock(normalized, () => {
+    const existingReceipt = readExistingRegistryPruneReceipt(receiptPath, planId, normalized);
+    if (existingReceipt) return existingReceipt;
+
     const liveByKey = new Map(
       classifyRegistryPruneFindings(normalized).map((item) => [pruneKey(item.name, item.path), item])
     );
@@ -165,10 +167,8 @@ export function executeRegistryPrunePlan(registryPath: string | undefined, planI
       else skipped.push(removal(entry.name, entry.path, entry.scope));
     }
 
-    // Take the rollback copy immediately before mutating, and only when something is
-    // actually removable. A no-op execute (everything skipped as stale) must not
-    // overwrite a rollback left by an earlier real execute of this plan id.
     let removedEntries: LedgerRegistryEntry[] = [];
+    const receiptRollbackPath = removable.length > 0 ? rollbackPath : null;
     if (removable.length > 0) {
       copyRegistrySnapshot(normalized, rollbackPath);
       removedEntries = removeRegisteredLedgers(normalized, removable.map((entry) => ({ name: entry.name, path: entry.path })));
@@ -180,7 +180,7 @@ export function executeRegistryPrunePlan(registryPath: string | undefined, planI
       planId,
       registryPath: normalized,
       executedAt: toIso(now()),
-      rollbackPath,
+      rollbackPath: receiptRollbackPath,
       removed,
       skipped,
       verification,
@@ -304,6 +304,27 @@ function verifyRegistryPrune(registryPath: string, removed: RegistryPruneRemoval
 function copyRegistrySnapshot(registryPath: string, rollbackPath: string): void {
   mkdirSync(dirname(rollbackPath), { recursive: true });
   writeFileSync(rollbackPath, readFileSync(registryPath, "utf8"));
+}
+
+function readExistingRegistryPruneReceipt(
+  receiptPath: string,
+  planId: string,
+  registryPath: string
+): RegistryPruneReceipt | null {
+  if (!existsSync(receiptPath)) return null;
+  let receipt: RegistryPruneReceipt;
+  try {
+    receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as RegistryPruneReceipt;
+  } catch {
+    throw new Error(`Registry prune receipt already exists but is unreadable: ${receiptPath}`);
+  }
+  if (receipt.planId !== planId || receipt.registryPath !== registryPath || receipt.receiptPath !== receiptPath) {
+    throw new Error(`Registry prune receipt already exists for a different execution: ${receiptPath}`);
+  }
+  if (!Array.isArray(receipt.removed) || !Array.isArray(receipt.skipped) || !receipt.verification) {
+    throw new Error(`Registry prune receipt already exists but is malformed: ${receiptPath}`);
+  }
+  return receipt;
 }
 
 function removal(name: string, path: string, scope: LedgerScope): RegistryPruneRemoval {

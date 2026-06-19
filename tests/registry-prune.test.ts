@@ -253,8 +253,9 @@ test("execute removes the missing registration and writes a rollback copy and re
   assert.equal(receipt.verification.ok, true);
 
   // Rollback copy is the pre-mutation registry, byte-for-byte.
-  assert.equal(existsSync(receipt.rollbackPath), true);
-  assert.equal(readFileSync(receipt.rollbackPath, "utf8"), before);
+  const rollbackPath = receipt.rollbackPath;
+  if (!rollbackPath) throw new Error("missing rollback path");
+  assert.equal(readFileSync(rollbackPath, "utf8"), before);
 
   // Receipt is persisted and round-trips its plan id.
   assert.equal(existsSync(receipt.receiptPath), true);
@@ -308,6 +309,7 @@ test("execute skips an entry whose ledger file reappeared and leaves it register
   assert.equal(receipt.removed.length, 0);
   assert.deepEqual(receipt.skipped.map((entry) => entry.name), ["gone"]);
   assert.equal(listRegisteredLedgers(registryPath).length, 1);
+  assert.equal(receipt.rollbackPath, null);
 });
 
 test("execute skips an entry that became an ambiguous duplicate path", () => {
@@ -337,15 +339,17 @@ test("re-executing a completed plan is a no-op that preserves the original rollb
   const plan = createRegistryPrunePlan(registryPath);
 
   const first = executeRegistryPrunePlan(registryPath, plan.planId);
-  const rollbackAfterFirst = readFileSync(first.rollbackPath, "utf8");
+  const rollbackPath = first.rollbackPath;
+  if (!rollbackPath) throw new Error("missing rollback path");
+  const rollbackAfterFirst = readFileSync(rollbackPath, "utf8");
+  const receiptAfterFirst = readFileSync(first.receiptPath, "utf8");
   assert.match(rollbackAfterFirst, /gone/);
 
-  // The plan's entry is already gone, so a second execute removes nothing and must
-  // not overwrite the rollback snapshot taken by the first (real) execute.
   const second = executeRegistryPrunePlan(registryPath, plan.planId);
-  assert.equal(second.removed.length, 0);
+  assert.deepEqual(second.removed.map((entry) => entry.name), ["gone"]);
   assert.equal(second.verification.ok, true);
-  assert.equal(readFileSync(first.rollbackPath, "utf8"), rollbackAfterFirst);
+  assert.equal(readFileSync(rollbackPath, "utf8"), rollbackAfterFirst);
+  assert.equal(readFileSync(first.receiptPath, "utf8"), receiptAfterFirst);
 });
 
 test("CLI: ledgers prune --execute --json removes the registration and reports the receipt", () => {
