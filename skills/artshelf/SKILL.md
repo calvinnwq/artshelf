@@ -96,8 +96,9 @@ artshelf trash list --all --json
 
 `artshelf ledgers list --json` reports per-ledger validation status. `--plain`
 skips validation. `--all` is for discovery and review, not mutation permission.
-Use `--agent` on `review`, `status`, and `doctor` for compact decisions; use
-`--json` for full audit/API payloads, custom rendering, or debugging.
+Use `--agent` on `review`, `status`, `doctor`, and `ledgers prune --dry-run`
+for compact decisions; use `--json` for full audit/API payloads, custom
+rendering, or debugging.
 
 Register existing project ledgers explicitly:
 
@@ -108,7 +109,7 @@ artshelf ledgers add --ledger <repo>/.artshelf/ledger.jsonl --name <project> --s
 ### Scheduled Review
 
 Scheduled jobs are review/report only. Set `ARTSHELF_NO_UPDATE_CHECK=1` for no
-npm network/cache writes. Reports should name the ledger path and plan ids. They may run:
+npm network/cache writes. Reports should name the ledger path or registry path and plan ids. They may run:
 
 ```bash
 artshelf validate --json
@@ -119,6 +120,7 @@ artshelf cleanup --dry-run --all --json
 artshelf trash list --all --json
 artshelf doctor --json
 artshelf status --all --json
+artshelf ledgers prune --dry-run --registry <registry-path> --json
 ```
 
 For old-trash review, dry-run purge only for an explicit ledger:
@@ -128,10 +130,12 @@ artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
 
 Do not scan arbitrary filesystem locations for ledgers unless the user opted
-into that discovery scope. Never schedule cleanup or purge execution:
+into that discovery scope. Scheduled jobs may review registry-prune plans but
+must not execute them. Never schedule cleanup, registry-prune, or purge execution:
 
 ```bash
 artshelf cleanup --execute --plan-id <id>
+artshelf ledgers prune --execute --plan-id <id>
 artshelf trash purge --execute --plan-id <id>
 ```
 
@@ -142,16 +146,17 @@ count dump.
 
 1. Run read-only review first: `artshelf status --all --agent` for machine health,
    then `artshelf review --all --agent`, and `artshelf trash list --all --json`.
-2. If stale/missing-path warnings exist, run `artshelf validate --all --json` then `artshelf reconcile --dry-run --all --json --registry <registry-path>` for renames, moves, deletes, stale topology after handoff/finalization, and `.shelf`/`.artshelf` migration fallout.
-3. If cleanup attention exists, run `artshelf cleanup --dry-run --all --json`.
-4. Classify candidates as `trash-safe`, `needs-human-review`,
+2. If stale registered ledgers exist, run `artshelf ledgers prune --dry-run --registry <registry-path> --json` to review removing missing registrations; duplicate paths remain manual registry-problem blockers.
+3. If missing-path warnings exist inside valid ledgers, run `artshelf validate --all --json` then `artshelf reconcile --dry-run --all --json --registry <registry-path>` for renames, moves, deletes, topology after handoff/finalization, and `.shelf`/`.artshelf` migration fallout.
+4. If cleanup attention exists, run `artshelf cleanup --dry-run --all --json`.
+5. Classify candidates as `trash-safe`, `needs-human-review`,
    `resolve-candidate`, or `registry-problem`.
-5. Use the built-in `--agent` packet when the CLI output is enough to decide,
+6. Use the built-in `--agent` packet when the CLI output is enough to decide,
    because it is deterministic and token-efficient. Use
    `ArtshelfReviewReport` from `schemas/artshelf-review-report.schema.json` and `examples/artshelf-review-report.json` when you need a host-specific card, attachment, or richer audit record.
-6. Render full packets with `scripts/render-review-report.mjs`; keep
+7. Render full packets with `scripts/render-review-report.mjs`; keep
    `decisionSummary` in audit, while `decisionGroups` drive counts. Emojis are encouraged only in host-specific wrappers, not the renderer.
-7. Always include the exact approval target in the message body as a fallback.
+8. Always include the exact approval target in the message body as a fallback.
    Do not paste the whole packet into chat unless the user asks for it.
 
 ### Review Plan Report Schema
@@ -201,23 +206,15 @@ approve artshelf cleanup ledger <ledger-path> plan <plan-id>
 approve artshelf trash purge ledger <ledger-path> plan <purge-plan-id>
 approve artshelf resolve missing ledger <ledger-path> ids <id...>
 approve artshelf reconcile ledger <ledger-path> plan <plan-id>
+approve artshelf ledgers prune registry <registry-path> plan <plan-id>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and
-execute it in the same step. After cleanup or resolve approval, verify with `artshelf review --all --json`; after trash purge approval, also run `artshelf trash list --all --json`.
+execute it in the same step. After cleanup, resolve, or registry-prune approval, verify with `artshelf review --all --json` and `artshelf ledgers list --json`; after trash purge approval, also run `artshelf trash list --all --json`.
 
 ## Clean
 
-Read-only and dry-run commands are safe:
-
-```bash
-artshelf validate --json
-artshelf validate --all --json
-artshelf due --json
-artshelf due --all --json
-artshelf cleanup --dry-run --json
-artshelf cleanup --dry-run --all --json
-```
+Read-only and dry-run commands listed above are safe. Registry-prune execution requires approval naming the reviewed registry and plan id (`artshelf ledgers prune --execute --plan-id <id> --registry <registry-path> --json`); it removes only registrations whose ledger files are still missing, writes a rollback copy and receipt next to the registry, and skips entries that changed after review.
 
 Cleanup execution requires approval naming the reviewed ledger and plan id:
 

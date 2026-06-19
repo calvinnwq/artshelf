@@ -47,7 +47,10 @@
               <li>Start with health and registry-level context: <code>status --all --agent</code>,
                 then read raw pressure points from <code>review --all --agent</code>
                 and <code>trash list --all --json</code>.</li>
-              <li>For stale or missing path warnings, run <code>validate --all --json</code>
+              <li>For stale registered ledgers, run <code>ledgers prune --dry-run --registry &lt;registry-path&gt;</code>
+                to review removing missing registrations; duplicate paths remain manual
+                <code>registry-problem</code> blockers.</li>
+              <li>For missing-path records inside valid ledgers, run <code>validate --all --json</code>
                 and then <code>reconcile --dry-run --all --json --registry &lt;registry-path&gt;</code>
                 to produce reviewed-safe plans.</li>
               <li>Run explicit-ledger purge dry-runs only when old trash needs review.</li>
@@ -110,12 +113,14 @@ Dry-run only. No execute, resolve, or delete ran.</code></pre>
             <pre><code>approve artshelf cleanup ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;
 approve artshelf trash purge ledger &lt;ledger-path&gt; plan &lt;purge-plan-id&gt;
 approve artshelf resolve missing ledger &lt;ledger-path&gt; ids &lt;id...&gt;
-approve artshelf reconcile ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;</code></pre>
+approve artshelf reconcile ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;
+approve artshelf ledgers prune registry &lt;registry-path&gt; plan &lt;plan-id&gt;</code></pre>
             <div class="callout" data-kind="boundary">
               <span class="callout-label">Hard boundary</span>
               <p>
                 Never execute from a read-only preview id. Never generate a fresh plan and
-                execute it in the same step. After any approved action, verify quiet with
+                execute it in the same step. After registry-prune approval, verify with
+                <code>artshelf ledgers list --json</code>; after any approved ledger action, verify quiet with
                 <code>artshelf review --all --json</code>.
               </p>
             </div>

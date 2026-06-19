@@ -81,6 +81,15 @@ artshelf ledgers add --ledger <repo>/.artshelf/ledger.jsonl --name <project> --s
 artshelf ledgers list --json
 ```
 
+If `ledgers list`, `doctor`, or `status --all --agent` reports stale/missing
+registrations, review a registry-prune plan instead of hand-editing the registry:
+
+```bash
+artshelf ledgers prune --dry-run --registry <registry-path> --json
+# after approval: approve artshelf ledgers prune registry <registry-path> plan <plan-id>
+artshelf ledgers prune --execute --plan-id <plan-id> --registry <registry-path> --json
+```
+
 ## 4. Scheduled review (ask the user first)
 
 Ask the user whether they want a scheduled review job before creating one.
@@ -93,8 +102,8 @@ artshelf review --all --json
 ```
 
 and reports what needs attention. Scheduled jobs are review and report only:
-never schedule `artshelf cleanup --execute` or `artshelf trash purge
---execute`.
+never schedule `artshelf cleanup --execute`, `artshelf ledgers prune --execute`,
+or `artshelf trash purge --execute`.
 
 ## 5. Verify and report
 

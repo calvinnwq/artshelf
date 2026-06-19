@@ -56,8 +56,8 @@ Rules:
 - Command groups are `Create`, `Inspect`, `Review`, `Clean`, and `System`.
 - `artshelf <command> --help` and `artshelf help <command>` show focused help
   for that command.
-- Nested help is supported for `trash list`, `trash purge`, `ledgers list`, and
-  `ledgers add`.
+- Nested help is supported for `trash list`, `trash purge`, `ledgers list`,
+  `ledgers add`, and `ledgers prune`.
 - `artshelf trash help` and `artshelf ledgers help` are aliases for the focused
   help of those commands, matching `artshelf help trash` and `artshelf help ledgers`.
 - Top-level help presents `-h, --help` and `-v, --version` as global options,
@@ -105,13 +105,16 @@ printed to stderr in human mode, or surfaced as a `registryError` field in
 
 ### `artshelf ledgers`
 
-Lists or registers known Artshelf ledgers.
+Lists, registers, or prunes known Artshelf ledger registrations.
 
 ```bash
 artshelf ledgers list
 artshelf ledgers list --json
 artshelf ledgers list --plain
 artshelf ledgers add --ledger <path> --name <project> --scope repo --json
+artshelf ledgers prune --dry-run --registry <path> --json
+artshelf ledgers prune --dry-run --registry <path> --agent
+artshelf ledgers prune --execute --plan-id <id> --registry <path> --json
 ```
 
 Rules:
@@ -125,6 +128,19 @@ Rules:
   them; it does not validate and exits zero whenever the registry itself is
   readable.
 - `add` requires an existing ledger path.
+- `prune --dry-run` classifies registry entries whose ledger files are missing,
+  writes a reviewed registry-prune plan only when prunable entries exist, and
+  never mutates the registry. Repeated matching dry-runs reuse the same
+  unexecuted plan id. Duplicate registry paths are ambiguous and are reported as
+  blocked for manual repair, never pruned automatically.
+- `prune --dry-run --agent` emits a compact single-line packet with the prunable
+  count, blocked count, plan id, and exact approval target:
+  `approve artshelf ledgers prune registry <registry-path> plan <plan-id>`.
+- `prune --execute --plan-id <id>` binds to one exact registry path and reviewed
+  plan id. It re-checks the live registry, removes only entries still classified
+  as prunable, skips stale plan entries whose file reappeared or became
+  ambiguous, writes a rollback copy before mutation, writes a receipt after, and
+  exits non-zero if verification fails.
 - `--name` defaults from the ledger path when omitted.
 - `--scope` is optional; when omitted, Artshelf infers `repo`, `user`, or
   `other` from the ledger path.
@@ -259,22 +275,27 @@ counts plus the preview plan ids; JSON also includes the next safe action. The
 per-ledger human detail appends a `reconcile` count when a ledger has reconcile
 drift. Human output adds a one-line triage count with the same reconcile counts
 and states the same next safe action (repair broken ledgers, dry-run cleanup,
-dry-run reconcile for missing-path or reconcile drift, or nothing to do). Review
-never writes a plan, so
-the next action always points at an explicit follow-up command.
+registry-prune dry-run for missing registered ledgers, dry-run reconcile for
+missing-path or reconcile drift, or nothing to do). Review never writes a plan,
+so the next action always points at an explicit follow-up command.
 
-`review`, `status`, and `doctor` share three render modes. The default human
-render leads each ledger and summary line with a `✓`/`⚠` attention glyph; `--json`
-stays the full, backward-compatible public audit report; and `--agent` emits a compact,
+`review`, `status`, `doctor`, and `ledgers prune --dry-run` expose
+agent-oriented render modes. For review/status/doctor, the default human render
+leads each ledger and summary line with a `✓`/`⚠` attention glyph. `--json` stays
+the full, backward-compatible public audit report; and `--agent` emits a compact,
 deterministic single-line JSON decision packet for agents, taking precedence over
 `--json` when both are passed. For `review`, the packet sorts records into
 ready-for-approval, needs-review-first, and blocked groups. Because review is
-read-only and never mints a cleanup plan, the exact approval targets it emits are
-`resolve missing` and `reconcile`; the `reconcile` target appears only when a
-prior reviewed reconcile plan still matches the live drift. Cleanup-eligible
-records and reconcile drift without a reviewed plan stay needs-review-first and
-point at `cleanup --dry-run` or `reconcile --dry-run`, which mint the reviewed
-plan id to approve. Blocked or ambiguous reconcile findings surface in the
+read-only and never mints a cleanup or registry-prune plan, the exact approval
+targets it emits are `resolve missing` and `reconcile`; the `reconcile` target
+appears only when a prior reviewed reconcile plan still matches the live drift.
+Cleanup-eligible records and reconcile drift without a reviewed plan stay
+needs-review-first and point at `cleanup --dry-run` or `reconcile --dry-run`,
+which mint the reviewed plan id to approve. Missing registered ledger files in
+`--all` mode surface as blocked registry fixes that point at `ledgers prune
+--dry-run --registry <path>`; the prune dry-run produces the registry-prune
+approval target. Invalid-but-present ledger files still point at manual
+re-register/fix work. Blocked or ambiguous reconcile findings surface in the
 blocked group with no approval target.
 
 ### `artshelf doctor`
@@ -302,10 +323,13 @@ Doctor reports:
   physical trash purge requires a separate reviewed purge plan.
 
 A healthy machine exits 0. A broken registry file or any stale or invalid
-registered ledger exits non-zero with actionable errors. Humans should run
-`artshelf doctor` after install or when `--all` commands behave unexpectedly; agents
-may run it on a schedule to catch stale registry entries before relying on
-cleanup planning. Doctor never creates plans, receipts, or records. Like `review`
+registered ledger exits non-zero with actionable errors. When stale/missing
+registrations exist, the agent next action points at `artshelf ledgers prune
+--dry-run --registry <path>` before re-running doctor; invalid ledger files still
+need manual repair. Humans should run `artshelf doctor` after install or when
+`--all` commands behave unexpectedly; agents may run it on a schedule to catch
+stale registry entries before relying on cleanup planning. Doctor never creates
+plans, receipts, or records. Like `review`
 and `status`, `doctor` accepts `--agent` for a compact single-line JSON decision
 packet (health, registry and registered-ledger health, blockers, cleanup-safety
 posture, next action, and a verify command); `--agent` takes precedence over
@@ -337,9 +361,12 @@ Status reports:
 output is short enough to paste into a chat. Status is strictly read-only: it
 never creates plans or receipts and never mutates records. A healthy machine
 exits 0. In `--all` mode, a broken registry or any stale or invalid registered
-ledger exits non-zero. Due entries are normal operational state and do not change
-the exit code. With single `--ledger`, a not-yet-created ledger reports empty
-counts. Like `review` and `doctor`, `status` accepts `--agent` for a compact
+ledger exits non-zero. When stale/missing registrations exist, `--all --agent`
+points at `artshelf ledgers prune --dry-run --registry <path>` before re-running
+status; invalid ledgers are still manual repair. Due entries are normal
+operational state and do not change the exit code. With single `--ledger`, a
+not-yet-created ledger reports empty counts. Like `review` and `doctor`,
+`status` accepts `--agent` for a compact
 single-line JSON decision packet (health, counts, attention categories, blockers,
 next action, and a verify command); `--agent` takes precedence over `--json`.
 
@@ -662,8 +689,11 @@ V1 also supports a user-level registry of known ledgers:
 - `--all` reads registered ledgers as one review surface.
 - `trash list --all` reads trashed records across registered ledgers after
   registry validation.
-- `cleanup --execute --all` and `trash purge --all` are refused; execution stays
-  scoped to one explicit ledger and one reviewed plan id.
+- Registry-prune artifacts live next to the registry: `registry-prune-plans/`,
+  `registry-prune-rollbacks/`, and `registry-prune-receipts/`.
+- `cleanup --execute --all`, `reconcile --execute --all`, and `trash purge --all`
+  are refused; execution stays scoped to one explicit ledger or registry and one
+  reviewed plan id.
 
 ## Ledger Registry Schema
 
@@ -929,9 +959,9 @@ installs. The report groups decisions into ready-for-approval,
 needs-review-first, and blocked sections, and must still include exact approval
 targets in the message body.
 
-Scheduled jobs must never run `artshelf cleanup --execute` or
-`artshelf trash purge --execute`; they may only dry-run and report plans for later
-human review.
+Scheduled jobs must never run `artshelf cleanup --execute`,
+`artshelf ledgers prune --execute`, or `artshelf trash purge --execute`; they may
+only dry-run and report plans for later human review.
 
 ## Dogfood Scenarios
 
@@ -949,6 +979,10 @@ human review.
   by default, or a `--plain` fast path that skips validation.
 - CLI can review registered ledgers through `--all` read-only entry points,
   emitting an aggregate triage summary and the next safe action.
+- CLI can prune missing/stale ledger registrations through an approval-gated
+  `artshelf ledgers prune` dry-run/execute workflow that writes a reviewed plan,
+  rollback copy, and receipt; duplicate registry paths are blocked for manual
+  repair.
 - CLI refuses records without a reason.
 - CLI requires TTL, retain-until, or manual-review.
 - CLI can list, filter by status, and show due entries.
@@ -990,13 +1024,14 @@ human review.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`.
-- `review`, `status`, and `doctor` also support `--agent`, a compact single-line
-  JSON decision packet for agents that takes precedence over `--json`.
+- `review`, `status`, `doctor`, and `ledgers prune --dry-run` also support
+  `--agent`, a compact single-line JSON decision packet for agents that takes
+  precedence over `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent
-  ledger writes, trash list/purge, path provenance validation, and reconcile
-  dry-run/execute behavior.
+  ledger writes, trash list/purge, path provenance validation, registry-prune,
+  and reconcile dry-run/execute behavior.
 
 ## Deferred
 

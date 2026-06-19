@@ -8,6 +8,7 @@ Usage:
 Available Commands:
   list      List and validate registered ledgers
   add       Register an existing ledger file
+  prune     Review and remove registrations whose ledger files are missing
 
 Flags:
   -h, --help   help for ledgers
@@ -78,7 +79,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
-  ["ledgers", new Set(["list", "add"])]
+  ["ledgers", new Set(["list", "add", "prune"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -374,6 +375,35 @@ Options:
 
 Ledgers add registers an existing ledger file in the global registry so --all
 commands and the registry index can find it. The ledger file must already exist.
+`;
+  }
+
+  if (command === "ledgers prune") {
+    return `Usage:
+  artshelf ledgers prune --dry-run [--registry <path>] [--json|--agent]
+  artshelf ledgers prune --execute --plan-id <id> [--registry <path>] [--json]
+
+Options:
+  --dry-run                Review prunable registrations and write a reviewed plan
+  --execute                Apply a reviewed plan, removing the missing registrations
+  --plan-id <id>           Reviewed plan id to execute (required with --execute)
+  --registry <path>        Registry path to inspect or prune
+  --json                   Emit machine-readable output
+  --agent                  Emit a compact single-line decision packet (dry-run)
+
+Ledgers prune is the approval-gated way to remove registry entries whose ledger
+files are missing, so missing temp ledgers no longer need hand-edited registry
+JSON. Dry-run is read-only except for writing a reviewed plan when action is
+needed; it never mutates the registry. Registrations sharing a duplicate path are
+surfaced as blocked, never pruned. Dry-run prints the exact approval target:
+  approve artshelf ledgers prune registry <registry-path> plan <plan-id>
+
+Execute binds to one exact registry path and reviewed plan id. It re-checks the
+live registry and only removes entries still classified as prunable (entries
+whose ledger file reappeared or whose path became an ambiguous duplicate are
+skipped). It writes a rollback copy of the registry before mutating and a receipt
+after, both discoverable next to the registry under registry-prune-rollbacks/ and
+registry-prune-receipts/.
 `;
   }
 

@@ -46,8 +46,9 @@
             Run <code>artshelf help</code> for the grouped command list. Use
             <code>artshelf &lt;command&gt; --help</code> or
             <code>artshelf help &lt;command&gt;</code> for focused help; nested commands
-            such as <code>artshelf trash purge --help</code> and
-            <code>artshelf ledgers add --help</code> show only that subcommand.
+            such as <code>artshelf trash purge --help</code>,
+            <code>artshelf ledgers add --help</code>, and
+            <code>artshelf ledgers prune --help</code> show only that subcommand.
           </p>
 
           <section class="cmd">
@@ -81,6 +82,29 @@ artshelf ledgers add --ledger &lt;path&gt; [--name &lt;project&gt;] [--scope rep
             <p>
               <code>add</code> registers an existing ledger so Artshelf can review it through one
               entry point; scope is inferred from the path when omitted.
+            </p>
+          </section>
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf ledgers prune</h2><span class="cmd-flag approval">approval-gated</span></div>
+            <pre><code><span class="c"># review stale/missing registrations before touching the registry</span>
+artshelf ledgers prune --dry-run [--registry &lt;path&gt;] [--json|--agent]
+
+<span class="c"># execute exactly one reviewed registry-prune plan</span>
+artshelf ledgers prune --execute --plan-id &lt;id&gt; [--registry &lt;path&gt;] [--json]</code></pre>
+            <p>
+              <code>prune --dry-run</code> is the registry-safe way to remove registrations whose
+              ledger files are missing. It writes a reviewed plan only when entries are
+              prunable, reuses matching unexecuted plans, prints
+              <code>approve artshelf ledgers prune registry &lt;registry-path&gt; plan &lt;plan-id&gt;</code>,
+              and never mutates the registry during review. Duplicate registry paths are
+              blocked for manual repair.
+            </p>
+            <p>
+              <code>prune --execute</code> binds to one registry path and reviewed plan id,
+              re-checks the live registry, skips stale plan entries whose files reappeared
+              or became ambiguous, writes a rollback copy, removes only still-prunable
+              registrations, and writes a receipt.
             </p>
           </section>
 
@@ -133,8 +157,10 @@ artshelf doctor [--agent] [--json]</code></pre>
               summary, including reconcile entry and blocked counts, plus the next safe action.
               <code>status</code> is the lightweight dashboard of counts; <code>--all --json</code> is
               cron-friendly. <code>doctor</code> reports CLI version, resolved paths, registry health,
-              and the cleanup safety posture. All three also accept <code>--agent</code> for a
-              deterministic, token-efficient decision packet (see Output mode).
+              and the cleanup safety posture. Missing registered ledger files now point to
+              <code>ledgers prune --dry-run</code>; invalid-but-present ledgers still need manual
+              repair. All three also accept <code>--agent</code> for a deterministic, token-efficient
+              decision packet (see Output mode).
             </p>
           </section>
 
@@ -250,9 +276,9 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               output stays clean.
             </p>
             <p>
-              <code>review</code>, <code>status</code>, and <code>doctor</code> add <code>--agent</code>:
+              <code>review</code>, <code>status</code>, <code>doctor</code>, and <code>ledgers prune --dry-run</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
-              It names health, counts, classifications, exact approval targets, blockers, and the command
+              It names the relevant health or prune counts, classifications, blockers, approval targets where applicable, and the command
               to re-run for verification, so an agent can act without parsing decorative output.
             </p>
             <p>
@@ -264,7 +290,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
             <table class="opts">
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>(default)</td><td>human render: grouped counts, ✓/⚠ attention glyphs, and a short next action</td></tr>
-              <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code></td></tr>
+              <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, and <code>ledgers prune --dry-run</code></td></tr>
               <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data</td></tr>
             </table>
           </section>
@@ -279,7 +305,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>--ledger &lt;path&gt;</td><td>target an explicit JSONL ledger</td></tr>
               <tr><td>--registry &lt;path&gt;</td><td>target an explicit ledger registry</td></tr>
-              <tr><td>--all</td><td>read every registered ledger on commands that support discovery (<code>list</code>, <code>find</code>, <code>get</code>, <code>due</code>, <code>validate</code>, <code>review</code>, <code>status</code>, <code>cleanup --dry-run</code>, <code>reconcile --dry-run</code>, <code>trash list</code>)</td></tr>
+              <tr><td>--all</td><td>read every registered ledger on commands that support discovery (<code>list</code>, <code>find</code>, <code>get</code>, <code>due</code>, <code>validate</code>, <code>review</code>, <code>status</code>, <code>cleanup --dry-run</code>, <code>reconcile --dry-run</code>, <code>trash list</code>); registry pruning is scoped by <code>--registry</code>, not <code>--all</code></td></tr>
             </table>
           </section>
 
@@ -320,7 +346,10 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               repo it defaults to <code>~/.artshelf/ledger.jsonl</code>. A user-level registry at
               <code>~/.artshelf/ledgers.json</code> is the discovery index for <code>--all</code>
               review, status, cleanup dry-run, reconcile dry-run, and trash-list; project records stay in their own
-              repo-local ledgers. Automatic update checks cache their last npm result at
+              repo-local ledgers. Registry-prune plans, rollback copies, and receipts live next to the
+              selected registry under <code>registry-prune-plans/</code>,
+              <code>registry-prune-rollbacks/</code>, and <code>registry-prune-receipts/</code>.
+              Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed
               results.

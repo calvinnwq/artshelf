@@ -47,19 +47,20 @@ The browsable docs split the workflow into focused child pages:
 - Scheduled checks read and report only; set `ARTSHELF_NO_UPDATE_CHECK=1` when
   they must avoid npm network checks and update-cache writes.
 - Review output is a decision packet, not raw counts.
-- Approval names the exact ledger, plan id, or record ids.
+- Stale registry entries route through `ledgers prune --dry-run`, not manual JSON edits.
+- Approval names the exact ledger or registry, plan id, or record ids.
 - Every approved action ends with a read-only verification.
 
 ## Render modes
 
-`review`, `status`, and `doctor` share three render modes so the same data fits
+`review`, `status`, `doctor`, and `ledgers prune --dry-run` share agent-oriented render modes so the same data fits
 both people and agents:
 
 - **default**: a human render — scannable grouped counts, attention states, and a
   short next action for a person at the terminal.
 - **`--agent`**: a deterministic, token-efficient decision packet (single-line
-  compact JSON) with health, counts, classifications, exact approval targets,
-  blockers, and a verification command. Use it when an agent acts on the result.
+  compact JSON) with health, counts, classifications, blockers, approval targets where applicable, and a
+  verification command. Use it when an agent acts on the result.
 - **`--json`**: the backward-compatible public audit contract — complete
   machine-readable JSON for debugging and integrations.
 

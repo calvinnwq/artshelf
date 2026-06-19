@@ -118,8 +118,9 @@ destructive deletion.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`--agent` on `review`/`status`/`doctor`**, a compact, token-efficient
-  decision packet for agents, while the default render stays human-scannable.
+- **`--agent` on `review`/`status`/`doctor` and `ledgers prune --dry-run`**, a
+  compact, token-efficient decision packet for agents, while the default render
+  stays human-scannable.
 
 ## Reference
 
@@ -130,6 +131,8 @@ destructive deletion.
 artshelf put <path> --reason "debug parser output" --ttl 3d --kind scratch
 artshelf ledgers list [--plain] [--json]
 artshelf ledgers add --ledger <path> [--name <project>] [--scope repo|user|other] [--json]
+artshelf ledgers prune --dry-run [--registry <path>] [--json|--agent]
+artshelf ledgers prune --execute --plan-id <id> [--registry <path>] [--json]
 artshelf list [--all] [--status active]
 artshelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id>
 artshelf find --all --owner <agent-or-runtime>
@@ -152,8 +155,9 @@ artshelf resolve <id> --status resolved --reason "inspected and no longer needed
 
 Use `artshelf help` for a grouped command list, then `artshelf <command> --help`
 or `artshelf help <command>` for focused details. Nested commands such as
-`artshelf trash purge --help` and `artshelf ledgers add --help` show only that
-subcommand. All core commands support `--json`; `review`, `status`, and `doctor`
+`artshelf trash purge --help`, `artshelf ledgers add --help`, and
+`artshelf ledgers prune --help` show only that subcommand. All core commands
+support `--json`; `review`, `status`, `doctor`, and `ledgers prune --dry-run`
 also take `--agent` for a compact decision packet; `--ledger`, `--registry`, and
 `--all` are scope flags only on commands that list them.
 </details>
@@ -176,7 +180,11 @@ Artshelf keeps a small global registry of known ledgers at
 existing one with `artshelf ledgers add --ledger <path> --name <project> --json`.
 `artshelf ledgers list` validates each registered ledger by default (ok/missing/invalid
 status with counts, non-zero exit when broken), so it doubles as a stale-entry
-check; add `--plain` to skip validation.
+check; add `--plain` to skip validation. When registered ledger files are
+missing, use `artshelf ledgers prune --dry-run --registry <path>` to write a
+reviewed registry-prune plan, approve `approve artshelf ledgers prune registry
+<registry-path> plan <plan-id>`, then execute that exact plan id; duplicate paths
+are blocked for manual repair and are never pruned automatically.
 
 Use `--all` for one read-only discovery entry point across registered ledgers
 (`review`, `status`, `due`, `trash list`, `find`). `artshelf cleanup --dry-run --all`
