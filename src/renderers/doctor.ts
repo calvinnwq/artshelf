@@ -57,7 +57,19 @@ function doctorAttention(summary: DoctorReport["summary"]): string[] {
 
 function doctorNextAction(blockers: string[], summary: DoctorReport["summary"], registryPath: string): string {
   if (blockers.length > 0) {
-    return `repair ${blockers.length} registry/ledger issue(s) above, then re-run \`artshelf doctor\``;
+    const fixes: string[] = [];
+    if (summary.stale > 0) {
+      fixes.push(
+        `run \`artshelf ledgers prune --dry-run --registry ${registryPath}\` to review removing ${summary.stale} missing/stale registration(s)`
+      );
+    }
+    if (summary.invalid > 0) {
+      fixes.push(`repair ${summary.invalid} invalid ledger file(s) above`);
+    }
+    if (fixes.length === 0) {
+      return `repair ${blockers.length} registry/ledger issue(s) above, then re-run \`artshelf doctor\``;
+    }
+    return `${fixes.join("; ")}, then re-run \`artshelf doctor\``;
   }
   if (summary.warnings > 0) {
     return `healthy, but ${summary.warnings} warning(s) noted — run \`artshelf reconcile --dry-run --all --registry ${registryPath}\` to prepare reconcile-ready approvals, then run \`artshelf review --all --registry ${registryPath}\`; nothing is auto-executed`;

@@ -197,6 +197,12 @@ Artshelf's public contract is safety-first:
 - reconcile is approval-gated ledger/registry housekeeping, not cleanup: it never
   creates, moves, or deletes files. Execution stays plan-id bound and scoped to one
   explicit `--ledger`; `reconcile --execute --all` is refused and `--all` is dry-run only.
+- registry prune (`ledgers prune`) is the approval-gated path for removing
+  registrations whose ledger files are missing/stale: dry-run writes a reviewed plan,
+  execute is plan-id bound to one registry path with a pre-mutation rollback copy and a
+  receipt. `doctor`, `status --all`, and `review --all` point users at this flow (never
+  a manual registry edit) when stale registrations are detected; invalid-but-present
+  ledgers still route to a manual re-register/fix.
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, and `list`
   remain read-only surfaces.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and

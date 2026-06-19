@@ -81,6 +81,13 @@ export function reviewNextAction(summary: ReviewSummary, scope: "all" | "single"
   const broken = summary.invalid + summary.stale;
   const review = statusCommand(scope, "review", ledgerPath);
   if (broken > 0) {
+    if (scope === "all" && summary.stale > 0 && registryPath) {
+      const fixes = [
+        `run \`artshelf ledgers prune --dry-run --registry ${registryPath}\` to review removing ${summary.stale} missing/stale registration(s)`
+      ];
+      if (summary.invalid > 0) fixes.push(`repair ${summary.invalid} invalid ledger(s) above (re-register or fix the file)`);
+      return `${fixes.join("; ")}, then re-run \`${review}\``;
+    }
     const repair = scope === "all" ? "re-register or fix the file" : "fix the file";
     return `repair ${broken} broken ledger(s) above (${repair}), then re-run \`${review}\``;
   }
@@ -120,7 +127,7 @@ export function printReview(results: ReviewResult[]): void {
   }
 }
 
-function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single"): ReviewAgentGroups {
+function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single", registryPath?: string): ReviewAgentGroups {
   const readyForApproval: ReviewDecision[] = [];
   const needsReviewFirst: ReviewDecision[] = [];
   const blocked: ReviewDecision[] = [];
@@ -130,6 +137,20 @@ function buildReviewDecisions(results: ReviewResult[], scope: "all" | "single"):
     const { ledger, validate, due } = result;
     if (!validate.ok) {
       const status = result.ledgerExists ? "invalid" : "missing";
+      // A missing registered ledger is repaired through the approval-gated registry-prune
+      // flow rather than hand-editing the registry; an invalid-but-present file still needs
+      // a manual re-register/fix.
+      if (scope === "all" && status === "missing" && registryPath) {
+        blocked.push({
+          label: `Prune ${ledger.name} registration (missing)`,
+          itemIds: [],
+          actionType: "fix-registry",
+          approvalTarget: null,
+          reason: validate.errors[0] ?? "the registered ledger file is missing",
+          nextStep: `run \`artshelf ledgers prune --dry-run --registry ${registryPath} --json\` to review removing it, then approve \`approve artshelf ledgers prune registry ${registryPath} plan <plan-id>\``
+        });
+        continue;
+      }
       const repair = scope === "all" ? `re-register or fix ${ledger.path}` : `fix ${ledger.path}`;
       blocked.push({
         label: `Repair ${ledger.name} ledger (${status})`,
@@ -268,7 +289,7 @@ function reviewCounts(summary: ReviewSummary): ReviewAgentPacket["counts"] {
 }
 
 export function buildReviewAgentPacketAll(results: ReviewResult[], summary: ReviewSummary, registry: { path: string; exists: boolean }): ReviewAgentPacket {
-  const groups = buildReviewDecisions(results, "all");
+  const groups = buildReviewDecisions(results, "all", registry.path);
   return {
     schemaVersion: 1,
     command: "review",

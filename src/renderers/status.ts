@@ -69,10 +69,19 @@ function statusNextAction(
   counts: StatusCounts,
   scope: "all" | "single",
   ledgerPath?: string,
-  registryPath?: string
+  registryPath?: string,
+  stale = 0,
+  invalid = 0
 ): string {
   if (blockers.length > 0) {
     const verify = statusCommand(scope, "status", ledgerPath);
+    if (scope === "all" && stale > 0 && registryPath) {
+      const fixes = [
+        `run \`artshelf ledgers prune --dry-run --registry ${registryPath}\` to review removing ${stale} missing/stale registration(s)`
+      ];
+      if (invalid > 0) fixes.push(`repair ${invalid} invalid ledger(s) above`);
+      return `${fixes.join("; ")}, then re-run \`${verify}\``;
+    }
     return `repair ${blockers.length} broken ledger(s) above, then re-run \`${verify}\``;
   }
   const review = statusCommand(scope, "review", ledgerPath);
@@ -115,7 +124,7 @@ export function buildStatusAgentPacketAll(report: StatusReport): StatusAgentPack
     counts,
     attention: statusAttention(counts),
     blockers,
-    nextAction: statusNextAction(blockers, counts, "all", undefined, report.registryPath),
+    nextAction: statusNextAction(blockers, counts, "all", undefined, report.registryPath, report.totals.stale, report.totals.invalid),
     verification: `artshelf status --all --agent --registry ${report.registryPath}`
   };
 }

@@ -2719,6 +2719,41 @@ test("doctor --agent surfaces broken registry entries as blockers and exits non-
   assert.match(packet.nextAction, /repair/i);
 });
 
+test("doctor --agent points stale registrations to the approval-gated prune flow (NGX-481)", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 0);
+  assert.match(packet.nextAction, new RegExp(`artshelf ledgers prune --dry-run --registry ${escapeRegExp(registry)}`));
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+});
+
+test("doctor --agent keeps invalid (present-but-corrupt) ledgers on repair guidance, not prune (NGX-481)", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const badLedger = join(fixture, "bad", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "bad", ".artshelf"), { recursive: true });
+  writeFileSync(badLedger, "{not json\n");
+  artshelf(["ledgers", "add", "--ledger", badLedger, "--name", "bad", "--registry", registry]);
+
+  const result = artshelf(["doctor", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.ledgers.stale, 0);
+  assert.equal(packet.ledgers.invalid, 1);
+  assert.match(packet.nextAction, /repair/i);
+  assert.doesNotMatch(packet.nextAction, /ledgers prune/);
+});
+
 test("doctor --agent flags warnings as attention while the machine stays healthy", () => {
   const fixture = fixtureDir();
   const registry = join(fixture, "registry.json");
@@ -3138,6 +3173,24 @@ test("status --all --agent surfaces broken ledgers as blockers and exits non-zer
   assert.match(packet.nextAction, /repair/i);
 });
 
+test("status --all --agent points stale registrations to the approval-gated prune flow (NGX-481)", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+
+  const result = artshelf(["status", "--all", "--registry", registry, "--agent"]);
+  assert.equal(result.status, 1);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 0);
+  assert.match(packet.nextAction, new RegExp(`artshelf ledgers prune --dry-run --registry ${escapeRegExp(registry)}`));
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+});
+
 test("status --agent reports a single ledger packet without registry aggregates", () => {
   const fixture = fixtureDir();
   const ledger = ledgerPath(fixture);
@@ -3523,6 +3576,32 @@ test("review --all --agent surfaces broken ledgers as blocked decisions and exit
   assert.ok(packet.blocked.some((decision: any) => /stale/.test(decision.label)));
   assert.ok(packet.blocked.some((decision: any) => /bad/.test(decision.label)));
   assert.match(packet.nextAction, /repair/i);
+});
+
+test("review --all points stale registrations to the approval-gated prune flow (NGX-481)", () => {
+  const fixture = fixtureDir();
+  const registry = join(fixture, "registry.json");
+  const staleLedger = join(fixture, "stale", ".artshelf", "ledger.jsonl");
+  mkdirSync(join(fixture, "stale", ".artshelf"), { recursive: true });
+  writeFileSync(staleLedger, "");
+  artshelf(["ledgers", "add", "--ledger", staleLedger, "--name", "stale", "--registry", registry]);
+  rmSync(staleLedger);
+
+  const agent = artshelf(["review", "--all", "--registry", registry, "--agent"]);
+  assert.equal(agent.status, 1);
+  const packet = JSON.parse(agent.stdout);
+  assert.equal(packet.ledgers.stale, 1);
+  assert.equal(packet.ledgers.invalid, 0);
+  assert.match(packet.nextAction, new RegExp(`artshelf ledgers prune --dry-run --registry ${escapeRegExp(registry)}`));
+  assert.doesNotMatch(packet.nextAction, /--execute/);
+  // The structured blocked decision for the missing registration points at the prune flow,
+  // never auto-executing (no approval target until a plan is reviewed).
+  assert.equal(packet.blocked.length, 1);
+  assert.equal(packet.blocked[0].approvalTarget, null);
+  assert.match(packet.blocked[0].nextStep, /artshelf ledgers prune --dry-run/);
+
+  const human = artshelf(["review", "--all", "--registry", registry]);
+  assert.match(human.stdout, /next: .*artshelf ledgers prune --dry-run/);
 });
 
 test("review --agent reports a single-ledger packet without registry aggregates", () => {
