@@ -6,8 +6,8 @@ import {
   registerLedger
 } from "../registry.js";
 import type { LedgerRegistryEntry } from "../registry.js";
-import { createRegistryPrunePlan } from "../registry-prune.js";
-import type { RegistryPrunePlan } from "../registry-prune.js";
+import { createRegistryPrunePlan, executeRegistryPrunePlan } from "../registry-prune.js";
+import type { RegistryPrunePlan, RegistryPruneReceipt } from "../registry-prune.js";
 import { printCompactJson, printJson } from "../renderers/json.js";
 import { boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { LEDGERS_HELP } from "../shared/help-text.js";
@@ -63,14 +63,13 @@ export function handleLedgers(parsed: ParsedArgs, json: boolean): number {
 
 // Approval-gated registry prune (NGX-481). Dry-run is read-only except for writing a
 // reviewed plan when missing registrations are detected; it never mutates the registry.
-// Execute (a later slice) will bind to one exact registry path and reviewed plan id.
+// Execute binds to one exact registry path and reviewed plan id, copies a rollback
+// snapshot before mutating, and writes a receipt after.
 function handleLedgersPrune(parsed: ParsedArgs, registryPath: string, json: boolean): number {
   const dryRun = boolFlag(parsed, "dry-run");
   const execute = boolFlag(parsed, "execute");
   if (dryRun && execute) throw new Error("ledgers prune accepts either --dry-run or --execute, not both");
-  if (execute) {
-    throw new Error("ledgers prune --execute is not available yet; run `artshelf ledgers prune --dry-run` to review prunable registrations");
-  }
+  if (execute) return handleLedgersPruneExecute(parsed, registryPath, json);
   if (!dryRun) throw new Error("ledgers prune requires --dry-run or --execute");
 
   const plan = createRegistryPrunePlan(registryPath);
@@ -93,8 +92,39 @@ function handleLedgersPrune(parsed: ParsedArgs, registryPath: string, json: bool
   return 0;
 }
 
+// Execute one reviewed registry-prune plan. The plan id is required up front (refusing
+// `--execute` without it), then the domain layer re-checks the live registry, takes a
+// rollback copy, removes only entries still classified as prunable, and writes a
+// receipt. Exit is non-zero when post-mutation verification fails.
+function handleLedgersPruneExecute(parsed: ParsedArgs, registryPath: string, json: boolean): number {
+  const planId = stringFlag(parsed, "plan-id");
+  if (!planId) {
+    throw new Error("ledgers prune --execute requires --plan-id <id>; run `artshelf ledgers prune --dry-run` first to review a plan");
+  }
+  const receipt = executeRegistryPrunePlan(registryPath, planId);
+  if (json) {
+    printJson({ ok: receipt.verification.ok, registryPath, receipt });
+    return receipt.verification.ok ? 0 : 1;
+  }
+  printRegistryPruneReceipt(receipt);
+  return receipt.verification.ok ? 0 : 1;
+}
+
 function pruneApprovalTarget(registryPath: string, planId: string): string {
   return `approve artshelf ledgers prune registry ${registryPath} plan ${planId}`;
+}
+
+function printRegistryPruneReceipt(receipt: RegistryPruneReceipt): void {
+  process.stdout.write(`artshelf ledgers prune --execute: removed ${receipt.removed.length}, skipped ${receipt.skipped.length}\nregistry: ${receipt.registryPath}\n`);
+  for (const entry of receipt.removed) {
+    process.stdout.write(`[${entry.name}] removed ${entry.scope} — ${entry.path}\n`);
+  }
+  for (const entry of receipt.skipped) {
+    process.stdout.write(`[${entry.name}] skipped ${entry.scope}: live registry no longer matches the reviewed plan — ${entry.path}\n`);
+  }
+  process.stdout.write(`rollback: ${receipt.rollbackPath}\n`);
+  process.stdout.write(`receipt: ${receipt.receiptPath}\n`);
+  process.stdout.write(`verification: ${receipt.verification.ok ? "ok" : "failed"} — ${receipt.verification.detail}\n`);
 }
 
 function printRegistryPrunePlan(plan: RegistryPrunePlan, registryPath: string, approve: string | null): void {

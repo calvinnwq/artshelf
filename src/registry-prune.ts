@@ -2,7 +2,8 @@ import { randomBytes } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { assertSafeGeneratedId } from "./ledger.js";
-import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
+import { withPathLock } from "./locks.js";
+import { listRegisteredLedgers, normalizeRegistryPath, removeRegisteredLedgers } from "./registry.js";
 import type { LedgerRegistryEntry, LedgerScope } from "./registry.js";
 import { now, toIso } from "./time.js";
 
@@ -39,6 +40,41 @@ export type RegistryPrunePlan = {
   entries: RegistryPrunePlanEntry[];
   skipped: RegistryPrunePlanEntry[];
   planPath: string | null;
+};
+
+// One registration the execute step acted on. `removed` entries left the registry;
+// `skipped` entries were in the reviewed plan but no longer classify as prunable at
+// execute time (file reappeared, or the path became an ambiguous duplicate) and so
+// are deliberately left registered.
+export type RegistryPruneRemoval = {
+  name: string;
+  path: string;
+  scope: LedgerScope;
+};
+
+// The post-mutation self-check recorded in the receipt: `ok` is true only when every
+// removed registration is gone from a fresh re-scan. `remainingPrunable` reports how
+// many prunable registrations still exist registry-wide (informational; other plans
+// may cover them).
+export type RegistryPruneVerification = {
+  ok: boolean;
+  remainingPrunable: number;
+  detail: string;
+};
+
+// The receipt written after `ledgers prune --execute` mutates the registry. It records
+// the removed registrations, the entries skipped as stale, the pre-mutation rollback
+// copy, the bound plan id, when it ran, and the verification result — everything an
+// audit needs to understand and, via the rollback copy, undo the prune.
+export type RegistryPruneReceipt = {
+  planId: string;
+  registryPath: string;
+  executedAt: string;
+  rollbackPath: string;
+  removed: RegistryPruneRemoval[];
+  skipped: RegistryPruneRemoval[];
+  verification: RegistryPruneVerification;
+  receiptPath: string;
 };
 
 // Classify the registry into prune findings (read-only). A registration is prunable
@@ -92,6 +128,67 @@ export function createRegistryPrunePlan(registryPath?: string): RegistryPrunePla
 
   writeRegistryPrunePlanFile(reviewed.planPath, reviewed);
   return reviewed;
+}
+
+// Apply a reviewed registry-prune plan (NGX-481 `ledgers prune --execute`). This is the
+// only mutating registry-prune entrypoint and it is deliberately conservative:
+//   * It refuses up front when the plan id is missing, the registry is absent, the plan
+//     file is absent, or the plan file's declared id/registry does not match the scoped
+//     request (no fresh plan, no `--all`; it binds to one exact reviewed plan id against
+//     one exact registry path).
+//   * Inside one registry lock it re-classifies the live registry and only removes a
+//     planned entry that still classifies as prunable; entries whose ledger file
+//     reappeared or whose path became an ambiguous duplicate are skipped, not removed.
+//   * It writes a rollback copy of the registry before mutating and a receipt after,
+//     then verifies the removed registrations are actually gone.
+export function executeRegistryPrunePlan(registryPath: string | undefined, planId: string): RegistryPruneReceipt {
+  if (!planId) throw new Error("ledgers prune --execute requires --plan-id");
+  const normalized = normalizeRegistryPath(registryPath);
+  if (!existsSync(normalized)) throw new Error(`Registry not found: ${normalized}`);
+
+  const planPath = registryPrunePlanPath(normalized, planId);
+  if (!existsSync(planPath)) throw new Error(`Registry prune plan not found: ${planId}`);
+  const plan = JSON.parse(readFileSync(planPath, "utf8")) as RegistryPrunePlan;
+  assertRegistryPrunePlanExecutable(plan, planId, normalized);
+
+  const receiptPath = registryPruneReceiptPath(normalized, planId);
+  const rollbackPath = registryPruneRollbackPath(normalized, planId);
+
+  return withPathLock(normalized, () => {
+    const liveByKey = new Map(
+      classifyRegistryPruneFindings(normalized).map((item) => [pruneKey(item.name, item.path), item])
+    );
+    const removable: RegistryPrunePlanEntry[] = [];
+    const skipped: RegistryPruneRemoval[] = [];
+    for (const entry of plan.entries) {
+      if (liveByKey.get(pruneKey(entry.name, entry.path))?.status === "prune") removable.push(entry);
+      else skipped.push(removal(entry.name, entry.path, entry.scope));
+    }
+
+    // Take the rollback copy immediately before mutating, and only when something is
+    // actually removable. A no-op execute (everything skipped as stale) must not
+    // overwrite a rollback left by an earlier real execute of this plan id.
+    let removedEntries: LedgerRegistryEntry[] = [];
+    if (removable.length > 0) {
+      copyRegistrySnapshot(normalized, rollbackPath);
+      removedEntries = removeRegisteredLedgers(normalized, removable.map((entry) => ({ name: entry.name, path: entry.path })));
+    }
+    const removed = removedEntries.map((entry) => removal(entry.name, entry.path, entry.scope));
+
+    const verification = verifyRegistryPrune(normalized, removed);
+    const receipt: RegistryPruneReceipt = {
+      planId,
+      registryPath: normalized,
+      executedAt: toIso(now()),
+      rollbackPath,
+      removed,
+      skipped,
+      verification,
+      receiptPath
+    };
+    writeRegistryPruneReceiptFile(receiptPath, receipt);
+    return receipt;
+  }, "Artshelf ledger registry");
 }
 
 function finding(entry: LedgerRegistryEntry, status: RegistryPruneFindingStatus, reason: string): RegistryPruneFinding {
@@ -161,4 +258,73 @@ function makeRegistryPrunePlanId(date: Date): string {
 function registryPrunePlanPath(registryPath: string, planId: string): string {
   assertSafeGeneratedId(planId, "registry prune plan id");
   return join(dirname(registryPath), "registry-prune-plans", `${planId}.json`);
+}
+
+// Bind a loaded registry-prune plan to the request before any registry mutation,
+// mirroring reconcile's assertReconcilePlanExecutable: the plan must declare the
+// requested id, belong to the executing registry, and carry well-formed entries.
+function assertRegistryPrunePlanExecutable(plan: RegistryPrunePlan, planId: string, registryPath: string): void {
+  if (plan.planId !== planId) {
+    throw new Error(`Registry prune plan id mismatch: plan file declares ${plan.planId}, requested ${planId}`);
+  }
+  if (plan.registryPath !== registryPath) {
+    throw new Error(`Registry prune plan registry mismatch: plan was created for ${plan.registryPath}, executing ${registryPath}`);
+  }
+  if (!Array.isArray(plan.entries)) {
+    throw new Error(`Registry prune plan entries are malformed: ${planId}`);
+  }
+  for (const entry of plan.entries) {
+    if (!entry || typeof entry.name !== "string" || typeof entry.path !== "string") {
+      throw new Error(`Registry prune plan entries are malformed: ${planId}`);
+    }
+  }
+}
+
+// Re-scan the registry after mutation and confirm every removed registration is gone.
+// `ok` stays true only when none of them resurface; `remainingPrunable` counts any
+// prunable registrations left registry-wide so the receipt reflects whether the
+// registry is fully clean or other plans still have work.
+function verifyRegistryPrune(registryPath: string, removed: RegistryPruneRemoval[]): RegistryPruneVerification {
+  const live = classifyRegistryPruneFindings(registryPath);
+  const stillPresent = removed.filter((entry) => live.some((item) => item.name === entry.name && item.path === entry.path));
+  const remainingPrunable = live.filter((item) => item.status === "prune").length;
+  return {
+    ok: stillPresent.length === 0,
+    remainingPrunable,
+    detail:
+      stillPresent.length === 0
+        ? "removed registrations are gone; registry re-scan is clean of them"
+        : `still registered after prune: ${stillPresent.map((entry) => entry.name).join(", ")}`
+  };
+}
+
+// Snapshot the registry verbatim before mutation so the receipt's rollbackPath points
+// at a restorable copy. The registry is always UTF-8 JSON, so a read/write round-trip
+// reproduces it byte-for-byte and keeps file I/O consistent with the rest of the code.
+function copyRegistrySnapshot(registryPath: string, rollbackPath: string): void {
+  mkdirSync(dirname(rollbackPath), { recursive: true });
+  writeFileSync(rollbackPath, readFileSync(registryPath, "utf8"));
+}
+
+function removal(name: string, path: string, scope: LedgerScope): RegistryPruneRemoval {
+  return { name, path, scope };
+}
+
+function pruneKey(name: string, path: string): string {
+  return JSON.stringify([name, path]);
+}
+
+function registryPruneReceiptPath(registryPath: string, planId: string): string {
+  assertSafeGeneratedId(planId, "registry prune plan id");
+  return join(dirname(registryPath), "registry-prune-receipts", `${planId}.json`);
+}
+
+function registryPruneRollbackPath(registryPath: string, planId: string): string {
+  assertSafeGeneratedId(planId, "registry prune plan id");
+  return join(dirname(registryPath), "registry-prune-rollbacks", `${planId}.json`);
+}
+
+function writeRegistryPruneReceiptFile(receiptPath: string, receipt: RegistryPruneReceipt): void {
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
 }

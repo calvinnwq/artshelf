@@ -7,8 +7,10 @@ import { test } from "node:test";
 import {
   classifyRegistryPruneFindings,
   createRegistryPrunePlan,
+  executeRegistryPrunePlan,
   previewRegistryPrunePlan
 } from "../src/registry-prune.js";
+import { listRegisteredLedgers } from "../src/registry.js";
 
 const CLI = new URL("../src/cli.js", import.meta.url);
 
@@ -222,4 +224,157 @@ test("CLI: ledgers prune --dry-run --agent emits a single-line packet with the a
   const packet = JSON.parse(result.stdout) as { approve: string; prunable: number };
   assert.equal(packet.prunable, 1);
   assert.match(packet.approve, /^approve artshelf ledgers prune registry .* plan /);
+});
+
+test("execute removes the missing registration and writes a rollback copy and receipt", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  const present = writeLedgerFile(join(root, "present", ".artshelf", "ledger.jsonl"));
+  const missing = join(root, "gone", ".artshelf", "ledger.jsonl");
+  writeRegistry(registryPath, [
+    { name: "present", path: present },
+    { name: "gone", path: missing, scope: "repo" }
+  ]);
+  const before = readFileSync(registryPath, "utf8");
+
+  const plan = createRegistryPrunePlan(registryPath);
+  const receipt = executeRegistryPrunePlan(registryPath, plan.planId);
+
+  // Only the missing registration is removed; the present one stays registered.
+  const remaining = listRegisteredLedgers(registryPath);
+  assert.deepEqual(remaining.map((entry) => entry.name), ["present"]);
+
+  // Receipt records removed names/paths, plan id, executedAt, rollback path, verification.
+  assert.equal(receipt.planId, plan.planId);
+  assert.deepEqual(receipt.removed.map((entry) => entry.name), ["gone"]);
+  assert.equal(receipt.removed[0]?.path, missing);
+  assert.equal(receipt.skipped.length, 0);
+  assert.match(receipt.executedAt, /^\d{4}-\d{2}-\d{2}T/);
+  assert.equal(receipt.verification.ok, true);
+
+  // Rollback copy is the pre-mutation registry, byte-for-byte.
+  assert.equal(existsSync(receipt.rollbackPath), true);
+  assert.equal(readFileSync(receipt.rollbackPath, "utf8"), before);
+
+  // Receipt is persisted and round-trips its plan id.
+  assert.equal(existsSync(receipt.receiptPath), true);
+  const persisted = JSON.parse(readFileSync(receipt.receiptPath, "utf8")) as { planId: string };
+  assert.equal(persisted.planId, plan.planId);
+});
+
+test("execute refuses a missing plan id", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "gone", path: join(root, "gone", ".artshelf", "ledger.jsonl") }]);
+
+  assert.throws(() => executeRegistryPrunePlan(registryPath, ""), /--plan-id/);
+});
+
+test("execute refuses an unknown plan id", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "gone", path: join(root, "gone", ".artshelf", "ledger.jsonl") }]);
+
+  assert.throws(() => executeRegistryPrunePlan(registryPath, "registry-prune_20260101_000000_dead"), /not found/i);
+});
+
+test("execute refuses a plan whose registry path does not match the request", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  const missing = join(root, "gone", ".artshelf", "ledger.jsonl");
+  writeRegistry(registryPath, [{ name: "gone", path: missing }]);
+  const plan = createRegistryPrunePlan(registryPath);
+
+  // Tamper the persisted plan so its declared registry path drifts from the request.
+  const planFile = plan.planPath as string;
+  const tampered = JSON.parse(readFileSync(planFile, "utf8")) as { registryPath: string };
+  tampered.registryPath = join(root, "other", "ledgers.json");
+  writeFileSync(planFile, `${JSON.stringify(tampered, null, 2)}\n`);
+
+  assert.throws(() => executeRegistryPrunePlan(registryPath, plan.planId), /registry mismatch/i);
+});
+
+test("execute skips an entry whose ledger file reappeared and leaves it registered", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  const missing = join(root, "gone", ".artshelf", "ledger.jsonl");
+  writeRegistry(registryPath, [{ name: "gone", path: missing }]);
+  const plan = createRegistryPrunePlan(registryPath);
+
+  // The ledger file reappears after the plan was reviewed: execute must not remove it.
+  writeLedgerFile(missing);
+
+  const receipt = executeRegistryPrunePlan(registryPath, plan.planId);
+  assert.equal(receipt.removed.length, 0);
+  assert.deepEqual(receipt.skipped.map((entry) => entry.name), ["gone"]);
+  assert.equal(listRegisteredLedgers(registryPath).length, 1);
+});
+
+test("execute skips an entry that became an ambiguous duplicate path", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  const missing = join(root, "dup", ".artshelf", "ledger.jsonl");
+  writeRegistry(registryPath, [{ name: "dup-a", path: missing }]);
+  const plan = createRegistryPrunePlan(registryPath);
+
+  // A second registration now shares the planned path: pruning either is ambiguous.
+  writeRegistry(registryPath, [
+    { name: "dup-a", path: missing },
+    { name: "dup-b", path: missing }
+  ]);
+
+  const receipt = executeRegistryPrunePlan(registryPath, plan.planId);
+  assert.equal(receipt.removed.length, 0);
+  assert.deepEqual(receipt.skipped.map((entry) => entry.name), ["dup-a"]);
+  assert.equal(listRegisteredLedgers(registryPath).length, 2);
+});
+
+test("re-executing a completed plan is a no-op that preserves the original rollback copy", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  const missing = join(root, "gone", ".artshelf", "ledger.jsonl");
+  writeRegistry(registryPath, [{ name: "gone", path: missing }]);
+  const plan = createRegistryPrunePlan(registryPath);
+
+  const first = executeRegistryPrunePlan(registryPath, plan.planId);
+  const rollbackAfterFirst = readFileSync(first.rollbackPath, "utf8");
+  assert.match(rollbackAfterFirst, /gone/);
+
+  // The plan's entry is already gone, so a second execute removes nothing and must
+  // not overwrite the rollback snapshot taken by the first (real) execute.
+  const second = executeRegistryPrunePlan(registryPath, plan.planId);
+  assert.equal(second.removed.length, 0);
+  assert.equal(second.verification.ok, true);
+  assert.equal(readFileSync(first.rollbackPath, "utf8"), rollbackAfterFirst);
+});
+
+test("CLI: ledgers prune --execute --json removes the registration and reports the receipt", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  const missing = join(root, "gone", ".artshelf", "ledger.jsonl");
+  writeRegistry(registryPath, [{ name: "gone", path: missing }]);
+  const plan = createRegistryPrunePlan(registryPath);
+
+  const result = artshelf(["ledgers", "prune", "--execute", "--plan-id", plan.planId, "--registry", registryPath, "--json"]);
+  assert.equal(result.status, 0, result.stderr);
+  const payload = JSON.parse(result.stdout) as {
+    ok: boolean;
+    receipt: { removed: { name: string }[]; rollbackPath: string; receiptPath: string; verification: { ok: boolean } };
+  };
+  assert.equal(payload.ok, true);
+  assert.deepEqual(payload.receipt.removed.map((entry) => entry.name), ["gone"]);
+  assert.equal(payload.receipt.verification.ok, true);
+  assert.equal(existsSync(payload.receipt.rollbackPath), true);
+  assert.equal(existsSync(payload.receipt.receiptPath), true);
+  assert.equal(listRegisteredLedgers(registryPath).length, 0);
+});
+
+test("CLI: ledgers prune --execute without a plan id is refused", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "gone", path: join(root, "gone", ".artshelf", "ledger.jsonl") }]);
+
+  const result = artshelf(["ledgers", "prune", "--execute", "--registry", registryPath]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--plan-id/);
 });

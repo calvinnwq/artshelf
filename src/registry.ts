@@ -78,6 +78,34 @@ export function registerLedger(input: RegisterLedgerInput): LedgerRegistryEntry 
   });
 }
 
+export type RegistryRemovalTarget = { name: string; path: string };
+
+// Remove registrations matching the given (name, path) targets, returning the entries
+// actually removed. The approval-gated registry prune execute composes this under its
+// own registry lock (re-entrant), so classification, rollback copy, mutation, and
+// verification all stay inside one critical section. Matching on both name and path
+// keeps removal precise when two registrations happen to share a path. The registry is
+// only rewritten when something is actually removed, so a no-op target list is inert.
+export function removeRegisteredLedgers(registryPath: string, targets: RegistryRemovalTarget[]): LedgerRegistryEntry[] {
+  const normalized = normalizeRegistryPath(registryPath);
+  return withRegistryLock(normalized, () => {
+    const registry = readRegistry(normalized);
+    const wanted = new Set(targets.map((target) => removalKey(target.name, resolve(target.path))));
+    const removed: LedgerRegistryEntry[] = [];
+    const kept: LedgerRegistryEntry[] = [];
+    for (const entry of registry.ledgers) {
+      if (wanted.has(removalKey(entry.name, entry.path))) removed.push(entry);
+      else kept.push(entry);
+    }
+    if (removed.length > 0) writeRegistry(normalized, { version: 1, ledgers: kept });
+    return removed;
+  });
+}
+
+function removalKey(name: string, path: string): string {
+  return JSON.stringify([name, path]);
+}
+
 function writeRegistry(registryPath: string, registry: LedgerRegistry): void {
   mkdirSync(dirname(registryPath), { recursive: true });
   const tmpPath = `${registryPath}.${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}.tmp`;
