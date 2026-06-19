@@ -132,6 +132,16 @@
 - Moved `artshelf put` registry-warning output from stdout to stderr in human
   mode; `--json` output is unchanged (NGX-429).
 
+## [0.14.0](https://github.com/calvinnwq/artshelf/compare/v0.13.1...v0.14.0) (2026-06-19)
+
+
+### Features
+
+* **commands:** add approval-gated registry pruning ([beaaca8](https://github.com/calvinnwq/artshelf/commit/beaaca84b6d0c62e66f4438ecf9323f482fcdba4))
+* **ledgers:** Implemented the approval-gated `artshelf ledgers prune --dry-run` registry-prune planning slice of NGX-481 — new domain module, command wiring with human/JSON/agent output carrying the exact approval target, help text, and 12 focused tests — with all verification gates passing. ([6d2de1f](https://github.com/calvinnwq/artshelf/commit/6d2de1fe2390785aa9e0ffa2b009e318e350e06e))
+* **ledgers:** Implemented the approval-gated `artshelf ledgers prune --execute --plan-id` slice of NGX-481 — plan-id-bound registry mutation with a pre-mutation rollback copy, post-mutation receipt with verification, and stale/duplicate/mismatch refusals — with 10 new tests and all five verification gates passing. ([11e03db](https://github.com/calvinnwq/artshelf/commit/11e03dbde7c5e4e933f241548bd8f88d316ae5a4))
+* **ledgers:** Wired doctor, status --all, and review --all to point users at the approval-gated `artshelf ledgers prune --dry-run` flow when the registry has stale (missing-file) registrations, completing the last NGX-481 scope bullet with 4 focused tests and all five verification gates passing. ([66cd791](https://github.com/calvinnwq/artshelf/commit/66cd791dae2a6f5b60ab506a4f4e2be8358369d6))
+
 ## [0.13.1](https://github.com/calvinnwq/artshelf/compare/artshelf-v0.13.0...artshelf-v0.13.1) (2026-06-15)
 
 

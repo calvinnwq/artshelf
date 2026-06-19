@@ -1,6 +1,6 @@
 {
   "name": "artshelf",
-  "version": "0.13.1",
+  "version": "0.14.0",
   "description": "Tiny CLI for accountable temporary artifact retention.",
   "type": "module",
   "author": "Calvin",
