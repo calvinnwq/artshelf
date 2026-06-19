@@ -6,7 +6,9 @@ import {
   registerLedger
 } from "../registry.js";
 import type { LedgerRegistryEntry } from "../registry.js";
-import { printJson } from "../renderers/json.js";
+import { createRegistryPrunePlan } from "../registry-prune.js";
+import type { RegistryPrunePlan } from "../registry-prune.js";
+import { printCompactJson, printJson } from "../renderers/json.js";
 import { boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { LEDGERS_HELP } from "../shared/help-text.js";
 import type { ParsedArgs } from "../shared/cli-types.js";
@@ -53,7 +55,65 @@ export function handleLedgers(parsed: ParsedArgs, json: boolean): number {
     printLedgersList(report);
     return report.ok ? 0 : 1;
   }
+  if (action === "prune") {
+    return handleLedgersPrune(parsed, registryPath, json);
+  }
   throw new Error(`Unknown ledgers action: ${action}`);
+}
+
+// Approval-gated registry prune (NGX-481). Dry-run is read-only except for writing a
+// reviewed plan when missing registrations are detected; it never mutates the registry.
+// Execute (a later slice) will bind to one exact registry path and reviewed plan id.
+function handleLedgersPrune(parsed: ParsedArgs, registryPath: string, json: boolean): number {
+  const dryRun = boolFlag(parsed, "dry-run");
+  const execute = boolFlag(parsed, "execute");
+  if (dryRun && execute) throw new Error("ledgers prune accepts either --dry-run or --execute, not both");
+  if (execute) {
+    throw new Error("ledgers prune --execute is not available yet; run `artshelf ledgers prune --dry-run` to review prunable registrations");
+  }
+  if (!dryRun) throw new Error("ledgers prune requires --dry-run or --execute");
+
+  const plan = createRegistryPrunePlan(registryPath);
+  const approve = plan.planId === "not-created" ? null : pruneApprovalTarget(registryPath, plan.planId);
+
+  if (boolFlag(parsed, "agent")) {
+    return printCompactJson({
+      ok: true,
+      command: "ledgers-prune",
+      registryPath,
+      prunable: plan.entries.length,
+      blocked: plan.skipped.length,
+      planId: plan.planId === "not-created" ? null : plan.planId,
+      approve
+    });
+  }
+  if (json) return printJson({ ok: true, registryPath, plan, approve });
+
+  printRegistryPrunePlan(plan, registryPath, approve);
+  return 0;
+}
+
+function pruneApprovalTarget(registryPath: string, planId: string): string {
+  return `approve artshelf ledgers prune registry ${registryPath} plan ${planId}`;
+}
+
+function printRegistryPrunePlan(plan: RegistryPrunePlan, registryPath: string, approve: string | null): void {
+  if (plan.entries.length === 0) {
+    process.stdout.write(`artshelf ledgers prune: nothing to prune\nregistry: ${registryPath}\n`);
+    for (const entry of plan.skipped) {
+      process.stdout.write(`[${entry.name}] blocked ${entry.scope}: ${entry.reason} — ${entry.path}\n`);
+    }
+    return;
+  }
+  process.stdout.write(`artshelf ledgers prune: ${plan.entries.length} prunable, ${plan.skipped.length} blocked\nregistry: ${registryPath}\n`);
+  for (const entry of plan.entries) {
+    process.stdout.write(`[${entry.name}] prune ${entry.scope}: ${entry.reason} — ${entry.path}\n`);
+  }
+  for (const entry of plan.skipped) {
+    process.stdout.write(`[${entry.name}] blocked ${entry.scope}: ${entry.reason} — ${entry.path}\n`);
+  }
+  process.stdout.write(`plan: ${plan.planPath ?? "not created"}\n`);
+  if (approve) process.stdout.write(`approve: ${approve}\n`);
 }
 
 type LedgerListing = LedgerRegistryEntry & {

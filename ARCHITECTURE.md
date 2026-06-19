@@ -44,6 +44,7 @@ src/
   commands/shared.ts shared command helpers for registry validation and common output
   ledger.ts           ledger domain rules, cleanup planning/execution, validation
   registry.ts         ledger registry domain and persistence helpers
+  registry-prune.ts   registry-prune classification plus approval-gated prune plan layer
   provenance.ts       reconcile-safe path provenance capture for new records
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
@@ -103,6 +104,9 @@ Current domain ownership:
 - `ledger.ts`: ledger record lifecycle and validation, due classification,
   cleanup and trash plan/receipt rules
 - `registry.ts`: registry-backed all-ledger reads and registrations
+- `registry-prune.ts`: read-only registry-prune classification (missing/duplicate
+  registrations) plus the approval-gated dry-run plan layer that writes a reviewed
+  registry-prune plan without mutating the registry
 - `provenance.ts`: reconcile-safe path provenance capture for new records
 - `reconcile.ts`: path-drift classification plus reconcile dry-run plan and execute layers
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
