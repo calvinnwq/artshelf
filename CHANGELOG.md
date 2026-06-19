@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Added approval-gated `artshelf ledgers prune` registry maintenance: dry-run
+  writes or reuses a reviewed plan for missing registered ledger files, `--agent`
+  emits the exact registry-prune approval target, execute binds to one registry
+  and plan id, writes a rollback copy and receipt, and `doctor`/`status`/`review`
+  agent guidance routes stale registrations to this flow instead of manual JSON
+  edits.
 - Hardened `cleanup --execute` with durable resumability: a `started` receipt is
   written before the first filesystem move so an interrupted run is detectable,
   terminal receipt evidence preserves an artifact's original

@@ -54,7 +54,7 @@
               </li>
               <li>
                 <span class="stamp refused">Repair</span>
-                <span>Registry stale, ledger invalid, or path state unsafe. Fix discovery before anything else.</span>
+                <span>Registry stale, ledger invalid, or path state unsafe. Review missing registrations with registry prune; fix invalid files manually.</span>
               </li>
             </ul>
           </section>
@@ -71,6 +71,9 @@ artshelf ledgers add --ledger &lt;repo&gt;/.artshelf/ledger.jsonl --name &lt;pro
 
 <span class="c"># list registered ledgers and their health</span>
 artshelf ledgers list --json
+
+<span class="c"># review missing/stale registrations without hand-editing JSON</span>
+artshelf ledgers prune --dry-run --registry &lt;registry-path&gt; --agent
 
 <span class="c"># review and due-check every registered ledger at once</span>
 artshelf review --all --agent
@@ -112,11 +115,12 @@ artshelf doctor --agent
 artshelf status --all --json
 artshelf status --all --agent</code></pre>
             <p>
-              If any ledger is stale or missing-path, run the safe sequence in order:
-              <code>review --all --json</code> for affected classifications,
-              <code>validate --all --json</code> for provenance signals, then
-              <code>reconcile --dry-run --all --json --registry &lt;registry-path&gt;</code>
-              before any approve/execute step.
+              If registered ledgers are stale/missing, run <code>ledgers prune --dry-run --registry &lt;registry-path&gt;</code>
+              to review removing missing registrations, then approve the exact registry/prune plan before execute.
+              If valid ledgers report missing-path records, run <code>review --all --json</code> for
+              affected classifications, <code>validate --all --json</code> for provenance signals, then
+              <code>reconcile --dry-run --all --json --registry &lt;registry-path&gt;</code> before any
+              reconcile approve/execute step.
             </p>
             <p>
               Use <code>--agent</code> for concise monitor decisions and exact next
@@ -131,6 +135,9 @@ artshelf status --all --agent</code></pre>
 artshelf cleanup --dry-run --json
 artshelf cleanup --dry-run --all --json
 
+<span class="c"># preview stale registry registration pruning</span>
+artshelf ledgers prune --dry-run --registry &lt;registry-path&gt; --json
+
 <span class="c"># what is sitting in trash, and how old it is</span>
 artshelf trash list --ledger &lt;ledger-path&gt; --json
 artshelf trash list --all --json
@@ -139,7 +146,7 @@ artshelf trash list --all --json
 artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --json</code></pre>
             <p>
               Dry-runs may write reusable plan files when entries exist. No-op dry-runs
-              report <code>not-created</code>. Matching cleanup dry-runs reuse the existing plan id.
+              report <code>not-created</code>. Matching cleanup and registry-prune dry-runs reuse the existing plan id.
             </p>
           </section>
 
@@ -148,10 +155,11 @@ artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --js
             <p>Do not scan arbitrary filesystem locations unless the user opted into that discovery scope.</p>
             <div class="callout" data-kind="boundary">
               <span class="callout-label">Never scheduled</span>
-              <p>These two commands require exact human approval and must never run from a monitor job:</p>
+              <p>These commands require exact human approval and must never run from a monitor job:</p>
             </div>
             <pre><code><span class="c"># mutating commands: approval only, never from a schedule</span>
 artshelf cleanup --execute --plan-id &lt;id&gt;
+artshelf ledgers prune --execute --plan-id &lt;id&gt;
 artshelf trash purge --execute --plan-id &lt;id&gt;</code></pre>
           </section>
         </article>
