@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -310,6 +310,28 @@ test("execute skips an entry whose ledger file reappeared and leaves it register
   assert.deepEqual(receipt.skipped.map((entry) => entry.name), ["gone"]);
   assert.equal(listRegisteredLedgers(registryPath).length, 1);
   assert.equal(receipt.rollbackPath, null);
+});
+
+test("dry-run creates a fresh plan after an executed skipped plan becomes prunable again", () => {
+  const root = fixtureRoot();
+  const registryPath = join(root, "ledgers.json");
+  const missing = join(root, "gone", ".artshelf", "ledger.jsonl");
+  writeRegistry(registryPath, [{ name: "gone", path: missing }]);
+  const stalePlan = createRegistryPrunePlan(registryPath);
+
+  writeLedgerFile(missing);
+  const skippedReceipt = executeRegistryPrunePlan(registryPath, stalePlan.planId);
+  assert.equal(skippedReceipt.removed.length, 0);
+  assert.deepEqual(skippedReceipt.skipped.map((entry) => entry.name), ["gone"]);
+
+  rmSync(missing);
+  writeRegistry(registryPath, [{ name: "gone", path: missing }]);
+  const freshPlan = createRegistryPrunePlan(registryPath);
+  assert.notEqual(freshPlan.planId, stalePlan.planId);
+
+  const receipt = executeRegistryPrunePlan(registryPath, freshPlan.planId);
+  assert.deepEqual(receipt.removed.map((entry) => entry.name), ["gone"]);
+  assert.equal(listRegisteredLedgers(registryPath).length, 0);
 });
 
 test("execute skips an entry that became an ambiguous duplicate path", () => {

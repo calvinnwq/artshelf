@@ -219,10 +219,10 @@ function noCreatedRegistryPrunePlan(plan: RegistryPrunePlan): RegistryPrunePlan 
   return { ...plan, planId: "not-created", planPath: null };
 }
 
-// Reuse an earlier plan whose prunable entries match this one's, so repeated dry-runs
-// converge on a single stable plan id (mirrors cleanup/reconcile plan reuse). Only the
-// structural entry fields are fingerprinted; volatile fields (generatedAt) and the
-// review-only skipped list do not affect reuse.
+// Reuse an unexecuted earlier plan whose prunable entries match this one's, so repeated
+// dry-runs converge on a single stable plan id (mirrors cleanup/reconcile plan reuse).
+// Only the structural entry fields are fingerprinted; volatile fields (generatedAt) and
+// the review-only skipped list do not affect reuse.
 function matchingExistingRegistryPrunePlan(registryPath: string, plan: RegistryPrunePlan): RegistryPrunePlan | null {
   const plansDir = join(dirname(registryPath), "registry-prune-plans");
   if (!existsSync(plansDir)) return null;
@@ -234,6 +234,7 @@ function matchingExistingRegistryPrunePlan(registryPath: string, plan: RegistryP
       const candidate = JSON.parse(readFileSync(planPath, "utf8")) as RegistryPrunePlan;
       if (candidate.registryPath !== registryPath) continue;
       if (registryPrunePlanFingerprint(candidate) !== registryPrunePlanFingerprint(plan)) continue;
+      if (existsSync(registryPruneReceiptPath(registryPath, candidate.planId))) continue;
       return { ...candidate, planPath };
     } catch {
       continue;
