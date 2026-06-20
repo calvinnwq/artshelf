@@ -970,6 +970,7 @@ test("registered ledgers missing from disk are reported as stale registry entrie
     ["list", "--all", "--registry", registry, "--json"],
     ["find", "--all", "--owner", "openclaw", "--registry", registry, "--json"],
     ["get", "shf_missing", "--all", "--registry", registry, "--json"],
+    ["get", "shf_missing", "--inspect", "--agent", "--all", "--registry", registry],
     ["due", "--all", "--registry", registry, "--json"]
   ]) {
     const stale = artshelf(args);
@@ -1399,6 +1400,26 @@ test("cleanup dry-run creates a plan and execute requires a plan id", () => {
   assert.equal(followupPlan.skipped.length, 2);
   assert.equal(existsSync(join(fixture, ".artshelf", "plans", "not-created.json")), false);
   assert.equal(JSON.parse(artshelf(["validate", "--ledger", ledger, "--json"]).stdout).ok, true);
+});
+
+test("cleanup execute rejects get-only inspect flag before mutating", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "expired.txt");
+  writeFileSync(artifact, "expired");
+  artshelf(["put", artifact, "--reason", "expired", "--ttl", "1d", "--cleanup", "trash", "--ledger", ledger], "2026-06-01T00:00:00Z");
+  const plan = JSON.parse(artshelf(["cleanup", "--dry-run", "--ledger", ledger, "--json"], "2026-06-03T00:00:00Z").stdout).plan;
+
+  const result = artshelf(
+    ["cleanup", "--execute", "--plan-id", plan.planId, "--inspect", "--ledger", ledger, "--json"],
+    "2026-06-03T00:01:00Z"
+  );
+
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /inspect/i);
+  assert.equal(existsSync(artifact), true);
+  const artifactRecord = readLedger(ledger).find((record) => record.path === artifact);
+  assert.equal(artifactRecord.status, "active");
 });
 
 test("cleanup dry-run reuses an unchanged existing plan", () => {
@@ -3674,6 +3695,178 @@ test("review --agent single-ledger blocked decision is single-scoped, not regist
   assert.doesNotMatch(packet.nextAction, /--all/, packet.nextAction);
   assert.doesNotMatch(packet.nextAction, /re-register/, packet.nextAction);
   assert.match(packet.nextAction, new RegExp(`artshelf review --ledger ${escapeRegExp(ledger)}`));
+});
+
+const INSPECT_NOW = "2026-06-19T00:00:00Z";
+
+function putReviewRecord(
+  ledger: string,
+  artifactPath: string,
+  extraArgs: string[] = []
+): { id: string } {
+  const put = JSON.parse(
+    artshelf(
+      [
+        "put",
+        artifactPath,
+        "--reason",
+        "dogfooding rollback backup",
+        "--manual-review",
+        "--cleanup",
+        "review",
+        "--kind",
+        "backup",
+        "--owner",
+        "manual",
+        "--label",
+        "dogfood",
+        "--ledger",
+        ledger,
+        "--json",
+        ...extraArgs
+      ],
+      INSPECT_NOW
+    ).stdout
+  );
+  return { id: put.record.id };
+}
+
+test("get --inspect renders a cleanup=review record as a human decision card", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "rollback-backup");
+  writeFileSync(artifact, "decide later");
+  const { id } = putReviewRecord(ledger, artifact);
+
+  const inspect = artshelf(["get", id, "--inspect", "--ledger", ledger], INSPECT_NOW);
+  assert.equal(inspect.status, 0);
+  assert.match(inspect.stdout, new RegExp(escapeRegExp(id)));
+  assert.match(inspect.stdout, /backup/); // kind
+  assert.match(inspect.stdout, /keep/); // recommendation bucket
+  assert.match(inspect.stdout, /manual-review/); // retention/due state
+  assert.match(inspect.stdout, /dogfooding rollback backup/); // reason
+  assert.doesNotMatch(inspect.stdout, /decide later/); // file contents are not previewed
+  assert.doesNotMatch(inspect.stdout, /preview:/i);
+  assert.match(inspect.stdout, /next:/i); // exact next-safe action wording
+  // The card is read-only: it must never claim a move/delete happened.
+  assert.doesNotMatch(inspect.stdout, /\bmoved\b|\bdeleted\b/i);
+});
+
+test("get --inspect --json exposes a deterministic inspect shape", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "notes.txt");
+  writeFileSync(artifact, "decide later");
+  const { id } = putReviewRecord(ledger, artifact);
+
+  const result = JSON.parse(
+    artshelf(["get", id, "--inspect", "--json", "--ledger", ledger], INSPECT_NOW).stdout
+  );
+  assert.equal(result.ok, true);
+  assert.equal(result.ledgerPath, ledger);
+  assert.equal(result.inspect.schemaVersion, 1);
+  assert.equal(result.inspect.id, id);
+  assert.equal(result.inspect.recommendation, "keep");
+  assert.equal(result.inspect.dueState, "manual-review");
+  assert.equal(result.inspect.existence, "present");
+  assert.equal(result.inspect.contentHint, undefined);
+  assert.equal(result.inspect.preview, undefined);
+  assert.equal(typeof result.inspect.nextAction, "string");
+});
+
+test("get --inspect --agent emits a compact single-line decision packet (and beats --json)", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "notes.txt");
+  writeFileSync(artifact, "decide later");
+  const { id } = putReviewRecord(ledger, artifact);
+
+  const raw = artshelf(["get", id, "--inspect", "--agent", "--json", "--ledger", ledger], INSPECT_NOW).stdout;
+  // --agent takes precedence over --json and emits one compact JSON line.
+  assert.equal(raw.trim().split("\n").length, 1);
+  const packet = JSON.parse(raw);
+  assert.equal(packet.schemaVersion, 1);
+  assert.equal(packet.command, "get");
+  assert.equal(packet.mode, "inspect");
+  assert.equal(packet.ledgerPath, ledger);
+  assert.equal(packet.inspect.id, id);
+  assert.equal(packet.inspect.recommendation, "keep");
+  assert.equal(packet.safety.readOnly, true);
+  assert.equal(packet.safety.noFileMoves, true);
+  assert.equal(packet.safety.noLedgerMutation, true);
+  assert.equal(packet.safety.previewRedacted, undefined);
+  assert.equal(packet.inspect.contentHint, undefined);
+  assert.equal(typeof packet.nextAction, "string");
+  assert.match(packet.verification, new RegExp(`artshelf get ${escapeRegExp(id)} --inspect --agent`));
+});
+
+test("get --agent without inspect is rejected", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "notes.txt");
+  writeFileSync(artifact, "decide later");
+  const { id } = putReviewRecord(ledger, artifact);
+
+  const result = artshelf(["get", id, "--agent", "--ledger", ledger], INSPECT_NOW);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /--agent requires --inspect/);
+});
+
+test("get --inspect classifies a missing path as resolve-only", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "ephemeral.txt");
+  writeFileSync(artifact, "temp");
+  const { id } = putReviewRecord(ledger, artifact);
+  rmSync(artifact);
+
+  const human = artshelf(["get", id, "--inspect", "--ledger", ledger], INSPECT_NOW);
+  assert.equal(human.status, 0);
+  assert.match(human.stdout, /missing/);
+  assert.match(human.stdout, /resolve-only/);
+  assert.match(human.stdout, new RegExp(`artshelf resolve ${escapeRegExp(id)} --ledger ${escapeRegExp(ledger)} --status resolved`));
+});
+
+test("get --inspect does not preview small JSON file contents", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "config.json");
+  writeFileSync(artifact, JSON.stringify({ token: "abcdef0123456789abcdef0123456789", note: "hello" }));
+  const { id } = putReviewRecord(ledger, artifact, ["--kind", "evidence"]);
+
+  const human = artshelf(["get", id, "--inspect", "--ledger", ledger], INSPECT_NOW).stdout;
+  assert.doesNotMatch(human, /preview:/i);
+  assert.doesNotMatch(human, /abcdef0123456789abcdef0123456789/);
+  assert.doesNotMatch(human, /hello/);
+});
+
+test("get --inspect never previews a sensitive file", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, ".env");
+  writeFileSync(artifact, "API_KEY=supersecretvalue");
+  const { id } = putReviewRecord(ledger, artifact);
+
+  const human = artshelf(["get", id, "--inspect", "--ledger", ledger], INSPECT_NOW).stdout;
+  assert.doesNotMatch(human, /supersecretvalue/);
+  assert.doesNotMatch(human, /preview:/i);
+});
+
+test("get without --inspect keeps its existing record output", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "thing.txt");
+  writeFileSync(artifact, "x");
+  const { id } = putReviewRecord(ledger, artifact);
+
+  const human = artshelf(["get", id, "--ledger", ledger], INSPECT_NOW);
+  assert.equal(human.status, 0);
+  assert.match(human.stdout, new RegExp(`^${escapeRegExp(id)} `));
+  assert.doesNotMatch(human.stdout, /recommendation|next:/i);
+
+  const json = JSON.parse(artshelf(["get", id, "--ledger", ledger, "--json"], INSPECT_NOW).stdout);
+  assert.equal(json.record.id, id);
+  assert.equal(json.inspect, undefined);
 });
 
 function artshelf(args: string[], now?: string, extraEnv: Record<string, string | undefined> = {}): { status: number; stdout: string; stderr: string } {
