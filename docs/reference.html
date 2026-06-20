@@ -117,12 +117,22 @@ artshelf list [--all] [--status active|review-required|trashed|cleanup-refused|r
 artshelf find --path &lt;path&gt; [--owner &lt;o&gt;] [--label &lt;l&gt;] [--json]
 
 <span class="c"># fetch one record by id</span>
-artshelf get &lt;id&gt; [--all] [--json]</code></pre>
+artshelf get &lt;id&gt; [--all] [--json]
+
+<span class="c"># review one record as a decision card (read-only, no mutation)</span>
+artshelf get &lt;id&gt; --inspect [--ledger &lt;path&gt;] [--json|--agent]
+artshelf get &lt;id&gt; --inspect --all [--registry &lt;path&gt;] [--json|--agent]</code></pre>
             <p>
               <code>list</code> shows ledger entries and current status. <code>find</code> looks up
               existing records by path, owner, labels, and status. Use it before <code>put</code>
               for idempotent registration; it requires at least one selector and never mutates records.
-              <code>get</code> is the audit lookup for one record by Artshelf id.
+              <code>get</code> is the audit lookup for one record by Artshelf id;
+              <code>--inspect</code> renders it as a review decision card — existence, size, age,
+              retention/due state, and a recommendation bucket (<code>keep</code>, <code>snooze</code>, <code>trash-safe</code>,
+              <code>resolve-only</code>, or <code>blocked</code>) with the exact next-safe action,
+              without moving files, touching the ledger, or previewing arbitrary file contents.
+              Combine <code>--inspect --all</code> to find the id through the registry while the card
+              reports the concrete ledger that owns the record.
             </p>
           </section>
 
@@ -276,9 +286,9 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               output stays clean.
             </p>
             <p>
-              <code>review</code>, <code>status</code>, <code>doctor</code>, and <code>ledgers prune --dry-run</code> add <code>--agent</code>:
+              <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
-              It names the relevant health or prune counts, classifications, blockers, approval targets where applicable, and the command
+              It names the relevant health, prune counts, or record recommendation, classifications, blockers, approval targets where applicable, and the command
               to re-run for verification, so an agent can act without parsing decorative output.
             </p>
             <p>
@@ -289,8 +299,8 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
             </p>
             <table class="opts">
               <tr><th>option</th><th>meaning</th></tr>
-              <tr><td>(default)</td><td>human render: grouped counts, ✓/⚠ attention glyphs, and a short next action</td></tr>
-              <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, and <code>ledgers prune --dry-run</code></td></tr>
+              <tr><td>(default)</td><td>human render: grouped counts or a record card, ✓/⚠ attention glyphs, and a short next action</td></tr>
+              <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, and <code>get --inspect</code></td></tr>
               <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data</td></tr>
             </table>
           </section>

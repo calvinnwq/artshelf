@@ -111,6 +111,7 @@ Current domain ownership:
   the missing registrations, and writes a receipt with the verification result
 - `provenance.ts`: reconcile-safe path provenance capture for new records
 - `reconcile.ts`: path-drift classification plus reconcile dry-run plan and execute layers
+- `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization

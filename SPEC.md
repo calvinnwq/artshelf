@@ -199,10 +199,56 @@ Read-only lookup of a single ledger record by Artshelf id.
 artshelf get <id>
 artshelf get <id> --json
 artshelf get <id> --all --json
+artshelf get <id> --inspect
+artshelf get <id> --inspect --json
+artshelf get <id> --inspect --agent
+artshelf get <id> --inspect --all --registry <path> --agent
 ```
 
 `get` is for audit and handoff follow-up. Missing ids are an error. `--all`
-searches registered ledgers until the id is found.
+searches registered ledgers until the id is found. With `--inspect --all`, the
+registry is only used for lookup; the decision card reports the concrete ledger
+that owns the matching record.
+
+`--inspect` turns a record into a review decision card. It never moves files or
+mutates the ledger; it only reports existence, node kind, size, age, retention/due and
+manual-review state, cleanup mode, reason, and a recommendation bucket with the
+exact next-safe action. It never reads or previews arbitrary file contents:
+
+- `keep` — held for manual review, already resolved, already trashed, or due
+  with `cleanup=review`; it needs your judgment but nothing auto-runs.
+- `snooze` — retention has not expired yet; re-inspect after it is due.
+- `trash-safe` — due with `cleanup=trash`; safe to plan a reviewed cleanup.
+- `resolve-only` — the recorded path is gone; resolve the record (ledger-only)
+  rather than cleaning a file.
+- `blocked` — needs a human decision first: `cleanup=delete` (refused at
+  execute), a review-required flag, or a prior cleanup refusal.
+
+File-content previews are intentionally outside Artshelf core; an acting agent or
+host runtime may inspect file contents separately when appropriate.
+`--inspect --json` returns `{ inspect: <report> }`; `--inspect --agent` returns a compact single-line
+decision packet with a read-only safety block, the next-safe action, and a
+reproducer command, and takes precedence over `--json`. Both shapes are
+deterministic so portable agent skills can act without re-deriving anything.
+
+Example pattern — the dogfooding case that motivated this surface was an old
+rollback `backup` registered with `cleanup=review` (the kind of stale record
+`ledgers prune` and `review --all` surface). Inspect it before deciding, using
+the record id and ledger path rather than hardcoding either:
+
+```bash
+artshelf get <id> --inspect --ledger <ledger-path>
+```
+
+```text
+✓ <id> [backup] — keep
+path: <backup-path>
+status: active · cleanup: review · owner: agent · labels: registry-prune
+existence: present (directory, 49 B) · age: 14d · retention: manual-review · due: manual-review
+reason: rollback backup before registry prune
+next: Held for manual review — keep it, change its retention, or resolve it explicitly; no cleanup is scheduled.
+ledger: <ledger-path>
+```
 
 ### `artshelf due`
 
@@ -279,12 +325,13 @@ registry-prune dry-run for missing registered ledgers, dry-run reconcile for
 missing-path or reconcile drift, or nothing to do). Review never writes a plan,
 so the next action always points at an explicit follow-up command.
 
-`review`, `status`, `doctor`, and `ledgers prune --dry-run` expose
-agent-oriented render modes. For review/status/doctor, the default human render
+`review`, `status`, `doctor`, `ledgers prune --dry-run`, and `get --inspect`
+expose agent-oriented render modes. For review/status/doctor, the default human render
 leads each ledger and summary line with a `✓`/`⚠` attention glyph. `--json` stays
 the full, backward-compatible public audit report; and `--agent` emits a compact,
 deterministic single-line JSON decision packet for agents, taking precedence over
-`--json` when both are passed. For `review`, the packet sorts records into
+`--json` when both are passed. For `get --inspect`, `--agent` returns the
+per-record decision packet and requires `--inspect`. For `review`, the packet sorts records into
 ready-for-approval, needs-review-first, and blocked groups. Because review is
 read-only and never mints a cleanup or registry-prune plan, the exact approval
 targets it emits are `resolve missing` and `reconcile`; the `reconcile` target
@@ -1024,9 +1071,9 @@ only dry-run and report plans for later human review.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`.
-- `review`, `status`, `doctor`, and `ledgers prune --dry-run` also support
-  `--agent`, a compact single-line JSON decision packet for agents that takes
-  precedence over `--json`.
+- `review`, `status`, `doctor`, `ledgers prune --dry-run`, and `get --inspect`
+  also support `--agent`, a compact single-line JSON decision packet for agents
+  that takes precedence over `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent

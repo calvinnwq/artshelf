@@ -390,6 +390,52 @@ test("reference docs document the human, agent, and json render modes for review
   assert.match(outputMode, /glyph/i);
 });
 
+test("docs document the get --inspect review decision card with the registry-backup example", () => {
+  const reference = read("docs/reference.html");
+  const spec = read("SPEC.md");
+  const agentReview = read("docs/agent-review.html");
+  const skill = read("skills/artshelf/SKILL.md");
+  const readme = read("README.md");
+
+  // reference.html surfaces --inspect on the get command snippet (NGX-482).
+  assert.match(reference, /artshelf get &lt;id&gt; --inspect/);
+
+  // README's command reference lists the inspect variant and its agent render.
+  assert.match(readme, /artshelf get <id> --inspect/);
+  assert.match(readme, /`get --inspect` also take[s]? `--agent`/);
+
+  // SPEC's get section documents the inspect decision card in full.
+  const specGet = spec.slice(
+    spec.indexOf("### `artshelf get`"),
+    spec.indexOf("### `artshelf due`")
+  );
+  // All three inspect render modes are shown.
+  assert.match(specGet, /artshelf get <id> --inspect\n/);
+  assert.match(specGet, /artshelf get <id> --inspect --json/);
+  assert.match(specGet, /artshelf get <id> --inspect --agent/);
+  // The five recommendation buckets are documented as inline code.
+  for (const bucket of ["`keep`", "`snooze`", "`trash-safe`", "`resolve-only`", "`blocked`"]) {
+    assert.ok(specGet.includes(bucket), `SPEC get section should document the ${bucket} bucket`);
+  }
+  // The surface is read-only and exposes a deterministic agent packet.
+  assert.match(specGet, /never moves files or\s+mutates the ledger/);
+  assert.match(specGet, /takes precedence over/);
+  // The dogfooding "old registry backup" case is shown as an example pattern
+  // using a cleanup=review backup and placeholder ids/paths (no private paths).
+  assert.match(specGet, /cleanup=review/);
+  assert.match(specGet, /backup/);
+  assert.match(specGet, /<id>/);
+  assert.doesNotMatch(specGet, /\/Users\//);
+
+  // agent-review.html teaches the per-record inspect drill-down within the daily review.
+  assert.match(agentReview, /--inspect/);
+  assert.match(agentReview, /resolve-only/);
+  assert.match(agentReview, /next-safe action/i);
+
+  // The portable skill points at the per-record inspect surface.
+  assert.match(skill, /get <id> --inspect/);
+});
+
 test("agent docs explain when to use the agent render versus json and human output", () => {
   const usageMd = read("docs/agent-usage.md");
   const usageHtml = read("docs/agent-usage.html");

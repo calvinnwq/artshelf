@@ -96,9 +96,9 @@ artshelf trash list --all --json
 
 `artshelf ledgers list --json` reports per-ledger validation status. `--plain`
 skips validation. `--all` is for discovery and review, not mutation permission.
-Use `--agent` on `review`, `status`, `doctor`, and `ledgers prune --dry-run`
-for compact decisions; use `--json` for full audit/API payloads, custom
-rendering, or debugging.
+Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`, and
+`get --inspect` for compact decisions; use `--json` for full audit/API payloads,
+custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
 
 Register existing project ledgers explicitly:
 
@@ -150,7 +150,10 @@ count dump.
 3. If missing-path warnings exist inside valid ledgers, run `artshelf validate --all --json` then `artshelf reconcile --dry-run --all --json --registry <registry-path>` for renames, moves, deletes, topology after handoff/finalization, and `.shelf`/`.artshelf` migration fallout.
 4. If cleanup attention exists, run `artshelf cleanup --dry-run --all --json`.
 5. Classify candidates as `trash-safe`, `needs-human-review`,
-   `resolve-candidate`, or `registry-problem`.
+   `resolve-candidate`, or `registry-problem`. For one flagged record (e.g. a
+   stale `cleanup=review` backup), read-only `artshelf get <id> --inspect --agent`
+   returns a per-record decision (`keep`, `snooze`, `trash-safe`, `resolve-only`,
+   `blocked`) and the exact next-safe action without mutating anything.
 6. Use the built-in `--agent` packet when the CLI output is enough to decide,
    because it is deterministic and token-efficient. Use
    `ArtshelfReviewReport` from `schemas/artshelf-review-report.schema.json` and `examples/artshelf-review-report.json` when you need a host-specific card, attachment, or richer audit record.

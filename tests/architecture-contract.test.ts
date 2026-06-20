@@ -109,6 +109,7 @@ test("renderers own shared output helpers", () => {
   for (const file of [
     "src/renderers/json.ts",
     "src/renderers/attention.ts",
+    "src/renderers/inspect.ts",
     "src/renderers/status.ts",
     "src/renderers/doctor.ts",
     "src/renderers/review.ts",

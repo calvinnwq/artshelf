@@ -118,9 +118,9 @@ destructive deletion.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`--agent` on `review`/`status`/`doctor` and `ledgers prune --dry-run`**, a
-  compact, token-efficient decision packet for agents, while the default render
-  stays human-scannable.
+- **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`, and
+  `get --inspect`**, a compact, token-efficient decision packet for agents,
+  while the default render stays human-scannable.
 
 ## Reference
 
@@ -137,6 +137,8 @@ artshelf list [--all] [--status active]
 artshelf find --path <path> --owner <agent-or-runtime> --label <task-or-run-id>
 artshelf find --all --owner <agent-or-runtime>
 artshelf get <id> [--all]
+artshelf get <id> --inspect [--ledger <path>] [--json|--agent]
+artshelf get <id> --inspect --all [--registry <path>] [--json|--agent]
 artshelf due [--all]
 artshelf validate [--all]
 artshelf review [--all]
@@ -157,9 +159,9 @@ Use `artshelf help` for a grouped command list, then `artshelf <command> --help`
 or `artshelf help <command>` for focused details. Nested commands such as
 `artshelf trash purge --help`, `artshelf ledgers add --help`, and
 `artshelf ledgers prune --help` show only that subcommand. All core commands
-support `--json`; `review`, `status`, `doctor`, and `ledgers prune --dry-run`
-also take `--agent` for a compact decision packet; `--ledger`, `--registry`, and
-`--all` are scope flags only on commands that list them.
+support `--json`; `review`, `status`, `doctor`, `ledgers prune --dry-run`, and
+`get --inspect` also take `--agent` for a compact decision packet; `--ledger`,
+`--registry`, and `--all` are scope flags only on commands that list them.
 </details>
 
 <details>
