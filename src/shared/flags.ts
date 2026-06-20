@@ -1,6 +1,7 @@
 import type { ParsedArgs } from "./cli-types.js";
 
 export const BOOLEAN_FLAGS = new Set(["all", "json", "agent", "manual-review", "dry-run", "execute", "help", "version", "plain"]);
+const COMMAND_BOOLEAN_FLAGS = new Map<string, ReadonlySet<string>>([["get", new Set(["inspect"])]]);
 export const VALUE_FLAGS = new Set([
   "cleanup",
   "kind",
@@ -18,6 +19,10 @@ export const VALUE_FLAGS = new Set([
   "status",
   "ttl"
 ]);
+
+export function isBooleanFlag(name: string, command: string | undefined): boolean {
+  return BOOLEAN_FLAGS.has(name) || (command !== undefined && (COMMAND_BOOLEAN_FLAGS.get(command)?.has(name) ?? false));
+}
 
 export function requiredStringFlag(parsed: ParsedArgs, name: string): string {
   const value = stringFlag(parsed, name);

@@ -66,6 +66,41 @@
           </section>
 
           <section>
+            <h2>Inspect a single record</h2>
+            <p>
+              When a review flags one record — most often a stale
+              <code>cleanup=review</code> backup that <code>ledgers prune</code> and
+              <code>review --all</code> surface — drill into it with
+              <code>get &lt;id&gt; --inspect</code> instead of running <code>get</code>,
+              <code>ls</code>, and <code>du</code> by hand. It is read-only: it never
+              moves files or mutates the ledger.
+            </p>
+            <pre><code><span class="c"># review one record as a decision card</span>
+artshelf get &lt;id&gt; --inspect --ledger &lt;ledger-path&gt;
+
+<span class="c"># compact, deterministic packet for an acting agent</span>
+artshelf get &lt;id&gt; --inspect --agent --ledger &lt;ledger-path&gt;</code></pre>
+            <p>
+              Each card reports existence, size, age, retention/due state, cleanup
+              mode, and reason, then ends with a recommendation bucket and the exact
+              next-safe action. It does not read or preview arbitrary file contents:
+              <code>keep</code>, <code>snooze</code>, <code>trash-safe</code>,
+              <code>resolve-only</code>, or <code>blocked</code>. These map onto the
+              daily-review classifications — a missing-path record reads as
+              <code>resolve-only</code> and points at <code>artshelf resolve</code>,
+              while a due disposable record reads as <code>trash-safe</code> and points
+              at a reviewed cleanup plan.
+            </p>
+            <pre><code>✓ &lt;id&gt; [backup] — keep
+path: &lt;backup-path&gt;
+status: active · cleanup: review · owner: agent · labels: registry-prune
+existence: present (directory, 49 B) · age: 14d · retention: manual-review · due: manual-review
+reason: rollback backup before registry prune
+next: Held for manual review — keep it, change its retention, or resolve it explicitly; no cleanup is scheduled.
+ledger: &lt;ledger-path&gt;</code></pre>
+          </section>
+
+          <section>
             <h2>Review plan report schema</h2>
             <p>For richer host cards, attachments, or audit packets, construct an <code>ArtshelfReviewReport</code> JSON packet first, then render a compact decision card.</p>
             <p>

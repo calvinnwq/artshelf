@@ -2,7 +2,7 @@
 import { maybeNotifyAvailableUpdate, runCommand } from "./commands/index.js";
 import { VERSION } from "./config/package.js";
 import { formatCliError } from "./shared/errors.js";
-import { BOOLEAN_FLAGS, boolFlag, VALUE_FLAGS } from "./shared/flags.js";
+import { boolFlag, isBooleanFlag, VALUE_FLAGS } from "./shared/flags.js";
 import { renderHelp, resolveHelpKey } from "./shared/help-text.js";
 import type { ParsedArgs } from "./shared/cli-types.js";
 
@@ -56,7 +56,7 @@ function parseArgs(argv: string[]): ParsedArgs {
     }
     if (token.startsWith("--")) {
       const name = token.slice(2);
-      if (BOOLEAN_FLAGS.has(name)) {
+      if (isBooleanFlag(name, command)) {
         flags.set(name, true);
         continue;
       }

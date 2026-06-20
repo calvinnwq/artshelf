@@ -53,20 +53,23 @@ The browsable docs split the workflow into focused child pages:
 
 ## Render modes
 
-`review`, `status`, `doctor`, and `ledgers prune --dry-run` share agent-oriented render modes so the same data fits
-both people and agents:
+`review`, `status`, `doctor`, `ledgers prune --dry-run`, and per-record
+`get --inspect` share agent-oriented render modes so the same data fits both
+people and agents:
 
 - **default**: a human render — scannable grouped counts, attention states, and a
   short next action for a person at the terminal.
 - **`--agent`**: a deterministic, token-efficient decision packet (single-line
-  compact JSON) with health, counts, classifications, blockers, approval targets where applicable, and a
-  verification command. Use it when an agent acts on the result.
+  compact JSON) with health, counts, classifications, blockers, record
+  recommendations, approval targets where applicable, and a verification
+  command. Use it when an agent acts on the result.
 - **`--json`**: the backward-compatible public audit contract — complete
   machine-readable JSON for debugging and integrations.
 
 Reach for `--agent` when an agent needs to decide and act cheaply; reach for
 `--json` when you want the full record, plan, or health detail for audit or
-debugging. `--agent` takes precedence if both flags are passed.
+debugging. `--agent` takes precedence if both flags are passed; on `get`, it
+requires `--inspect`.
 
 ## Portable Skill
 

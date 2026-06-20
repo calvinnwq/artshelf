@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Added read-only `artshelf get <id> --inspect` decision cards with human,
+  `--json`, and `--agent` render modes, including registry-wide `--all` lookup,
+  metadata-only existence/size reporting, recommendation buckets, and exact
+  next-safe actions without reading file contents or mutating ledgers.
 - Added approval-gated `artshelf ledgers prune` registry maintenance: dry-run
   writes or reuses a reviewed plan for missing registered ledger files, `--agent`
   emits the exact registry-prune approval target, execute binds to one registry

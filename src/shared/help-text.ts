@@ -186,8 +186,24 @@ Find is read-only. Use it before put when an integration needs idempotent artifa
     return `Usage:
   artshelf get <id> [--ledger <path>] [--json]
   artshelf get <id> --all [--registry <path>] [--json]
+  artshelf get <id> --inspect [--ledger <path>] [--json|--agent]
+  artshelf get <id> --inspect --all [--registry <path>] [--json|--agent]
 
 Get is read-only and returns one ledger record by Artshelf id.
+
+--inspect adds a read-only review decision card for one record: existence,
+size, age, retention/due state, a recommendation bucket (keep, snooze,
+trash-safe, resolve-only, blocked), and the exact next-safe action. It never
+moves files or touches the ledger. It does not read or preview arbitrary
+file contents; agents can inspect contents separately when appropriate.
+With --all, the registry is only used to find the id; the card reports the
+concrete ledger that owns the record.
+
+Render modes:
+  (default)  Human record line, or a decision card with --inspect.
+  --json     Full read-only report (record, or { inspect } with --inspect).
+  --agent    Compact single-line JSON decision packet (requires --inspect);
+             takes precedence over --json.
 `;
   }
 
