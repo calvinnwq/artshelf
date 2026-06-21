@@ -136,6 +136,15 @@
 - Moved `artshelf put` registry-warning output from stdout to stderr in human
   mode; `--json` output is unchanged (NGX-429).
 
+## [0.15.0](https://github.com/calvinnwq/artshelf/compare/v0.14.0...v0.15.0) (2026-06-20)
+
+
+### Features
+
+* **inspect:** add read-only Artshelf review cards ([08478a8](https://github.com/calvinnwq/artshelf/commit/08478a871f624b048173a986511cc57cf2a2e609))
+* **inspect:** add read-only inspect decision model ([334ea7d](https://github.com/calvinnwq/artshelf/commit/334ea7de99326ed0b0c3129228beaa0d33f378b9))
+* **inspect:** wire get inspect output modes ([4a7270d](https://github.com/calvinnwq/artshelf/commit/4a7270df29f1895efe9032b2cfb7a2c1d47e971f))
+
 ## [0.14.0](https://github.com/calvinnwq/artshelf/compare/v0.13.1...v0.14.0) (2026-06-19)
 
 
