@@ -44,6 +44,12 @@ test("help and version are useful", () => {
   assert.equal(getHelp.status, 0);
   assert.match(getHelp.stdout, /artshelf get <id>/);
 
+  const disposeHelp = artshelf(["help", "dispose"]);
+  assert.equal(disposeHelp.status, 0);
+  assert.match(disposeHelp.stdout, /artshelf dispose --id <id> --action trash-resolve --dry-run/);
+  assert.match(disposeHelp.stdout, /approve artshelf dispose ledger <ledger-path> plan <plan-id>/);
+  assert.match(disposeHelp.stdout, /no fresh-plan-then-execute/);
+
   const trashHelp = artshelf(["help", "trash"]);
   assert.equal(trashHelp.status, 0);
   assert.match(trashHelp.stdout, /Inspect and purge Artshelf trash\./);
@@ -116,6 +122,7 @@ test("top-level help groups commands and reclassifies scope flags", () => {
   assert.match(help.stdout, /\n\s+put\s+\S/);
   assert.match(help.stdout, /\n\s+due\s+\S/);
   assert.match(help.stdout, /\n\s+validate\s+\S/);
+  assert.match(help.stdout, /\n\s+dispose\s+\S/);
   assert.match(help.stdout, /\n\s+trash\s+\S/);
 
   // Only --help/--version are global; --json is presented as an output mode.
@@ -1420,6 +1427,140 @@ test("cleanup execute rejects get-only inspect flag before mutating", () => {
   assert.equal(existsSync(artifact), true);
   const artifactRecord = readLedger(ledger).find((record) => record.path === artifact);
   assert.equal(artifactRecord.status, "active");
+});
+
+test("dispose dry-run writes a reviewed plan with approval target and agent packet", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "reviewed.txt");
+  writeFileSync(artifact, "review me");
+  const put = JSON.parse(artshelf(["put", artifact, "--reason", "reviewed artifact", "--manual-review", "--ledger", ledger, "--json"], "2026-06-01T00:00:00Z").stdout);
+
+  const human = artshelf([
+    "dispose",
+    "--id",
+    put.record.id,
+    "--action",
+    "keep",
+    "--dry-run",
+    "--reason",
+    "still useful",
+    "--ledger",
+    ledger
+  ], "2026-06-03T00:00:00Z");
+  assert.equal(human.status, 0, human.stderr);
+  assert.match(human.stdout, /dispose plan dispose_/);
+  assert.match(human.stdout, /approve: approve artshelf dispose ledger .* plan dispose_/);
+
+  const json = JSON.parse(artshelf([
+    "dispose",
+    "--id",
+    put.record.id,
+    "--action",
+    "keep",
+    "--dry-run",
+    "--reason",
+    "still useful",
+    "--ledger",
+    ledger,
+    "--json"
+  ], "2026-06-03T00:01:00Z").stdout);
+  assert.equal(json.ok, true);
+  assert.equal(json.plan.planId, json.approve.match(/plan (dispose_\S+)/)[1]);
+  assert.equal(existsSync(json.plan.planPath), true);
+
+  const agent = JSON.parse(artshelf([
+    "dispose",
+    "--id",
+    put.record.id,
+    "--action",
+    "keep",
+    "--dry-run",
+    "--reason",
+    "still useful",
+    "--ledger",
+    ledger,
+    "--agent"
+  ], "2026-06-03T00:02:00Z").stdout);
+  assert.equal(agent.command, "dispose");
+  assert.equal(agent.status, "ready-for-approval");
+  assert.equal(agent.planId, json.plan.planId);
+  assert.match(agent.approve, new RegExp(`approve artshelf dispose ledger ${escapeRegExp(ledger)} plan ${escapeRegExp(json.plan.planId)}`));
+
+  const planRecord = readLedger(ledger).find((record) => record.path === json.plan.planPath);
+  assert.ok(planRecord);
+  assert.equal(planRecord.owner, "artshelf");
+  assert.deepEqual(planRecord.labels, ["artshelf", "dispose-plan", json.plan.planId]);
+});
+
+test("dispose execute applies one reviewed plan id and writes receipt evidence", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "done.txt");
+  writeFileSync(artifact, "done");
+  const put = JSON.parse(artshelf(["put", artifact, "--reason", "done artifact", "--manual-review", "--ledger", ledger, "--json"], "2026-06-01T00:00:00Z").stdout);
+
+  const plan = JSON.parse(artshelf([
+    "dispose",
+    "--id",
+    put.record.id,
+    "--action",
+    "trash-resolve",
+    "--dry-run",
+    "--reason",
+    "reviewed and no longer needed",
+    "--ledger",
+    ledger,
+    "--json"
+  ], "2026-06-03T00:00:00Z").stdout).plan;
+
+  const missingPlanId = artshelf(["dispose", "--execute", "--ledger", ledger]);
+  assert.equal(missingPlanId.status, 1);
+  assert.match(missingPlanId.stderr, /Missing required --plan-id/);
+
+  const executed = artshelf(["dispose", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
+  assert.equal(executed.status, 0, executed.stderr);
+  const execution = JSON.parse(executed.stdout).execution;
+  assert.equal(execution.result.status, "resolved");
+  assert.equal(existsSync(artifact), false);
+  assert.equal(existsSync(execution.result.targetPath), true);
+  assert.equal(existsSync(execution.receiptPath), true);
+
+  const records = readLedger(ledger);
+  const artifactRecord = records.find((record) => record.id === put.record.id);
+  assert.equal(artifactRecord.status, "resolved");
+  assert.equal(artifactRecord.disposePlanId, plan.planId);
+  assert.equal(artifactRecord.disposeAction, "trash-resolve");
+  assert.equal(artifactRecord.previousPath, artifact);
+  assert.equal(artifactRecord.targetPath, execution.result.targetPath);
+
+  const receiptRecord = records.find((record) => record.path === execution.receiptPath);
+  assert.ok(receiptRecord);
+  assert.deepEqual(receiptRecord.labels, ["artshelf", "dispose-receipt", plan.planId]);
+});
+
+test("dispose refuses unsafe shapes before writing or executing plans", () => {
+  const fixture = fixtureDir();
+  const ledger = ledgerPath(fixture);
+  const artifact = join(fixture, "artifact.txt");
+  writeFileSync(artifact, "payload");
+  const put = JSON.parse(artshelf(["put", artifact, "--reason", "fixture", "--manual-review", "--ledger", ledger, "--json"], "2026-06-01T00:00:00Z").stdout);
+
+  const both = artshelf(["dispose", "--id", put.record.id, "--action", "keep", "--dry-run", "--execute", "--plan-id", "dispose_x", "--ledger", ledger]);
+  assert.equal(both.status, 1);
+  assert.match(both.stderr, /either --dry-run or --execute/);
+
+  const executeAll = artshelf(["dispose", "--execute", "--all", "--plan-id", "dispose_x", "--ledger", ledger]);
+  assert.equal(executeAll.status, 1);
+  assert.match(executeAll.stderr, /--all is not supported/);
+
+  const missingReason = artshelf(["dispose", "--id", put.record.id, "--action", "resolve-only", "--dry-run", "--ledger", ledger, "--json"]);
+  assert.equal(missingReason.status, 1);
+  const body = JSON.parse(missingReason.stdout);
+  assert.equal(body.ok, false);
+  assert.equal(body.plan.planId, "not-created");
+  assert.equal(body.plan.blocked.reason, "missing-reason");
+  assert.equal(existsSync(join(fixture, ".artshelf", "dispose-plans")), false);
 });
 
 test("cleanup dry-run reuses an unchanged existing plan", () => {
@@ -3824,7 +3965,7 @@ test("get --inspect classifies a missing path as resolve-only", () => {
   assert.equal(human.status, 0);
   assert.match(human.stdout, /missing/);
   assert.match(human.stdout, /resolve-only/);
-  assert.match(human.stdout, new RegExp(`artshelf resolve ${escapeRegExp(id)} --ledger ${escapeRegExp(ledger)} --status resolved`));
+  assert.match(human.stdout, new RegExp(`artshelf dispose --id ${escapeRegExp(id)} --action resolve-only --dry-run --reason '<why>' --ledger ${escapeRegExp(ledger)}`));
 });
 
 test("get --inspect does not preview small JSON file contents", () => {

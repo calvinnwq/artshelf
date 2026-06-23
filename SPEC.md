@@ -218,7 +218,8 @@ exact next-safe action. It never reads or previews arbitrary file contents:
 - `keep` — held for manual review, already resolved, already trashed, or due
   with `cleanup=review`; it needs your judgment but nothing auto-runs.
 - `snooze` — retention has not expired yet; re-inspect after it is due.
-- `trash-safe` — due with `cleanup=trash`; safe to plan a reviewed cleanup.
+- `trash-safe` — due with `cleanup=trash`; safe to plan a reviewed dispose
+  `trash-resolve` decision.
 - `resolve-only` — the recorded path is gone; resolve the record (ledger-only)
   rather than cleaning a file.
 - `blocked` — needs a human decision first: `cleanup=delete` (refused at
@@ -246,7 +247,7 @@ path: <backup-path>
 status: active · cleanup: review · owner: agent · labels: registry-prune
 existence: present (directory, 49 B) · age: 14d · retention: manual-review · due: manual-review
 reason: rollback backup before registry prune
-next: Held for manual review — keep it, change its retention, or resolve it explicitly; no cleanup is scheduled.
+next: Held for manual review — run `artshelf dispose --id <id> --action keep --dry-run --reason '<why>' --ledger <ledger-path>` to keep it quiet through a reviewed decision, or choose resolve-only/snooze deliberately.
 ledger: <ledger-path>
 ```
 
@@ -687,6 +688,54 @@ Execute rules:
 JSON output is deterministic (findings preserve ledger order) so agents can render a
 decision packet and approve a specific plan id.
 
+### `artshelf dispose`
+
+Approval-gated disposition for one reviewed record. `dispose` is the command
+surface that follows `get --inspect`: inspect stays read-only, then dispose
+creates or executes the exact reviewed plan for the chosen decision.
+
+```bash
+artshelf dispose --id <id> --action trash-resolve --dry-run [--reason <text>] [--ledger <path>] [--json|--agent]
+artshelf dispose --id <id> --action resolve-only --dry-run --reason <text> [--ledger <path>] [--json|--agent]
+artshelf dispose --id <id> --action snooze --dry-run (--ttl <ttl>|--retain-until <date>) [--reason <text>] [--ledger <path>] [--json|--agent]
+artshelf dispose --id <id> --action keep --dry-run [--reason <text>] [--ledger <path>] [--json|--agent]
+artshelf dispose --execute --plan-id <id> --ledger <path> [--json]
+```
+
+Actions:
+
+- `trash-resolve`: move the recorded path into plan-scoped Artshelf trash and
+  mark the row resolved with dispose audit fields.
+- `resolve-only`: resolve the ledger row only; requires `--reason`.
+- `snooze`: extend retention; requires `--ttl` or `--retain-until`.
+- `keep`: stamp that the record was reviewed and kept.
+
+Dry-run rules:
+
+- Classifies exactly one record id and action. There is no `--all` path.
+- Writes a reviewed plan only when the request is actionable, under
+  `<ledger-dir>/dispose-plans/<id>.json`.
+- Registers the plan as an Artshelf-owned artifact (`owner=artshelf`,
+  `kind=run-artifact`, `ttl=14d`, `cleanup=trash`, labels including
+  `artshelf`, `dispose-plan`, and the plan id).
+- Prints the exact approval target:
+  `approve artshelf dispose ledger <ledger-path> plan <plan-id>`.
+- A blocked request reports `planId=not-created`, writes no plan, and exits
+  non-zero while still returning a JSON/agent packet when requested.
+
+Execute rules:
+
+- Requires one explicit reviewed `--plan-id` and the target `--ledger`.
+- Refuses missing, unknown, id-mismatched, ledger-mismatched, malformed, stale,
+  drifted, or target-conflicting plans before mutating.
+- Re-snapshots the subject before execution; stale entries are skipped rather
+  than applied.
+- Writes a dispose receipt to `<ledger-dir>/dispose-receipts/<id>.json` and
+  registers it as an Artshelf-owned artifact (`ttl=30d`, `cleanup=review`,
+  labels including `artshelf`, `dispose-receipt`, and the plan id).
+- There is no fresh-plan-then-execute, no global execute, no daemon, and no
+  physical deletion.
+
 ## Ledger Storage
 
 V1 supports two scopes:
@@ -895,12 +944,12 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
 - **No daemon.** Artshelf never runs in the background or watches the clock. It
   only does work while you are running an `artshelf` command.
 - **No auto-execute.** No command cleans up as a side effect. The only commands
-  that move, trash, or delete files are `artshelf cleanup --execute` and
-  `artshelf trash purge --execute`, each run by a human against a separately
-  reviewed plan id.
-- **No global execute.** `cleanup --execute --all` and `trash purge --all`
-  are refused; `--all` is read-only or dry-run reporting only. Execution is
-  always scoped to a single reviewed plan id.
+  that move, trash, or delete files are `artshelf cleanup --execute`,
+  `artshelf dispose --execute`, and `artshelf trash purge --execute`, each run
+  by a human against a separately reviewed plan id.
+- **No global execute.** `cleanup --execute --all`, `dispose --all`, and
+  `trash purge --all` are refused; `--all` is read-only or dry-run reporting
+  only where supported. Execution is always scoped to a single reviewed plan id.
 - **No fresh-plan-then-execute.** `cleanup --execute` refuses to compute a new
   live set. It acts only on a plan id that an earlier `cleanup --dry-run`
   produced and a human reviewed; it will not plan and execute in one step.

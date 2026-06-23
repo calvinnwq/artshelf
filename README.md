@@ -147,6 +147,8 @@ artshelf doctor
 artshelf update [--json]
 artshelf cleanup --dry-run [--all]
 artshelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
+artshelf dispose --id <id> --action trash-resolve|resolve-only|snooze|keep --dry-run [--ledger <path>] [--json|--agent]
+artshelf dispose --execute --plan-id <id> [--ledger <path>] [--json]
 artshelf reconcile --dry-run [--all] [--ledger <path>] [--json]
 artshelf reconcile --execute --plan-id <id> --ledger <path> [--json]
 artshelf trash list [--all] [--ledger <path>] [--json]
@@ -159,8 +161,9 @@ Use `artshelf help` for a grouped command list, then `artshelf <command> --help`
 or `artshelf help <command>` for focused details. Nested commands such as
 `artshelf trash purge --help`, `artshelf ledgers add --help`, and
 `artshelf ledgers prune --help` show only that subcommand. All core commands
-support `--json`; `review`, `status`, `doctor`, `ledgers prune --dry-run`, and
-`get --inspect` also take `--agent` for a compact decision packet; `--ledger`,
+support `--json`; `review`, `status`, `doctor`, `ledgers prune --dry-run`,
+`dispose --dry-run`, and `get --inspect` also take `--agent` for a compact
+decision packet; `--ledger`,
 `--registry`, and `--all` are scope flags only on commands that list them.
 </details>
 

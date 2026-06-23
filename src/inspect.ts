@@ -193,6 +193,7 @@ function recommend(
 ): { recommendation: InspectRecommendation; nextAction: string } {
   const idArg = shellArg(record.id);
   const ledgerArg = shellArg(ledgerPath);
+  const disposeDryRun = (action: string, extra = ""): string => `artshelf dispose --id ${idArg} --action ${action} --dry-run${extra} --ledger ${ledgerArg}`;
   if (record.status === "resolved") {
     return { recommendation: "keep", nextAction: "Already resolved — no action needed." };
   }
@@ -224,7 +225,7 @@ function recommend(
   if (existence === "missing" || dueState === "missing-path") {
     return {
       recommendation: "resolve-only",
-      nextAction: `Path is missing — confirm the artifact is gone, then run \`artshelf resolve ${idArg} --ledger ${ledgerArg} --status resolved --reason '<why>'\` (ledger-only).`
+      nextAction: `Path is missing — confirm the artifact is gone, then run \`${disposeDryRun("resolve-only", " --reason '<why>'")}\`, then approve the reviewed plan id.`
     };
   }
   if (dueState === "kept") {
@@ -236,13 +237,13 @@ function recommend(
   if (dueState === "manual-review") {
     return {
       recommendation: "keep",
-      nextAction: "Held for manual review — keep it, change its retention, or resolve it explicitly; no cleanup is scheduled."
+      nextAction: `Held for manual review — run \`${disposeDryRun("keep", " --reason '<why>'")}\` to keep it quiet through a reviewed decision, or choose resolve-only/snooze deliberately.`
     };
   }
   if (record.cleanup === "trash") {
     return {
       recommendation: "trash-safe",
-      nextAction: `Due and disposable — run \`artshelf cleanup --dry-run --ledger ${ledgerArg}\`, then approve the reviewed plan id.`
+      nextAction: `Due and disposable after review — run \`${disposeDryRun("trash-resolve", " --reason '<why>'")}\`, then approve the reviewed plan id.`
     };
   }
   if (record.cleanup === "delete") {
@@ -253,6 +254,6 @@ function recommend(
   }
   return {
     recommendation: "keep",
-    nextAction: "Due and held for review — keep it, change its retention, resolve it, or switch cleanup to trash and plan a cleanup."
+    nextAction: `Due and held for review — run \`${disposeDryRun("keep", " --reason '<why>'")}\`, or choose resolve-only/snooze deliberately.`
   };
 }

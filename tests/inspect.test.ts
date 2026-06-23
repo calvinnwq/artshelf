@@ -89,7 +89,7 @@ test("a missing path is classified as resolve-only with no mutation wording", ()
   assert.equal(report.byteSize, null);
   assert.equal(report.dueState, "missing-path");
   assert.equal(report.recommendation, "resolve-only");
-  assert.match(report.nextAction, /artshelf resolve shf_20260601_000000_b77f --ledger \/repo\/\.artshelf\/ledger\.jsonl --status resolved/);
+  assert.match(report.nextAction, /artshelf dispose --id shf_20260601_000000_b77f --action resolve-only --dry-run --reason '<why>' --ledger \/repo\/\.artshelf\/ledger\.jsonl/);
   assertNoContentPreview(report);
 });
 
@@ -110,7 +110,7 @@ test("an active dangling symlink mirrors cleanup missing-path classification", (
   assert.equal(report.byteSize, null);
   assert.equal(report.dueState, "missing-path");
   assert.equal(report.recommendation, "resolve-only");
-  assert.match(report.nextAction, /artshelf resolve shf_20260601_000000_b77f --ledger \/repo\/\.artshelf\/ledger\.jsonl --status resolved/);
+  assert.match(report.nextAction, /artshelf dispose --id shf_20260601_000000_b77f --action resolve-only --dry-run --reason '<why>' --ledger \/repo\/\.artshelf\/ledger\.jsonl/);
   assertNoContentPreview(report);
 });
 
@@ -159,7 +159,7 @@ test("a due disposable artifact is trash-safe and points at the dry-run plan flo
 
   assert.equal(report.dueState, "due");
   assert.equal(report.recommendation, "trash-safe");
-  assert.match(report.nextAction, /artshelf cleanup --dry-run --ledger \/repo\/\.artshelf\/ledger\.jsonl/);
+  assert.match(report.nextAction, /artshelf dispose --id shf_20260601_000000_b77f --action trash-resolve --dry-run --reason '<why>' --ledger \/repo\/\.artshelf\/ledger\.jsonl/);
 });
 
 test("a due cleanup=review record stays a keep decision card", () => {
@@ -327,7 +327,7 @@ test("resolve-only next action carries the inspected ledger path", () => {
   const report = buildInspectReport(record, { now: NOW, ledgerPath });
 
   assert.equal(report.recommendation, "resolve-only");
-  assert.match(report.nextAction, new RegExp(`--ledger ${ledgerPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(report.nextAction, new RegExp(`dispose --id shf_20260601_000000_b77f --action resolve-only --dry-run --reason '<why>' --ledger ${ledgerPath.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 });
 
 test("copyable inspect commands shell-quote unsafe ledger paths", () => {
@@ -338,7 +338,7 @@ test("copyable inspect commands shell-quote unsafe ledger paths", () => {
   const packet = buildInspectAgentPacket(report, ledgerPath);
   const quotedLedger = `'${ledgerPath.replace(/'/g, "'\\''")}'`;
 
-  assert.match(report.nextAction, new RegExp(`--ledger ${quotedLedger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")} --status resolved`));
+  assert.match(report.nextAction, new RegExp(`dispose --id shf_20260601_000000_b77f --action resolve-only --dry-run --reason '<why>' --ledger ${quotedLedger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
   assert.equal(packet.verification, `artshelf get shf_20260601_000000_b77f --inspect --agent --ledger ${quotedLedger}`);
 
   const artifactPath = join(dir, "artifact.txt");
@@ -352,7 +352,7 @@ test("copyable inspect commands shell-quote unsafe ledger paths", () => {
     }),
     { now: NOW, ledgerPath }
   );
-  assert.match(updatedTrashReport.nextAction, new RegExp(`cleanup --dry-run --ledger ${quotedLedger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
+  assert.match(updatedTrashReport.nextAction, new RegExp(`dispose --id shf_20260601_000000_b77f --action trash-resolve --dry-run --reason '<why>' --ledger ${quotedLedger.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}`));
 });
 
 test("agent packet has no preview safety flag because inspect emits no previews", () => {

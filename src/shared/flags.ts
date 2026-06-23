@@ -4,6 +4,8 @@ export const BOOLEAN_FLAGS = new Set(["all", "json", "agent", "manual-review", "
 const COMMAND_BOOLEAN_FLAGS = new Map<string, ReadonlySet<string>>([["get", new Set(["inspect"])]]);
 export const VALUE_FLAGS = new Set([
   "cleanup",
+  "action",
+  "id",
   "kind",
   "label",
   "ledger",
