@@ -73,6 +73,9 @@ export function classifyDisposition(ledgerPath: string, request: DisposeRequest)
 
   if (request.action === "snooze") {
     if (isTerminal(record.status)) return blocked("terminal-record", `cannot snooze a ${record.status} record`);
+    if (request.ttl && request.retainUntil) {
+      return blocked("ambiguous-snooze-horizon", "choose exactly one of --ttl or --retain-until");
+    }
     if (!request.ttl && !request.retainUntil) {
       return blocked("missing-snooze-horizon", "snooze requires --ttl or --retain-until");
     }
@@ -142,6 +145,18 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
   return withPathLock(ledgerPath, () => {
     const records = readLedger(ledgerPath);
     const index = records.findIndex((record) => record.id === entry.id);
+    const record = index >= 0 ? records[index] : undefined;
+    if (record?.disposePlanId === planId) {
+      const replayReceiptPath = record.disposeReceiptPath ?? receiptPath;
+      const receipt = existsSync(replayReceiptPath) ? readCompletedDisposeReceipt(replayReceiptPath, planId) : null;
+      return {
+        planId,
+        receiptPath: replayReceiptPath,
+        executedAt: receipt?.executedAt ?? record.disposedAt ?? toIso(now()),
+        result: receipt?.result ?? appliedResultFromRecord(entry, record)
+      };
+    }
+
     const executedAt = toIso(now());
     const audit: DisposeAudit = { planId, receiptPath, executedAt };
 
@@ -387,6 +402,12 @@ function assertDisposePlanExecutable(plan: DisposePlan, planId: string, ledgerPa
   if (!entry || typeof entry.id !== "string" || !DISPOSE_ACTIONS.has(entry.action) || typeof entry.subjectPath !== "string") {
     throw new Error(`Dispose plan entry is malformed: ${planId}`);
   }
+  if (entry.action === "trash-resolve") {
+    const expectedTarget = disposeTrashTarget(ledgerPath, planId, entry.id, entry.subjectPath);
+    if (entry.targetPath !== expectedTarget) {
+      throw new Error(`Dispose plan target path mismatch: expected ${expectedTarget}`);
+    }
+  }
   return entry;
 }
 
@@ -398,6 +419,33 @@ function disposeReceiptPath(ledgerPath: string, planId: string): string {
 function writeDisposeReceipt(receiptPath: string, value: unknown): void {
   mkdirSync(dirname(receiptPath), { recursive: true });
   writeFileSync(receiptPath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+function readCompletedDisposeReceipt(receiptPath: string, planId: string): { executedAt: string; result: DisposeResult } | null {
+  try {
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown; result?: unknown };
+    if (receipt.planId !== planId || receipt.status !== "completed" || typeof receipt.executedAt !== "string" || !isDisposeResult(receipt.result)) {
+      return null;
+    }
+    return { executedAt: receipt.executedAt, result: receipt.result };
+  } catch {
+    return null;
+  }
+}
+
+function isDisposeResult(value: unknown): value is DisposeResult {
+  if (!value || typeof value !== "object") return false;
+  const result = value as Partial<DisposeResult>;
+  return (
+    typeof result.id === "string" &&
+    typeof result.action === "string" &&
+    DISPOSE_ACTIONS.has(result.action) &&
+    typeof result.status === "string" &&
+    typeof result.reason === "string" &&
+    (typeof result.previousPath === "string" || result.previousPath === null) &&
+    (typeof result.targetPath === "string" || result.targetPath === null) &&
+    Boolean(result.verification)
+  );
 }
 
 function buildDisposePlan(ledgerPath: string, request: DisposeRequest): DisposePlan {
@@ -523,8 +571,10 @@ function disposePlanFingerprint(plan: DisposePlan): string {
   return JSON.stringify({
     id: plan.entry.id,
     action: plan.entry.action,
+    status: plan.entry.status,
     reason: plan.entry.reason,
     subjectPath: plan.entry.subjectPath,
+    subject: plan.entry.subject,
     retention: plan.entry.retention ?? null
   });
 }

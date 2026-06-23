@@ -160,6 +160,16 @@ test("classifyDisposition requires a horizon for snooze", () => {
   assert.equal(finding.reason, "missing-snooze-horizon");
 });
 
+test("classifyDisposition rejects an ambiguous snooze horizon", () => {
+  const { ledger } = presentBackupFixture();
+
+  const finding = classifyDisposition(ledger, { id: "shf_backup", action: "snooze", ttl: "7d", retainUntil: "2026-09-01T00:00:00Z" });
+
+  assert.equal(finding.ok, false);
+  if (finding.ok) return;
+  assert.equal(finding.reason, "ambiguous-snooze-horizon");
+});
+
 test("classifyDisposition snooze with a ttl extends the retention horizon", () => {
   const { ledger } = presentBackupFixture();
 
@@ -289,6 +299,25 @@ test("createDisposePlan reuses an existing plan with a matching request", () => 
   assert.deepEqual(readdirSync(join(repo, ".artshelf", "dispose-plans")), [`${first.planId}.json`]);
   const artifacts = readLedger(ledger).filter((record) => record.labels.includes("dispose-plan"));
   assert.equal(artifacts.length, 1);
+});
+
+test("createDisposePlan creates a new plan when the reviewed subject snapshot changes", () => {
+  const { repo, ledger, subject } = presentBackupFixture();
+
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+  const first = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  writeFileSync(subject, "changed payload");
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:01Z";
+
+  const second = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+
+  assert.notEqual(second.planId, first.planId);
+  assert.deepEqual(readdirSync(join(repo, ".artshelf", "dispose-plans")).sort(), [`${first.planId}.json`, `${second.planId}.json`].sort());
+  const firstOnDisk = JSON.parse(readFileSync(first.planPath as string, "utf8"));
+  const secondOnDisk = JSON.parse(readFileSync(second.planPath as string, "utf8"));
+  assert.equal(firstOnDisk.entry.subject.byteSize, "payload".length);
+  assert.equal(secondOnDisk.entry.subject.byteSize, "changed payload".length);
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 });
 
 test("createDisposePlan does not write a plan for a blocked request", () => {

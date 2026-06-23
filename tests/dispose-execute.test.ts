@@ -191,6 +191,23 @@ test("executeDisposePlan is idempotent when the same trash-resolve plan is re-ru
   assert.equal(record?.disposedAt, first.executedAt);
 });
 
+test("executeDisposePlan returns the original receipt without rewriting it on replay", () => {
+  const { ledger } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
+
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+  const first = executeDisposePlan(ledger, plan.planId);
+  const receiptBefore = readFileSync(first.receiptPath, "utf8");
+  process.env.ARTSHELF_NOW = "2026-03-02T00:00:00Z";
+
+  const second = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(second.executedAt, first.executedAt);
+  assert.equal(second.receiptPath, first.receiptPath);
+  assert.equal(readFileSync(first.receiptPath, "utf8"), receiptBefore);
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+});
+
 test("executeDisposePlan refuses when no plan id is supplied", () => {
   const { ledger } = presentBackupFixture();
   assert.throws(() => executeDisposePlan(ledger, ""), /requires --plan-id/);
@@ -228,6 +245,18 @@ test("executeDisposePlan refuses a plan whose entry is malformed before mutating
 
   assert.throws(() => executeDisposePlan(ledger, plan.planId), /malformed/i);
   // No mutation: the subject stays put and the row is untouched.
+  assert.equal(existsSync(subject), true);
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+});
+
+test("executeDisposePlan refuses a trash-resolve plan with a tampered target path", () => {
+  const { repo, ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const tampered = JSON.parse(readFileSync(plan.planPath as string, "utf8"));
+  tampered.entry.targetPath = join(repo, ".artshelf", "foreign-trash", "shf_backup-backup.tar");
+  writeFileSync(plan.planPath as string, `${JSON.stringify(tampered, null, 2)}\n`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /target path mismatch/i);
   assert.equal(existsSync(subject), true);
   assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
 });

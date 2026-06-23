@@ -233,6 +233,7 @@ export type DisposeBlockReason =
   | "terminal-record"
   | "missing-reason"
   | "missing-snooze-horizon"
+  | "ambiguous-snooze-horizon"
   | "unknown-action";
 
 // The single actionable entry of a reviewed dispose plan. One plan binds exactly one
