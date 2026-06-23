@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -9,7 +9,7 @@ import { test } from "node:test";
 process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
 import { createDisposePlan, executeDisposePlan } from "../src/dispose.js";
-import { readLedger, resolveRecord } from "../src/ledger.js";
+import { dueEntries, readLedger, resolveRecord } from "../src/ledger.js";
 
 function fixture(): string {
   return mkdtempSync(join(tmpdir(), "artshelf-dispose-exec-"));
@@ -150,6 +150,18 @@ test("executeDisposePlan marks the record reviewed and kept without changing ret
   assert.equal(execution.result.verification.subjectPresent, true);
 });
 
+test("executeDisposePlan makes a kept manual-review record quiet in due output", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "keep", reason: "still investigating" });
+
+  executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(existsSync(subject), true);
+  assert.equal(readLedger(ledger).find((record) => record.id === "shf_backup")?.disposeAction, "keep");
+  assert.equal(readLedger(ledger).find((record) => record.id === "shf_backup")?.status, "active");
+  assert.equal(dueEntries(readLedger(ledger)).find((entry) => entry.id === "shf_backup")?.dueStatus, "kept");
+});
+
 test("executeDisposePlan writes a receipt registered as an artshelf-owned artifact", () => {
   const { ledger } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
@@ -198,6 +210,7 @@ test("executeDisposePlan returns the original receipt without rewriting it on re
   process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
   const first = executeDisposePlan(ledger, plan.planId);
   const receiptBefore = readFileSync(first.receiptPath, "utf8");
+  const receiptRecordBefore = readLedger(ledger).find((record) => record.path === first.receiptPath);
   process.env.ARTSHELF_NOW = "2026-03-02T00:00:00Z";
 
   const second = executeDisposePlan(ledger, plan.planId);
@@ -205,6 +218,7 @@ test("executeDisposePlan returns the original receipt without rewriting it on re
   assert.equal(second.executedAt, first.executedAt);
   assert.equal(second.receiptPath, first.receiptPath);
   assert.equal(readFileSync(first.receiptPath, "utf8"), receiptBefore);
+  assert.deepEqual(readLedger(ledger).find((record) => record.path === first.receiptPath), receiptRecordBefore);
   process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 });
 
@@ -228,6 +242,71 @@ test("executeDisposePlan replays a completed skipped receipt without applying la
   assert.equal(recordById(ledger, "shf_backup")?.status, "active");
   assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
   process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+});
+
+test("executeDisposePlan resumes a trash-resolve after the move reached trash", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const target = plan.entry?.targetPath as string;
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(target), { recursive: true });
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  renameSync(subject, target);
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: plan.planId,
+    ledgerPath: ledger,
+    executedAt: "2026-03-01T00:00:00Z",
+    status: "started",
+    action: "trash-resolve",
+    target
+  }, null, 2)}\n`);
+
+  const execution = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(execution.result.status, "resolved");
+  assert.equal(execution.result.targetPath, target);
+  assert.equal(existsSync(subject), false);
+  assert.equal(existsSync(target), true);
+  const record = recordById(ledger, "shf_backup");
+  assert.equal(record?.status, "resolved");
+  assert.equal(record?.disposePlanId, plan.planId);
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.result.status, "resolved");
+});
+
+test("executeDisposePlan repairs a completed ledger stamp with a started receipt", () => {
+  const { ledger } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeLedgerFile(ledger, readLedger(ledger).map((record) => record.id === "shf_backup" ? {
+    ...record,
+    status: "resolved",
+    resolvedAt: "2026-03-01T00:00:00Z",
+    resolutionReason: "reviewed",
+    disposePlanId: plan.planId,
+    disposeReceiptPath: receiptPath,
+    disposedAt: "2026-03-01T00:00:00Z",
+    disposeAction: "resolve-only",
+    disposeReason: "reviewed"
+  } : record));
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: plan.planId,
+    ledgerPath: ledger,
+    executedAt: "2026-03-01T00:00:00Z",
+    status: "started",
+    action: "resolve-only",
+    target: null
+  }, null, 2)}\n`);
+
+  const execution = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(execution.result.status, "resolved");
+  const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
+  assert.equal(receipt.status, "completed");
+  assert.equal(receipt.executedAt, "2026-03-01T00:00:00Z");
+  assert.ok(readLedger(ledger).find((record) => record.path === receiptPath && record.labels.includes("dispose-receipt")));
 });
 
 test("executeDisposePlan refuses when no plan id is supplied", () => {
@@ -328,6 +407,40 @@ test("executeDisposePlan skips a trash-resolve whose subject drifted since dry-r
   const record = recordById(ledger, "shf_backup");
   assert.equal(record?.status, "active");
   assert.equal(record?.disposePlanId, undefined);
+});
+
+test("executeDisposePlan skips same-size file edits since dry-run", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const target = plan.entry?.targetPath as string;
+  writeFileSync(subject, "PAYLOAD");
+
+  const execution = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(execution.result.status, "skipped");
+  assert.equal(existsSync(subject), true);
+  assert.equal(existsSync(target), false);
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+});
+
+test("executeDisposePlan skips directory content changes since dry-run", () => {
+  const repo = fixture();
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "bundle");
+  mkdirSync(subject);
+  writeFileSync(join(subject, "entry.txt"), "payload");
+  writeLedgerFile(ledger, [baseRecord({ id: "shf_backup", path: subject, status: "active" })]);
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const target = plan.entry?.targetPath as string;
+  writeFileSync(join(subject, "other.txt"), "changed");
+
+  const execution = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(execution.result.status, "skipped");
+  assert.equal(existsSync(subject), true);
+  assert.equal(existsSync(target), false);
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
 });
 
 test("executeDisposePlan skips when the live record path moved on since dry-run", () => {

@@ -220,6 +220,7 @@ export type DisposeSubjectSnapshot = {
   existence: "present" | "missing";
   nodeKind: "file" | "directory" | "other" | null;
   byteSize: number | null;
+  fingerprint: string | null;
 };
 
 // Why a requested disposition cannot be planned. A blocked request is read-only: it

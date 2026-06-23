@@ -1094,6 +1094,7 @@ function buildRetention(input: PutInput, createdAt: Date): { retention: Retentio
 
 function classifyDue(record: ArtshelfRecord, at: Date): DueStatus {
   if (!existsSync(record.path)) return "missing-path";
+  if (record.disposeAction === "keep" && record.disposePlanId && record.disposeReceiptPath && record.disposedAt) return "kept";
   if (record.retention.mode === "manual-review") return "manual-review";
   if (!record.retainUntil) return "due";
   return new Date(record.retainUntil).getTime() <= at.getTime() ? "due" : "kept";

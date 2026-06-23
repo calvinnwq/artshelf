@@ -33,6 +33,8 @@ declare module "node:child_process" {
 }
 
 declare module "node:crypto" {
+  export type Hash = { update(data: any): Hash; digest(encoding: string): string };
+  export function createHash(algorithm: string): Hash;
   export function randomBytes(size: number): { toString(encoding: string): string };
 }
 
@@ -43,7 +45,9 @@ declare module "node:fs" {
   export function lstatSync(path: string): any;
   export function mkdirSync(path: string, options?: any): void;
   export function readdirSync(path: string): string[];
+  export function readFileSync(path: string): any;
   export function readFileSync(path: string, encoding: string): string;
+  export function readlinkSync(path: string): string;
   export function realpathSync(path: string): string;
   export function renameSync(oldPath: string, newPath: string): void;
   export function rmSync(path: string, options?: any): void;

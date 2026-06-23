@@ -1,5 +1,5 @@
-import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, readlinkSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { assertSafeGeneratedId, getRecord, readLedger, registerArtshelfArtifact, writeLedger } from "./ledger.js";
 import { withPathLock } from "./locks.js";
@@ -144,6 +144,7 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
   return withPathLock(ledgerPath, () => {
     const completedReceipt = existsSync(receiptPath) ? readCompletedDisposeReceipt(receiptPath, planId) : null;
     if (completedReceipt) {
+      registerDisposeReceipt(ledgerPath, receiptPath, planId);
       return {
         planId,
         receiptPath,
@@ -158,15 +159,23 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
     if (record?.disposePlanId === planId) {
       const replayReceiptPath = record.disposeReceiptPath ?? receiptPath;
       const receipt = existsSync(replayReceiptPath) ? readCompletedDisposeReceipt(replayReceiptPath, planId) : null;
+      const started = receipt ? null : readStartedDisposeReceipt(replayReceiptPath, planId);
+      const result = receipt?.result ?? appliedResultFromRecord(entry, record);
+      const executedAt = receipt?.executedAt ?? record.disposedAt ?? started?.executedAt ?? toIso(now());
+      if (!receipt) {
+        writeDisposeReceipt(replayReceiptPath, { planId, ledgerPath, executedAt, status: "completed", result });
+      }
+      registerDisposeReceipt(ledgerPath, replayReceiptPath, planId);
       return {
         planId,
         receiptPath: replayReceiptPath,
-        executedAt: receipt?.executedAt ?? record.disposedAt ?? toIso(now()),
-        result: receipt?.result ?? appliedResultFromRecord(entry, record)
+        executedAt,
+        result
       };
     }
 
-    const executedAt = toIso(now());
+    const started = readStartedDisposeReceipt(receiptPath, planId);
+    const executedAt = started?.executedAt ?? toIso(now());
     const audit: DisposeAudit = { planId, receiptPath, executedAt };
 
     // Announce intent before any mutation so an interrupted move leaves a breadcrumb.
@@ -176,13 +185,7 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
     if (outcome.records) writeLedger(ledgerPath, outcome.records);
 
     writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "completed", result: outcome.result });
-    registerArtshelfArtifact(ledgerPath, receiptPath, {
-      reason: `Artshelf dispose receipt for plan ${planId}`,
-      ttl: "30d",
-      kind: "run-artifact",
-      cleanup: "review",
-      labels: ["artshelf", "dispose-receipt", planId]
-    });
+    registerDisposeReceipt(ledgerPath, receiptPath, planId);
     return { planId, receiptPath, executedAt, result: outcome.result };
   }, "Artshelf ledger");
 }
@@ -209,6 +212,9 @@ function applyDisposeEntry(records: ArtshelfRecord[], index: number, entry: Disp
   if (record.path !== entry.path || record.path !== entry.subjectPath) {
     return refusal(entry, "live ledger path no longer matches the reviewed plan", record.status, live, null);
   }
+  if (entry.action === "trash-resolve" && canResumeTrashResolve(entry, live)) {
+    return applyTrashResolveFromTarget(records, index, record, entry, audit);
+  }
   if (record.status !== entry.status || subjectDrifted(entry.subject, live)) {
     return refusal(entry, "live ledger state no longer matches the reviewed plan", record.status, live, null);
   }
@@ -231,6 +237,29 @@ function applyTrashResolve(records: ArtshelfRecord[], index: number, record: Art
   mkdirSync(dirname(target), { recursive: true });
   renameSync(entry.subjectPath, target);
 
+  const updated: ArtshelfRecord = {
+    ...record,
+    status: "resolved",
+    resolvedAt: audit.executedAt,
+    resolutionReason: entry.reason,
+    targetPath: target,
+    previousPath: entry.subjectPath,
+    ...disposeStamp(entry, audit)
+  };
+  return applied(records, index, updated, {
+    action: "trash-resolve",
+    status: "resolved",
+    reason: entry.reason,
+    previousPath: entry.subjectPath,
+    targetPath: target,
+    retention: null,
+    retainUntil: null,
+    verification: verify(entry, "resolved", target)
+  });
+}
+
+function applyTrashResolveFromTarget(records: ArtshelfRecord[], index: number, record: ArtshelfRecord, entry: DisposePlanEntry, audit: DisposeAudit): DisposeOutcome {
+  const target = entry.targetPath as string;
   const updated: ArtshelfRecord = {
     ...record,
     status: "resolved",
@@ -297,8 +326,8 @@ function applySnooze(records: ArtshelfRecord[], index: number, record: ArtshelfR
 }
 
 // keep stamps the reviewed-and-kept audit on the row, preserving its status and retention
-// verbatim. The renderer-level "quiet until a new due/manual-review boundary" surfacing is
-// a separate follow-up; execute only records the decision here.
+// verbatim. Due and inspect classification consume the audit stamp to keep the reviewed
+// decision quiet while the same active record remains present.
 function applyKeep(records: ArtshelfRecord[], index: number, record: ArtshelfRecord, entry: DisposePlanEntry, audit: DisposeAudit, live: DisposeSubjectSnapshot): DisposeOutcome {
   const updated: ArtshelfRecord = { ...record, ...disposeStamp(entry, audit) };
   return applied(records, index, updated, {
@@ -394,10 +423,15 @@ function verifyLive(recordStatus: ArtshelfStatus, live: DisposeSubjectSnapshot):
   return { recordStatus, subjectPresent: live.existence === "present", targetPresent: null };
 }
 
-// Two subject snapshots agree only when existence, node kind, and byte size all match; any
-// drift since the reviewed dry-run refuses the plan (NGX-483 stale-plan safety).
+// Two subject snapshots agree only when existence, node kind, byte size, and fingerprint
+// all match; any drift since the reviewed dry-run refuses the plan.
 function subjectDrifted(reviewed: DisposeSubjectSnapshot, live: DisposeSubjectSnapshot): boolean {
-  return reviewed.existence !== live.existence || reviewed.nodeKind !== live.nodeKind || reviewed.byteSize !== live.byteSize;
+  return reviewed.existence !== live.existence || reviewed.nodeKind !== live.nodeKind || reviewed.byteSize !== live.byteSize || reviewed.fingerprint !== live.fingerprint;
+}
+
+function canResumeTrashResolve(entry: DisposePlanEntry, live: DisposeSubjectSnapshot): boolean {
+  if (live.existence !== "missing" || !entry.targetPath || !existsSync(entry.targetPath)) return false;
+  return !subjectDrifted(entry.subject, snapshotSubject(entry.targetPath));
 }
 
 // Bind a loaded dispose plan to the request before any mutation, mirroring reconcile's
@@ -449,7 +483,8 @@ function isSubjectSnapshot(value: unknown): value is DisposeSubjectSnapshot {
   const validExistence = subject.existence === "present" || subject.existence === "missing";
   const validNodeKind = subject.nodeKind === "file" || subject.nodeKind === "directory" || subject.nodeKind === "other" || subject.nodeKind === null;
   const validByteSize = subject.byteSize === null || (typeof subject.byteSize === "number" && Number.isFinite(subject.byteSize) && subject.byteSize >= 0);
-  return validExistence && validNodeKind && validByteSize;
+  const validFingerprint = subject.fingerprint === null || typeof subject.fingerprint === "string";
+  return validExistence && validNodeKind && validByteSize && validFingerprint;
 }
 
 function isSnoozeRetention(value: unknown): value is Retention {
@@ -496,6 +531,35 @@ function readCompletedDisposeReceipt(receiptPath: string, planId: string): { exe
   } catch {
     return null;
   }
+}
+
+function readStartedDisposeReceipt(receiptPath: string, planId: string): { executedAt: string } | null {
+  if (!existsSync(receiptPath)) return null;
+  try {
+    const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown };
+    if (receipt.planId !== planId || receipt.status !== "started" || typeof receipt.executedAt !== "string") return null;
+    return { executedAt: receipt.executedAt };
+  } catch {
+    return null;
+  }
+}
+
+function registerDisposeReceipt(ledgerPath: string, receiptPath: string, planId: string): void {
+  const registered = readLedger(ledgerPath).some((record) => (
+    record.status === "active" &&
+    record.path === receiptPath &&
+    record.labels.includes("dispose-receipt") &&
+    record.labels.includes(planId) &&
+    (record.owner === "artshelf" || record.owner === "shelf")
+  ));
+  if (registered) return;
+  registerArtshelfArtifact(ledgerPath, receiptPath, {
+    reason: `Artshelf dispose receipt for plan ${planId}`,
+    ttl: "30d",
+    kind: "run-artifact",
+    cleanup: "review",
+    labels: ["artshelf", "dispose-receipt", planId]
+  });
 }
 
 function isDisposeResult(value: unknown): value is DisposeResult {
@@ -584,12 +648,52 @@ function snapshotSubject(path: string): DisposeSubjectSnapshot {
   try {
     stat = lstatSync(path);
   } catch {
-    return { existence: "missing", nodeKind: null, byteSize: null };
+    return { existence: "missing", nodeKind: null, byteSize: null, fingerprint: null };
   }
-  if (stat.isSymbolicLink()) return { existence: "present", nodeKind: "other", byteSize: null };
-  if (stat.isFile()) return { existence: "present", nodeKind: "file", byteSize: stat.size };
-  if (stat.isDirectory()) return { existence: "present", nodeKind: "directory", byteSize: null };
-  return { existence: "present", nodeKind: "other", byteSize: null };
+  if (stat.isSymbolicLink()) return { existence: "present", nodeKind: "other", byteSize: null, fingerprint: fingerprintSubject(path, "other") };
+  if (stat.isFile()) return { existence: "present", nodeKind: "file", byteSize: stat.size, fingerprint: fingerprintSubject(path, "file") };
+  if (stat.isDirectory()) return { existence: "present", nodeKind: "directory", byteSize: null, fingerprint: fingerprintSubject(path, "directory") };
+  return { existence: "present", nodeKind: "other", byteSize: null, fingerprint: fingerprintSubject(path, "other") };
+}
+
+function fingerprintSubject(path: string, nodeKind: "file" | "directory" | "other"): string | null {
+  try {
+    if (nodeKind === "file") return createHash("sha256").update(readFileSync(path)).digest("hex");
+    if (nodeKind === "directory") return fingerprintDirectory(path);
+    return createHash("sha256").update(readlinkSync(path)).digest("hex");
+  } catch {
+    return null;
+  }
+}
+
+function fingerprintDirectory(path: string): string {
+  const hash = createHash("sha256");
+  hash.update("directory\0");
+  for (const name of readdirSync(path).sort()) {
+    const childPath = join(path, name);
+    const stat = lstatSync(childPath);
+    hash.update(name);
+    hash.update("\0");
+    if (stat.isFile()) {
+      hash.update("file\0");
+      hash.update(String(stat.size));
+      hash.update("\0");
+      hash.update(readFileSync(childPath));
+      continue;
+    }
+    if (stat.isDirectory()) {
+      hash.update("directory\0");
+      hash.update(fingerprintDirectory(childPath));
+      continue;
+    }
+    if (stat.isSymbolicLink()) {
+      hash.update("symlink\0");
+      hash.update(readlinkSync(childPath));
+      continue;
+    }
+    hash.update("other\0");
+  }
+  return hash.digest("hex");
 }
 
 function isTerminal(status: ArtshelfStatus): boolean {
