@@ -210,6 +210,28 @@ test("executeDisposePlan refuses a plan whose declared id does not match the req
   assert.throws(() => executeDisposePlan(ledger, plan.planId), /mismatch/i);
 });
 
+test("executeDisposePlan refuses a plan whose declared ledger does not match the executing ledger", () => {
+  const { ledger } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
+  const tampered = { ...JSON.parse(readFileSync(plan.planPath as string, "utf8")), ledgerPath: "/foreign/ledger.jsonl" };
+  writeFileSync(plan.planPath as string, `${JSON.stringify(tampered, null, 2)}\n`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /ledger mismatch/i);
+});
+
+test("executeDisposePlan refuses a plan whose entry is malformed before mutating", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const tampered = JSON.parse(readFileSync(plan.planPath as string, "utf8"));
+  tampered.entry = null;
+  writeFileSync(plan.planPath as string, `${JSON.stringify(tampered, null, 2)}\n`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /malformed/i);
+  // No mutation: the subject stays put and the row is untouched.
+  assert.equal(existsSync(subject), true);
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+});
+
 test("executeDisposePlan skips a trash-resolve whose subject drifted since dry-run", () => {
   const { ledger, subject } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
