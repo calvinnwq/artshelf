@@ -239,22 +239,20 @@ function applyTrashResolve(records: ArtshelfRecord[], index: number, record: Art
 
   const updated: ArtshelfRecord = {
     ...record,
-    status: "resolved",
-    resolvedAt: audit.executedAt,
-    resolutionReason: entry.reason,
+    status: "trashed",
     targetPath: target,
     previousPath: entry.subjectPath,
     ...disposeStamp(entry, audit)
   };
   return applied(records, index, updated, {
     action: "trash-resolve",
-    status: "resolved",
+    status: "trashed",
     reason: entry.reason,
     previousPath: entry.subjectPath,
     targetPath: target,
     retention: null,
     retainUntil: null,
-    verification: verify(entry, "resolved", target)
+    verification: verify(entry, "trashed", target)
   });
 }
 
@@ -262,22 +260,20 @@ function applyTrashResolveFromTarget(records: ArtshelfRecord[], index: number, r
   const target = entry.targetPath as string;
   const updated: ArtshelfRecord = {
     ...record,
-    status: "resolved",
-    resolvedAt: audit.executedAt,
-    resolutionReason: entry.reason,
+    status: "trashed",
     targetPath: target,
     previousPath: entry.subjectPath,
     ...disposeStamp(entry, audit)
   };
   return applied(records, index, updated, {
     action: "trash-resolve",
-    status: "resolved",
+    status: "trashed",
     reason: entry.reason,
     previousPath: entry.subjectPath,
     targetPath: target,
     retention: null,
     retainUntil: null,
-    verification: verify(entry, "resolved", target)
+    verification: verify(entry, "trashed", target)
   });
 }
 
@@ -403,6 +399,7 @@ function appliedResultFromRecord(entry: DisposePlanEntry, record: ArtshelfRecord
 }
 
 function resultStatusFor(action: DisposeAction): DisposeResultStatus {
+  if (action === "trash-resolve") return "trashed";
   if (action === "snooze") return "snoozed";
   if (action === "keep") return "kept";
   return "resolved";

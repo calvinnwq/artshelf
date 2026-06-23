@@ -705,8 +705,8 @@ artshelf dispose --execute --plan-id <id> --ledger <path> [--json]
 
 Actions:
 
-- `trash-resolve`: move the recorded path into plan-scoped Artshelf trash and
-  mark the row resolved with dispose audit fields.
+- `trash-resolve`: move the recorded path into plan-scoped Artshelf trash,
+  mark the row `trashed`, and leave physical deletion to a separate trash purge.
 - `resolve-only`: resolve the ledger row only; requires `--reason`.
 - `snooze`: extend retention; requires `--ttl` or `--retain-until`.
 - `keep`: stamp that the record was reviewed and kept.
@@ -886,10 +886,9 @@ reviewed disposition stays traceable to the plan and receipt that produced it:
 }
 ```
 
-`trash-resolve` also sets `previousPath`, `targetPath`, `resolvedAt`, and
-`resolutionReason`; `resolve-only` sets the resolve fields without moving the
-subject; `snooze` updates retention; and `keep` leaves retention intact while
-making due classification quiet.
+`trash-resolve` also sets `previousPath` and `targetPath`; `resolve-only` sets
+the resolve fields without moving the subject; `snooze` updates retention; and
+`keep` leaves retention intact while making due classification quiet.
 
 Records touched by `artshelf reconcile --execute` carry the reconcile audit trail so a
 remap or resolve stays traceable to the reviewed plan that produced it:

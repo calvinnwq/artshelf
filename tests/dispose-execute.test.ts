@@ -52,7 +52,7 @@ function recordById(ledger: string, id: string) {
   return readLedger(ledger).find((record) => record.id === id);
 }
 
-test("executeDisposePlan moves the subject to trash and resolves the record for trash-resolve", () => {
+test("executeDisposePlan moves the subject to trash and leaves the record purge-visible for trash-resolve", () => {
   const { ledger, subject } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
   const target = plan.entry?.targetPath as string;
@@ -64,11 +64,11 @@ test("executeDisposePlan moves the subject to trash and resolves the record for 
   assert.equal(existsSync(target), true);
   assert.equal(readFileSync(target, "utf8"), "payload");
 
-  // The record is resolved (not trashed, so `trash purge` never sweeps it) with audit.
+  // The record is trashed so `trash list` and the separate purge workflow can sweep it.
   const record = recordById(ledger, "shf_backup");
-  assert.equal(record?.status, "resolved");
-  assert.equal(record?.resolvedAt, "2026-03-01T00:00:00Z");
-  assert.equal(record?.resolutionReason, "reviewed");
+  assert.equal(record?.status, "trashed");
+  assert.equal(record?.resolvedAt, undefined);
+  assert.equal(record?.resolutionReason, undefined);
   assert.equal(record?.targetPath, target);
   assert.equal(record?.previousPath, subject);
   assert.equal(record?.disposePlanId, plan.planId);
@@ -77,10 +77,10 @@ test("executeDisposePlan moves the subject to trash and resolves the record for 
 
   // The execution result and verification describe the move.
   assert.equal(execution.result.action, "trash-resolve");
-  assert.equal(execution.result.status, "resolved");
+  assert.equal(execution.result.status, "trashed");
   assert.equal(execution.result.targetPath, target);
   assert.equal(execution.result.previousPath, subject);
-  assert.equal(execution.result.verification.recordStatus, "resolved");
+  assert.equal(execution.result.verification.recordStatus, "trashed");
   assert.equal(execution.result.verification.subjectPresent, false);
   assert.equal(execution.result.verification.targetPresent, true);
 });
@@ -193,11 +193,11 @@ test("executeDisposePlan is idempotent when the same trash-resolve plan is re-ru
   assert.equal(existsSync(subject), false);
   assert.equal(existsSync(target), true);
   assert.equal(readFileSync(target, "utf8"), "payload");
-  assert.equal(second.result.status, "resolved");
+  assert.equal(second.result.status, "trashed");
   assert.equal(second.result.targetPath, target);
 
   const record = recordById(ledger, "shf_backup");
-  assert.equal(record?.status, "resolved");
+  assert.equal(record?.status, "trashed");
   assert.equal(record?.disposePlanId, plan.planId);
   // The idempotent rerun re-derives the outcome from the row without re-stamping it.
   assert.equal(record?.disposedAt, first.executedAt);
@@ -263,16 +263,16 @@ test("executeDisposePlan resumes a trash-resolve after the move reached trash", 
 
   const execution = executeDisposePlan(ledger, plan.planId);
 
-  assert.equal(execution.result.status, "resolved");
+  assert.equal(execution.result.status, "trashed");
   assert.equal(execution.result.targetPath, target);
   assert.equal(existsSync(subject), false);
   assert.equal(existsSync(target), true);
   const record = recordById(ledger, "shf_backup");
-  assert.equal(record?.status, "resolved");
+  assert.equal(record?.status, "trashed");
   assert.equal(record?.disposePlanId, plan.planId);
   const receipt = JSON.parse(readFileSync(receiptPath, "utf8"));
   assert.equal(receipt.status, "completed");
-  assert.equal(receipt.result.status, "resolved");
+  assert.equal(receipt.result.status, "trashed");
 });
 
 test("executeDisposePlan repairs a completed ledger stamp with a started receipt", () => {

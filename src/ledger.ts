@@ -94,6 +94,22 @@ export type TrashedRecord = {
   age: string;
 };
 
+type TrashProvenance = {
+  cleanedAt: string;
+  receiptPath: string;
+  cleanupPlanId: string;
+};
+
+function trashProvenance(record: ArtshelfRecord): TrashProvenance | null {
+  if (record.cleanedAt && record.receiptPath && record.cleanupPlanId) {
+    return { cleanedAt: record.cleanedAt, receiptPath: record.receiptPath, cleanupPlanId: record.cleanupPlanId };
+  }
+  if (record.disposedAt && record.disposeReceiptPath && record.disposePlanId) {
+    return { cleanedAt: record.disposedAt, receiptPath: record.disposeReceiptPath, cleanupPlanId: record.disposePlanId };
+  }
+  return null;
+}
+
 export function defaultLedgerPath(cwd = process.cwd()): string {
   const repoRoot = findGitRoot(cwd);
   if (repoRoot) return join(repoRoot, ".artshelf", "ledger.jsonl");
@@ -169,16 +185,17 @@ export function listTrashedRecords(ledgerPath: string): TrashedRecord[] {
   const records = readLedger(ledgerPath).filter((record) => record.status === "trashed");
   const current = now();
   return records.map((record) => {
-    if (!record.id || !record.targetPath || !record.cleanedAt || !record.receiptPath || !record.cleanupPlanId) {
-      throw new Error(`trashed record ${record.id ?? "<missing id>"} missing cleanup metadata`);
+    const provenance = trashProvenance(record);
+    if (!record.id || !record.targetPath || !provenance) {
+      throw new Error(`trashed record ${record.id ?? "<missing id>"} missing trash provenance`);
     }
     return {
       id: record.id,
       targetPath: record.targetPath,
-      cleanedAt: record.cleanedAt,
-      receiptPath: record.receiptPath,
-      cleanupPlanId: record.cleanupPlanId,
-      age: ageOf(current, record.cleanedAt)
+      cleanedAt: provenance.cleanedAt,
+      receiptPath: provenance.receiptPath,
+      cleanupPlanId: provenance.cleanupPlanId,
+      age: ageOf(current, provenance.cleanedAt)
     };
   });
 }
@@ -294,9 +311,7 @@ export function validateLedger(ledgerPath: string): {
       warnings.push(`${label}: recorded path is missing`);
     }
     if (record.status === "trashed") {
-      if (!record.cleanupPlanId) errors.push(`${label}: trashed record missing cleanupPlanId`);
-      if (!record.receiptPath) errors.push(`${label}: trashed record missing receiptPath`);
-      if (!record.cleanedAt) errors.push(`${label}: trashed record missing cleanedAt`);
+      if (!trashProvenance(record)) errors.push(`${label}: trashed record missing trash provenance`);
       if (!record.targetPath) {
         errors.push(`${label}: trashed record missing targetPath`);
       } else if (!existsSync(record.targetPath)) {
@@ -418,18 +433,20 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
         continue;
       }
 
+      const provenance = trashProvenance(record);
       if (
         record.targetPath !== entry.targetPath ||
-        record.cleanedAt !== entry.cleanedAt ||
-        record.receiptPath !== entry.receiptPath ||
-        record.cleanupPlanId !== entry.cleanupPlanId
+        !provenance ||
+        provenance.cleanedAt !== entry.cleanedAt ||
+        provenance.receiptPath !== entry.receiptPath ||
+        provenance.cleanupPlanId !== entry.cleanupPlanId
       ) {
         results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "plan entry no longer matches ledger record" });
         continue;
       }
 
       const targetPath = resolve(entry.targetPath);
-      const expectedPlanTrashRoot = resolve(trashRoot, record.cleanupPlanId);
+      const expectedPlanTrashRoot = resolve(trashRoot, entry.cleanupPlanId);
       if (!isPathWithin(trashRoot, targetPath)) {
         results.push({ id: entry.id, status: "skipped", targetPath: entry.targetPath, reason: "target is outside Artshelf trash" });
         continue;
@@ -621,16 +638,17 @@ function buildTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgeP
 
   for (const record of records) {
     if (record.status !== "trashed") continue;
-    if (!record.id || !record.targetPath || !record.cleanedAt || !record.receiptPath || !record.cleanupPlanId) {
+    const provenance = trashProvenance(record);
+    if (!record.id || !record.targetPath || !provenance) {
       skipped.push({
         id: record.id ?? "",
         targetPath: record.targetPath ?? "",
-        reason: "trashed record missing cleanup metadata"
+        reason: "trashed record missing trash provenance"
       });
       continue;
     }
 
-    const cleanedAt = new Date(record.cleanedAt);
+    const cleanedAt = new Date(provenance.cleanedAt);
     if (Number.isNaN(cleanedAt.getTime())) {
       skipped.push({
         id: record.id,
@@ -648,9 +666,9 @@ function buildTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgeP
     entries.push({
       id: record.id,
       targetPath: record.targetPath,
-      cleanedAt: record.cleanedAt,
-      receiptPath: record.receiptPath,
-      cleanupPlanId: record.cleanupPlanId
+      cleanedAt: provenance.cleanedAt,
+      receiptPath: provenance.receiptPath,
+      cleanupPlanId: provenance.cleanupPlanId
     });
   }
 

@@ -276,11 +276,12 @@ export type DisposePlan = {
 };
 
 // Outcome of applying one reviewed dispose plan entry (NGX-483 `dispose --execute`).
-// resolved: the row was closed (trash-resolve moved the file first, resolve-only did not);
-// snoozed: the retention horizon was extended, the row stays active; kept: the row was
-// marked reviewed-and-kept with its retention preserved; skipped: the entry was refused
+// trashed: the row was moved into Artshelf trash and awaits a separate purge;
+// resolved: the row was closed without moving the file; snoozed: the retention
+// horizon was extended, the row stays active; kept: the row was marked
+// reviewed-and-kept with its retention preserved; skipped: the entry was refused
 // (stale snapshot, status drift, or a target conflict) and nothing was mutated.
-export type DisposeResultStatus = "resolved" | "snoozed" | "kept" | "skipped";
+export type DisposeResultStatus = "trashed" | "resolved" | "snoozed" | "kept" | "skipped";
 
 // Post-execution verification captured in the receipt so the audit trail proves what
 // actually happened on disk and in the ledger. targetPresent is null for actions that

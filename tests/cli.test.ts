@@ -1521,18 +1521,24 @@ test("dispose execute applies one reviewed plan id and writes receipt evidence",
   const executed = artshelf(["dispose", "--execute", "--plan-id", plan.planId, "--ledger", ledger, "--json"], "2026-06-03T00:05:00Z");
   assert.equal(executed.status, 0, executed.stderr);
   const execution = JSON.parse(executed.stdout).execution;
-  assert.equal(execution.result.status, "resolved");
+  assert.equal(execution.result.status, "trashed");
   assert.equal(existsSync(artifact), false);
   assert.equal(existsSync(execution.result.targetPath), true);
   assert.equal(existsSync(execution.receiptPath), true);
 
   const records = readLedger(ledger);
   const artifactRecord = records.find((record) => record.id === put.record.id);
-  assert.equal(artifactRecord.status, "resolved");
+  assert.equal(artifactRecord.status, "trashed");
   assert.equal(artifactRecord.disposePlanId, plan.planId);
   assert.equal(artifactRecord.disposeAction, "trash-resolve");
   assert.equal(artifactRecord.previousPath, artifact);
   assert.equal(artifactRecord.targetPath, execution.result.targetPath);
+
+  const trashed = JSON.parse(artshelf(["trash", "list", "--ledger", ledger, "--json"], "2026-06-03T00:06:00Z").stdout).entries;
+  assert.equal(trashed.length, 1);
+  assert.equal(trashed[0].id, put.record.id);
+  assert.equal(trashed[0].targetPath, execution.result.targetPath);
+  assert.equal(trashed[0].cleanupPlanId, plan.planId);
 
   const receiptRecord = records.find((record) => record.path === execution.receiptPath);
   assert.ok(receiptRecord);
@@ -2240,7 +2246,7 @@ test("trash list fails loudly for malformed trashed records", () => {
 
   const listed = artshelf(["trash", "list", "--ledger", ledger], "2026-06-03T00:02:00Z");
   assert.equal(listed.status, 1);
-  assert.match(listed.stderr, /trashed record broken missing cleanup metadata/);
+  assert.match(listed.stderr, /trashed record broken missing trash provenance/);
 });
 
 test("trash purge refuses execution without review and refuses --all execution", () => {
