@@ -47,6 +47,7 @@ src/
   registry-prune.ts   registry-prune classification plus approval-gated prune plan and execute layers
   provenance.ts       reconcile-safe path provenance capture for new records
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
+  dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger and cleanup domain contracts
@@ -111,11 +112,15 @@ Current domain ownership:
   the missing registrations, and writes a receipt with the verification result
 - `provenance.ts`: reconcile-safe path provenance capture for new records
 - `reconcile.ts`: path-drift classification plus reconcile dry-run plan and execute layers
+- `dispose.ts`: disposition classification (trash-resolve/resolve-only/snooze/keep) plus the
+  approval-gated dry-run plan layer that writes a reviewed dispose plan and the plan-id-bound
+  execute layer that re-snapshots the live subject, refuses drift/target conflicts, moves the
+  subject to plan-scoped trash for trash-resolve, and writes a receipt with verification (NGX-483)
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
-- `types.ts`: ledger, cleanup, trash, provenance, reconcile, and registry-adjacent
+- `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, and registry-adjacent
   domain contracts
 
 ### `adapters/`
