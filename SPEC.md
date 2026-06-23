@@ -989,9 +989,9 @@ Agents should call `artshelf put` immediately after creating:
 - one-off generated reports
 - copied files kept for rollback
 
-Agents should not run `artshelf cleanup --execute` or
-`artshelf trash purge --execute` without explicit approval naming the ledger path
-and reviewed plan id.
+Agents should not run `artshelf cleanup --execute`,
+`artshelf dispose --execute`, or `artshelf trash purge --execute` without
+explicit approval naming the ledger path and reviewed plan id.
 
 Agents may run `artshelf find` and `artshelf get` before `put` to avoid duplicate
 registrations. `find`/`get` are read-only ledger queries; they must not be used
@@ -1056,8 +1056,9 @@ needs-review-first, and blocked sections, and must still include exact approval
 targets in the message body.
 
 Scheduled jobs must never run `artshelf cleanup --execute`,
-`artshelf ledgers prune --execute`, or `artshelf trash purge --execute`; they may
-only dry-run and report plans for later human review.
+`artshelf ledgers prune --execute`, `artshelf dispose --execute`, or
+`artshelf trash purge --execute`; they may only dry-run and report plans
+for later human review.
 
 ## Dogfood Scenarios
 

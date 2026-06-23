@@ -87,16 +87,17 @@ artshelf get &lt;id&gt; --inspect --agent --ledger &lt;ledger-path&gt;</code></p
               <code>keep</code>, <code>snooze</code>, <code>trash-safe</code>,
               <code>resolve-only</code>, or <code>blocked</code>. These map onto the
               daily-review classifications — a missing-path record reads as
-              <code>resolve-only</code> and points at <code>artshelf resolve</code>,
-              while a due disposable record reads as <code>trash-safe</code> and points
-              at a reviewed cleanup plan.
+              <code>resolve-only</code> and points at a reviewed
+              <code>dispose</code> plan, while a due disposable record reads as
+              <code>trash-safe</code> and points at a reviewed <code>dispose</code>
+              plan.
             </p>
             <pre><code>✓ &lt;id&gt; [backup] — keep
 path: &lt;backup-path&gt;
 status: active · cleanup: review · owner: agent · labels: registry-prune
 existence: present (directory, 49 B) · age: 14d · retention: manual-review · due: manual-review
 reason: rollback backup before registry prune
-next: Held for manual review — keep it, change its retention, or resolve it explicitly; no cleanup is scheduled.
+next: Held for manual review — run `artshelf dispose --id &lt;id&gt; --action keep --dry-run --reason '&lt;why&gt;' --ledger &lt;ledger-path&gt;` to keep it quiet through a reviewed decision, or choose resolve-only/snooze deliberately.
 ledger: &lt;ledger-path&gt;</code></pre>
           </section>
 

@@ -218,6 +218,33 @@ artshelf cleanup --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]
           </section>
 
           <section class="cmd">
+            <div class="cmd-head"><h2>artshelf dispose</h2><span class="cmd-flag approval">approval-gated</span></div>
+            <pre><code><span class="c"># classify one reviewed record into a reviewed plan</span>
+artshelf dispose --id &lt;id&gt; --action trash-resolve|resolve-only|snooze|keep --dry-run [--reason &lt;text&gt;] [--ledger &lt;path&gt;] [--json|--agent]
+
+<span class="c"># execute exactly one reviewed plan (approval only)</span>
+artshelf dispose --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]</code></pre>
+            <p>
+              Approval-gated disposition for one reviewed record, usually the next step after
+              <code>get --inspect</code>. <code>--dry-run</code> classifies exactly one record id
+              and action, writes a reviewed plan under <code>dispose-plans/</code> when actionable
+              (and reuses a matching earlier plan id), and prints the exact approval target.
+              <code>--execute</code> binds to one reviewed plan id: it re-snapshots the live
+              subject, refuses status/subject drift or a target conflict, moves the subject to
+              plan-scoped trash for <code>trash-resolve</code>, resolves the row for
+              <code>resolve-only</code>, extends retention for <code>snooze</code>, stamps
+              reviewed-and-kept for <code>keep</code>, and writes a receipt registered as an
+              Artshelf-owned artifact. Reruns are idempotent.
+            </p>
+            <div class="callout" data-kind="boundary">
+              <span class="callout-label">Hard boundary</span>
+              <p>No daemon, no auto-execute, no global execute, no fresh-plan-then-execute, and no
+              physical deletion. <code>dispose --all</code> does not exist; one plan binds one
+              record id to one action.</p>
+            </div>
+          </section>
+
+          <section class="cmd">
             <div class="cmd-head"><h2>artshelf trash</h2><span class="cmd-flag approval">approval-gated</span></div>
             <pre><code><span class="c"># show trashed records with provenance and age</span>
 artshelf trash list [--all] [--ledger &lt;path&gt;] [--json]

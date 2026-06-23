@@ -78,6 +78,28 @@ artshelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
           </section>
 
           <section>
+            <h2>Dispose one reviewed record</h2>
+            <p>
+              <code>dispose</code> is the per-record reviewed path that follows
+              <code>get --inspect</code>: one record id, one action, one reviewed plan id.
+              It never runs in batch and never deletes physically.
+            </p>
+            <pre><code><span class="c"># classify one inspected record into a reviewed plan</span>
+artshelf dispose --id &lt;id&gt; --action trash-resolve|resolve-only|snooze|keep --dry-run --ledger &lt;ledger-path&gt; --json
+
+<span class="c"># only after a human approves this exact plan id</span>
+artshelf dispose --execute --plan-id &lt;id&gt; --ledger &lt;ledger-path&gt;</code></pre>
+            <p>
+              Actions: <code>trash-resolve</code> moves the subject into plan-scoped Artshelf
+              trash and resolves the row; <code>resolve-only</code> resolves the ledger row only
+              (requires <code>--reason</code>); <code>snooze</code> extends retention (requires
+              <code>--ttl</code> or <code>--retain-until</code>); <code>keep</code> stamps the
+              record reviewed-and-kept. Execute re-snapshots the subject and refuses drift or a
+              target conflict; reruns are idempotent and a receipt is left for audit.
+            </p>
+          </section>
+
+          <section>
             <h2>Resolve confirmed records</h2>
             <p>Resolve only updates the ledger; it does not move or delete files.</p>
             <pre><code><span class="c"># mark a record handled without touching the file</span>
