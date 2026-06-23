@@ -174,36 +174,9 @@ cd /path/to/skills/artshelf
 node scripts/render-review-report.mjs examples/artshelf-review-report.json
 ```
 
-Expected card shape:
-
-```text
-Artshelf daily review
-Status: <ok|attention needed>; registry <ok|attention>
-
-Ready for approval: <n>
-Needs review first: <n>
-Blocked: <n>
-
-Recommended action
-<one short sentence>.
-
-Ready for approval
-1. <label>
-   Why: <reason>
-   Action: <next step>
-   <approval target>
-
-Needs review first
-1. <label>
-   Why: <reason>
-   Suggested next step: <next step>
-
-Blocked
-<none, or blocker and repair step>
-
-Safety
-Dry-run only. No execute, resolve, or delete ran.
-```
+The renderer owns the exact layout.
+It emits `Artshelf daily review`, `Ready for approval`, `Needs review first`, `Blocked`, `Recommended action`, `Why:`, `Action:`, `Suggested next step:`, and `Safety`.
+Its safety line stays: `Dry-run only. No execute, resolve, or delete ran.`
 
 Approval wording:
 
