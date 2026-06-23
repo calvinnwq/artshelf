@@ -275,6 +275,41 @@ test("executeDisposePlan resumes a trash-resolve after the move reached trash", 
   assert.equal(receipt.result.status, "trashed");
 });
 
+test("executeDisposePlan refuses trash-resolve resume when the live status changed", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const target = plan.entry?.targetPath as string;
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(target), { recursive: true });
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  renameSync(subject, target);
+  writeLedgerFile(ledger, readLedger(ledger).map((record) => record.id === "shf_backup" ? {
+    ...record,
+    status: "resolved",
+    resolvedAt: "2026-03-01T00:00:00Z",
+    resolutionReason: "handled elsewhere"
+  } : record));
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: plan.planId,
+    ledgerPath: ledger,
+    executedAt: "2026-03-01T00:00:00Z",
+    status: "started",
+    action: "trash-resolve",
+    target
+  }, null, 2)}\n`);
+
+  const execution = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(execution.result.status, "skipped");
+  assert.match(execution.result.reason, /live ledger state no longer matches/);
+  const record = recordById(ledger, "shf_backup");
+  assert.equal(record?.status, "resolved");
+  assert.equal(record?.resolutionReason, "handled elsewhere");
+  assert.equal(record?.disposePlanId, undefined);
+  assert.equal(existsSync(subject), false);
+  assert.equal(existsSync(target), true);
+});
+
 test("executeDisposePlan repairs a completed ledger stamp with a started receipt", () => {
   const { ledger } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
@@ -388,6 +423,25 @@ test("executeDisposePlan refuses a trash-resolve plan with a tampered target pat
   assert.throws(() => executeDisposePlan(ledger, plan.planId), /target path mismatch/i);
   assert.equal(existsSync(subject), true);
   assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+});
+
+test("executeDisposePlan refuses an unsafe trash-resolve record id before moving", () => {
+  const { repo, ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const unsafeId = "../../escaped";
+  const escapedTarget = join(repo, ".artshelf", "escaped-backup.tar");
+  const tampered = JSON.parse(readFileSync(plan.planPath as string, "utf8"));
+  tampered.entry.id = unsafeId;
+  tampered.entry.targetPath = join(repo, ".artshelf", "trash", plan.planId, `${unsafeId}-backup.tar`);
+  writeFileSync(plan.planPath as string, `${JSON.stringify(tampered, null, 2)}\n`);
+  writeLedgerFile(ledger, readLedger(ledger).map((record) => record.id === "shf_backup" ? { ...record, id: unsafeId } : record));
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /Invalid dispose record id/);
+  assert.equal(existsSync(receiptPath), false);
+  assert.equal(existsSync(subject), true);
+  assert.equal(existsSync(escapedTarget), false);
+  assert.equal(recordById(ledger, unsafeId)?.disposePlanId, undefined);
 });
 
 test("executeDisposePlan skips a trash-resolve whose subject drifted since dry-run", () => {

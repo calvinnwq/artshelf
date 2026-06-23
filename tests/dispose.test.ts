@@ -150,6 +150,28 @@ test("classifyDisposition blocks resolve-only on an already-resolved record", ()
   assert.equal(finding.reason, "already-resolved");
 });
 
+test("classifyDisposition blocks resolve-only on an already-trashed record", () => {
+  const repo = fixture();
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  writeLedgerFile(ledger, [
+    baseRecord({
+      id: "shf_trashed",
+      status: "trashed",
+      targetPath: join(repo, ".artshelf", "trash", "dispose_x", "shf_trashed-backup.tar"),
+      disposePlanId: "dispose_x",
+      disposeReceiptPath: join(repo, ".artshelf", "dispose-receipts", "dispose_x.json"),
+      disposedAt: "2026-01-02T00:00:00.000Z",
+      disposeAction: "trash-resolve"
+    })
+  ]);
+
+  const finding = classifyDisposition(ledger, { id: "shf_trashed", action: "resolve-only", reason: "handled" });
+
+  assert.equal(finding.ok, false);
+  if (finding.ok) return;
+  assert.equal(finding.reason, "already-trashed");
+});
+
 test("classifyDisposition requires a horizon for snooze", () => {
   const { ledger } = presentBackupFixture();
 

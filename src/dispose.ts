@@ -68,6 +68,9 @@ export function classifyDisposition(ledgerPath: string, request: DisposeRequest)
 
   if (request.action === "resolve-only") {
     if (record.status === "resolved") return blocked("already-resolved", "record is already resolved");
+    if (record.status === "trashed") {
+      return blocked("already-trashed", "record is already trashed; use trash purge for physical removal or reconcile stale trash after the target is gone");
+    }
     if (!reason) return blocked("missing-reason", "resolve-only requires a reason");
     return ok(buildEntry(record, "resolve-only", reason, subjectPath, subject));
   }
@@ -212,7 +215,7 @@ function applyDisposeEntry(records: ArtshelfRecord[], index: number, entry: Disp
   if (record.path !== entry.path || record.path !== entry.subjectPath) {
     return refusal(entry, "live ledger path no longer matches the reviewed plan", record.status, live, null);
   }
-  if (entry.action === "trash-resolve" && canResumeTrashResolve(entry, live)) {
+  if (entry.action === "trash-resolve" && record.status === entry.status && canResumeTrashResolve(entry, live)) {
     return applyTrashResolveFromTarget(records, index, record, entry, audit);
   }
   if (record.status !== entry.status || subjectDrifted(entry.subject, live)) {
@@ -769,5 +772,6 @@ function disposePlanPath(ledgerPath: string, planId: string): string {
 
 function disposeTrashTarget(ledgerPath: string, planId: string, id: string, subjectPath: string): string {
   assertSafeGeneratedId(planId, "dispose plan id");
+  assertSafeGeneratedId(id, "dispose record id");
   return join(dirname(ledgerPath), "trash", planId, `${id}-${basename(subjectPath)}`);
 }
