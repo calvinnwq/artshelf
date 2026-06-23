@@ -1,16 +1,21 @@
 import { randomBytes } from "node:crypto";
-import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, lstatSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { assertSafeGeneratedId, getRecord, readLedger, registerArtshelfArtifact } from "./ledger.js";
+import { assertSafeGeneratedId, getRecord, readLedger, registerArtshelfArtifact, writeLedger } from "./ledger.js";
+import { withPathLock } from "./locks.js";
 import { addTtl, assertIsoDate, now, toIso } from "./time.js";
 import type {
   ArtshelfRecord,
   ArtshelfStatus,
   DisposeAction,
+  DisposeExecution,
   DisposeBlockReason,
   DisposePlan,
   DisposePlanEntry,
+  DisposeResult,
+  DisposeResultStatus,
   DisposeSubjectSnapshot,
+  DisposeVerification,
   Retention
 } from "./types.js";
 
@@ -111,6 +116,288 @@ export function createDisposePlan(ledgerPath: string, request: DisposeRequest): 
     labels: ["artshelf", "dispose-plan", reviewed.planId]
   });
   return reviewed;
+}
+
+// Apply a reviewed dispose plan (NGX-483 `dispose --execute`). This is the only mutating
+// dispose entrypoint and it is deliberately conservative:
+//   * It refuses up front when the plan id is missing, the plan file is absent, or the
+//     plan's declared id/ledger does not match the scoped request (no fresh-plan-then-
+//     execute; the command layer enforces that, this binds to one exact reviewed plan id).
+//   * A rerun of a plan this row already executed is idempotent (re-derived from the row,
+//     never re-moved or re-stamped).
+//   * Before mutating it re-snapshots the live subject and refuses (skips) the entry when
+//     the record status moved on or the subject drifted from the reviewed snapshot, and
+//     for trash-resolve it refuses a target a foreign artifact already occupies.
+// A receipt is written before (intent) and after (verified outcome) the mutation so an
+// executed disposition stays auditable, and is registered as an artshelf-owned artifact.
+export function executeDisposePlan(ledgerPath: string, planId: string): DisposeExecution {
+  if (!planId) throw new Error("dispose --execute requires --plan-id");
+
+  const planPath = disposePlanPath(ledgerPath, planId);
+  if (!existsSync(planPath)) throw new Error(`Dispose plan not found: ${planId}`);
+  const plan = JSON.parse(readFileSync(planPath, "utf8")) as DisposePlan;
+  const entry = assertDisposePlanExecutable(plan, planId, ledgerPath);
+
+  const receiptPath = disposeReceiptPath(ledgerPath, planId);
+  return withPathLock(ledgerPath, () => {
+    const records = readLedger(ledgerPath);
+    const index = records.findIndex((record) => record.id === entry.id);
+    const executedAt = toIso(now());
+    const audit: DisposeAudit = { planId, receiptPath, executedAt };
+
+    // Announce intent before any mutation so an interrupted move leaves a breadcrumb.
+    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "started", action: entry.action, target: entry.targetPath ?? null });
+
+    const outcome = applyDisposeEntry(records, index, entry, audit);
+    if (outcome.records) writeLedger(ledgerPath, outcome.records);
+
+    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "completed", result: outcome.result });
+    registerArtshelfArtifact(ledgerPath, receiptPath, {
+      reason: `Artshelf dispose receipt for plan ${planId}`,
+      ttl: "30d",
+      kind: "run-artifact",
+      cleanup: "review",
+      labels: ["artshelf", "dispose-receipt", planId]
+    });
+    return { planId, receiptPath, executedAt, result: outcome.result };
+  }, "Artshelf ledger");
+}
+
+type DisposeAudit = { planId: string; receiptPath: string; executedAt: string };
+
+// `records` is the mutated ledger to persist, or null when the entry was refused (no write).
+type DisposeOutcome = { records: ArtshelfRecord[] | null; result: DisposeResult };
+
+// Decide and apply the disposition for one reviewed entry against the live ledger. The
+// guard order matters: idempotency (this plan already ran) is checked before drift, since
+// a completed trash-resolve legitimately leaves the subject missing.
+function applyDisposeEntry(records: ArtshelfRecord[], index: number, entry: DisposePlanEntry, audit: DisposeAudit): DisposeOutcome {
+  const record = index >= 0 ? records[index] : undefined;
+  if (!record) {
+    return refusal(entry, "record is missing from ledger", entry.status, snapshotSubject(entry.subjectPath), null);
+  }
+
+  if (record.disposePlanId === audit.planId) {
+    return { records: null, result: appliedResultFromRecord(entry, record) };
+  }
+
+  const live = snapshotSubject(entry.subjectPath);
+  if (record.status !== entry.status || subjectDrifted(entry.subject, live)) {
+    return refusal(entry, "live ledger state no longer matches the reviewed plan", record.status, live, null);
+  }
+
+  if (entry.action === "trash-resolve") return applyTrashResolve(records, index, record, entry, audit);
+  if (entry.action === "resolve-only") return applyResolve(records, index, record, entry, audit, live);
+  if (entry.action === "snooze") return applySnooze(records, index, record, entry, audit, live);
+  return applyKeep(records, index, record, entry, audit, live);
+}
+
+// trash-resolve moves the subject into the plan-scoped trash target, then resolves the row.
+// Because the target path embeds the unique plan id, a foreign file at that exact path is a
+// genuine conflict; the prior-run case (target present, subject already moved away) is
+// handled by the idempotency guard upstream, so here a present target means a conflict.
+function applyTrashResolve(records: ArtshelfRecord[], index: number, record: ArtshelfRecord, entry: DisposePlanEntry, audit: DisposeAudit): DisposeOutcome {
+  const target = entry.targetPath as string;
+  if (existsSync(target)) {
+    return refusal(entry, `target path already exists: ${target}`, record.status, snapshotSubject(entry.subjectPath), target);
+  }
+  mkdirSync(dirname(target), { recursive: true });
+  renameSync(entry.subjectPath, target);
+
+  const updated: ArtshelfRecord = {
+    ...record,
+    status: "resolved",
+    resolvedAt: audit.executedAt,
+    resolutionReason: entry.reason,
+    targetPath: target,
+    previousPath: entry.subjectPath,
+    ...disposeStamp(entry, audit)
+  };
+  return applied(records, index, updated, {
+    action: "trash-resolve",
+    status: "resolved",
+    reason: entry.reason,
+    previousPath: entry.subjectPath,
+    targetPath: target,
+    retention: null,
+    retainUntil: null,
+    verification: verify(entry, "resolved", target)
+  });
+}
+
+// resolve-only closes the ledger row without touching the filesystem.
+function applyResolve(records: ArtshelfRecord[], index: number, record: ArtshelfRecord, entry: DisposePlanEntry, audit: DisposeAudit, live: DisposeSubjectSnapshot): DisposeOutcome {
+  const updated: ArtshelfRecord = {
+    ...record,
+    status: "resolved",
+    resolvedAt: audit.executedAt,
+    resolutionReason: entry.reason,
+    ...disposeStamp(entry, audit)
+  };
+  return applied(records, index, updated, {
+    action: "resolve-only",
+    status: "resolved",
+    reason: entry.reason,
+    previousPath: null,
+    targetPath: null,
+    retention: null,
+    retainUntil: null,
+    verification: verifyLive("resolved", live)
+  });
+}
+
+// snooze extends the retention horizon (applied verbatim from the reviewed plan, never
+// recomputed) and leaves the row active and the file in place.
+function applySnooze(records: ArtshelfRecord[], index: number, record: ArtshelfRecord, entry: DisposePlanEntry, audit: DisposeAudit, live: DisposeSubjectSnapshot): DisposeOutcome {
+  const retention = entry.retention as Retention;
+  const retainUntil = entry.retainUntil as string;
+  const updated: ArtshelfRecord = {
+    ...record,
+    retention,
+    retainUntil,
+    ...disposeStamp(entry, audit)
+  };
+  return applied(records, index, updated, {
+    action: "snooze",
+    status: "snoozed",
+    reason: entry.reason,
+    previousPath: null,
+    targetPath: null,
+    retention,
+    retainUntil,
+    verification: verifyLive(updated.status, live)
+  });
+}
+
+// keep stamps the reviewed-and-kept audit on the row, preserving its status and retention
+// verbatim. The renderer-level "quiet until a new due/manual-review boundary" surfacing is
+// a separate follow-up; execute only records the decision here.
+function applyKeep(records: ArtshelfRecord[], index: number, record: ArtshelfRecord, entry: DisposePlanEntry, audit: DisposeAudit, live: DisposeSubjectSnapshot): DisposeOutcome {
+  const updated: ArtshelfRecord = { ...record, ...disposeStamp(entry, audit) };
+  return applied(records, index, updated, {
+    action: "keep",
+    status: "kept",
+    reason: entry.reason,
+    previousPath: null,
+    targetPath: null,
+    retention: null,
+    retainUntil: null,
+    verification: verifyLive(updated.status, live)
+  });
+}
+
+function disposeStamp(entry: DisposePlanEntry, audit: DisposeAudit): Pick<ArtshelfRecord, "disposePlanId" | "disposeReceiptPath" | "disposedAt" | "disposeAction" | "disposeReason"> {
+  return {
+    disposePlanId: audit.planId,
+    disposeReceiptPath: audit.receiptPath,
+    disposedAt: audit.executedAt,
+    disposeAction: entry.action,
+    disposeReason: entry.reason
+  };
+}
+
+// Splice the mutated record into the ledger and pair it with the execution result.
+function applied(records: ArtshelfRecord[], index: number, updated: ArtshelfRecord, result: Omit<DisposeResult, "id">): DisposeOutcome {
+  const next = records.slice();
+  next[index] = updated;
+  return { records: next, result: { id: updated.id, ...result } };
+}
+
+function refusal(entry: DisposePlanEntry, reason: string, recordStatus: ArtshelfStatus, live: DisposeSubjectSnapshot, target: string | null): DisposeOutcome {
+  return {
+    records: null,
+    result: {
+      id: entry.id,
+      action: entry.action,
+      status: "skipped",
+      reason,
+      previousPath: null,
+      targetPath: null,
+      retention: null,
+      retainUntil: null,
+      verification: {
+        recordStatus,
+        subjectPresent: live.existence === "present",
+        targetPresent: entry.action === "trash-resolve" ? (target ? existsSync(target) : false) : null
+      }
+    }
+  };
+}
+
+// Re-derive the result of a plan this row already executed, reading the on-disk reality so
+// an idempotent rerun reports the same outcome without mutating anything.
+function appliedResultFromRecord(entry: DisposePlanEntry, record: ArtshelfRecord): DisposeResult {
+  const action = record.disposeAction ?? entry.action;
+  const target = action === "trash-resolve" ? (record.targetPath ?? null) : null;
+  return {
+    id: entry.id,
+    action,
+    status: resultStatusFor(action),
+    reason: record.disposeReason ?? entry.reason,
+    previousPath: record.previousPath ?? null,
+    targetPath: target,
+    retention: action === "snooze" ? (record.retention ?? null) : null,
+    retainUntil: action === "snooze" ? (record.retainUntil ?? null) : null,
+    verification: {
+      recordStatus: record.status,
+      subjectPresent: existsSync(entry.subjectPath),
+      targetPresent: action === "trash-resolve" ? (target ? existsSync(target) : false) : null
+    }
+  };
+}
+
+function resultStatusFor(action: DisposeAction): DisposeResultStatus {
+  if (action === "snooze") return "snoozed";
+  if (action === "keep") return "kept";
+  return "resolved";
+}
+
+// Verify a trash-resolve outcome: the subject is gone from its recorded path and present
+// at the trash target.
+function verify(entry: DisposePlanEntry, recordStatus: ArtshelfStatus, target: string): DisposeVerification {
+  return {
+    recordStatus,
+    subjectPresent: existsSync(entry.subjectPath),
+    targetPresent: existsSync(target)
+  };
+}
+
+// Verify a non-moving outcome (resolve-only/snooze/keep): the subject stays where it was.
+function verifyLive(recordStatus: ArtshelfStatus, live: DisposeSubjectSnapshot): DisposeVerification {
+  return { recordStatus, subjectPresent: live.existence === "present", targetPresent: null };
+}
+
+// Two subject snapshots agree only when existence, node kind, and byte size all match; any
+// drift since the reviewed dry-run refuses the plan (NGX-483 stale-plan safety).
+function subjectDrifted(reviewed: DisposeSubjectSnapshot, live: DisposeSubjectSnapshot): boolean {
+  return reviewed.existence !== live.existence || reviewed.nodeKind !== live.nodeKind || reviewed.byteSize !== live.byteSize;
+}
+
+// Bind a loaded dispose plan to the request before any mutation, mirroring reconcile's
+// assertReconcilePlanExecutable: the plan must declare the requested id, belong to the
+// executing ledger, and carry a single well-formed actionable entry.
+function assertDisposePlanExecutable(plan: DisposePlan, planId: string, ledgerPath: string): DisposePlanEntry {
+  if (plan.planId !== planId) {
+    throw new Error(`Dispose plan id mismatch: plan file declares ${plan.planId}, requested ${planId}`);
+  }
+  if (plan.ledgerPath !== ledgerPath) {
+    throw new Error(`Dispose plan ledger mismatch: plan was created for ${plan.ledgerPath}, executing ${ledgerPath}`);
+  }
+  const entry = plan.entry;
+  if (!entry || typeof entry.id !== "string" || !DISPOSE_ACTIONS.has(entry.action) || typeof entry.subjectPath !== "string") {
+    throw new Error(`Dispose plan entry is malformed: ${planId}`);
+  }
+  return entry;
+}
+
+function disposeReceiptPath(ledgerPath: string, planId: string): string {
+  assertSafeGeneratedId(planId, "dispose plan id");
+  return join(dirname(ledgerPath), "dispose-receipts", `${planId}.json`);
+}
+
+function writeDisposeReceipt(receiptPath: string, value: unknown): void {
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
 function buildDisposePlan(ledgerPath: string, request: DisposeRequest): DisposePlan {
