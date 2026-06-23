@@ -20,6 +20,7 @@ import type {
 } from "./types.js";
 
 const DISPOSE_ACTIONS: ReadonlySet<string> = new Set<DisposeAction>(["trash-resolve", "resolve-only", "snooze", "keep"]);
+const ARTSHELF_STATUSES: ReadonlySet<string> = new Set<ArtshelfStatus>(["active", "review-required", "trashed", "cleanup-refused", "resolved"]);
 
 // What the caller asked `dispose` to do: one record id, one action, plus the
 // action-specific inputs (a reason for resolve-only, a horizon for snooze).
@@ -105,20 +106,18 @@ export function createDisposePlan(ledgerPath: string, request: DisposeRequest): 
   if (!plan.entry) return plan;
 
   const existing = matchingExistingDisposePlan(ledgerPath, plan);
-  const reviewed = existing
-    ? { ...plan, planId: existing.planId, planPath: existing.planPath, entry: scopeTarget(plan.entry, existing.planId, ledgerPath) }
-    : plan;
-  if (!reviewed.planPath) throw new Error("dispose plan path was not created");
+  if (existing) return existing;
+  if (!plan.planPath) throw new Error("dispose plan path was not created");
 
-  writeDisposePlanFile(reviewed.planPath, reviewed);
-  registerArtshelfArtifact(ledgerPath, reviewed.planPath, {
-    reason: `Artshelf dispose dry-run plan ${reviewed.planId}`,
+  writeDisposePlanFile(plan.planPath, plan);
+  registerArtshelfArtifact(ledgerPath, plan.planPath, {
+    reason: `Artshelf dispose dry-run plan ${plan.planId}`,
     ttl: "14d",
     kind: "run-artifact",
     cleanup: "trash",
-    labels: ["artshelf", "dispose-plan", reviewed.planId]
+    labels: ["artshelf", "dispose-plan", plan.planId]
   });
-  return reviewed;
+  return plan;
 }
 
 // Apply a reviewed dispose plan (NGX-483 `dispose --execute`). This is the only mutating
@@ -143,6 +142,16 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
 
   const receiptPath = disposeReceiptPath(ledgerPath, planId);
   return withPathLock(ledgerPath, () => {
+    const completedReceipt = existsSync(receiptPath) ? readCompletedDisposeReceipt(receiptPath, planId) : null;
+    if (completedReceipt) {
+      return {
+        planId,
+        receiptPath,
+        executedAt: completedReceipt.executedAt,
+        result: completedReceipt.result
+      };
+    }
+
     const records = readLedger(ledgerPath);
     const index = records.findIndex((record) => record.id === entry.id);
     const record = index >= 0 ? records[index] : undefined;
@@ -197,6 +206,9 @@ function applyDisposeEntry(records: ArtshelfRecord[], index: number, entry: Disp
   }
 
   const live = snapshotSubject(entry.subjectPath);
+  if (record.path !== entry.path || record.path !== entry.subjectPath) {
+    return refusal(entry, "live ledger path no longer matches the reviewed plan", record.status, live, null);
+  }
   if (record.status !== entry.status || subjectDrifted(entry.subject, live)) {
     return refusal(entry, "live ledger state no longer matches the reviewed plan", record.status, live, null);
   }
@@ -399,7 +411,17 @@ function assertDisposePlanExecutable(plan: DisposePlan, planId: string, ledgerPa
     throw new Error(`Dispose plan ledger mismatch: plan was created for ${plan.ledgerPath}, executing ${ledgerPath}`);
   }
   const entry = plan.entry;
-  if (!entry || typeof entry.id !== "string" || !DISPOSE_ACTIONS.has(entry.action) || typeof entry.subjectPath !== "string") {
+  if (
+    !entry ||
+    typeof entry.id !== "string" ||
+    !DISPOSE_ACTIONS.has(entry.action) ||
+    typeof entry.status !== "string" ||
+    !ARTSHELF_STATUSES.has(entry.status) ||
+    typeof entry.path !== "string" ||
+    typeof entry.subjectPath !== "string" ||
+    typeof entry.reason !== "string" ||
+    !isSubjectSnapshot(entry.subject)
+  ) {
     throw new Error(`Dispose plan entry is malformed: ${planId}`);
   }
   if (entry.action === "trash-resolve") {
@@ -407,8 +429,51 @@ function assertDisposePlanExecutable(plan: DisposePlan, planId: string, ledgerPa
     if (entry.targetPath !== expectedTarget) {
       throw new Error(`Dispose plan target path mismatch: expected ${expectedTarget}`);
     }
+  } else if (entry.targetPath !== undefined) {
+    throw new Error(`Dispose plan entry is malformed: ${planId}`);
+  }
+  if (entry.action === "snooze") {
+    if (!isSnoozeRetention(entry.retention) || typeof entry.retainUntil !== "string") {
+      throw new Error(`Dispose plan entry is malformed: ${planId}`);
+    }
+    assertIsoDate(entry.retainUntil, "dispose plan retainUntil");
+  } else if (entry.retention !== undefined || entry.retainUntil !== undefined) {
+    throw new Error(`Dispose plan entry is malformed: ${planId}`);
   }
   return entry;
+}
+
+function isSubjectSnapshot(value: unknown): value is DisposeSubjectSnapshot {
+  if (!value || typeof value !== "object") return false;
+  const subject = value as Partial<DisposeSubjectSnapshot>;
+  const validExistence = subject.existence === "present" || subject.existence === "missing";
+  const validNodeKind = subject.nodeKind === "file" || subject.nodeKind === "directory" || subject.nodeKind === "other" || subject.nodeKind === null;
+  const validByteSize = subject.byteSize === null || (typeof subject.byteSize === "number" && Number.isFinite(subject.byteSize) && subject.byteSize >= 0);
+  return validExistence && validNodeKind && validByteSize;
+}
+
+function isSnoozeRetention(value: unknown): value is Retention {
+  if (!value || typeof value !== "object") return false;
+  const retention = value as Partial<Retention>;
+  if (retention.mode === "ttl") {
+    if (typeof retention.ttl !== "string") return false;
+    try {
+      addTtl(new Date(0), retention.ttl);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  if (retention.mode === "retain-until") {
+    if (typeof retention.retainUntil !== "string") return false;
+    try {
+      assertIsoDate(retention.retainUntil, "dispose plan retainUntil");
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  return false;
 }
 
 function disposeReceiptPath(ledgerPath: string, planId: string): string {
@@ -557,6 +622,7 @@ function matchingExistingDisposePlan(ledgerPath: string, plan: DisposePlan): Dis
     try {
       const candidate = JSON.parse(readFileSync(planPath, "utf8")) as DisposePlan;
       if (candidate.ledgerPath !== ledgerPath) continue;
+      if (completedDisposeReceiptExists(ledgerPath, candidate.planId)) continue;
       if (disposePlanFingerprint(candidate) !== disposePlanFingerprint(plan)) continue;
       return { ...candidate, planPath };
     } catch {
@@ -573,10 +639,17 @@ function disposePlanFingerprint(plan: DisposePlan): string {
     action: plan.entry.action,
     status: plan.entry.status,
     reason: plan.entry.reason,
+    path: plan.entry.path,
     subjectPath: plan.entry.subjectPath,
     subject: plan.entry.subject,
-    retention: plan.entry.retention ?? null
+    retention: plan.entry.retention ?? null,
+    retainUntil: plan.entry.retainUntil ?? null
   });
+}
+
+function completedDisposeReceiptExists(ledgerPath: string, planId: string): boolean {
+  const receiptPath = disposeReceiptPath(ledgerPath, planId);
+  return existsSync(receiptPath) && readCompletedDisposeReceipt(receiptPath, planId) !== null;
 }
 
 function writeDisposePlanFile(planPath: string, plan: DisposePlan): void {

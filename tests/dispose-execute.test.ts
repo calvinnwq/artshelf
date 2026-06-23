@@ -208,6 +208,28 @@ test("executeDisposePlan returns the original receipt without rewriting it on re
   process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 });
 
+test("executeDisposePlan replays a completed skipped receipt without applying later", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
+
+  writeFileSync(subject, "payload changed after review");
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+  const first = executeDisposePlan(ledger, plan.planId);
+  const receiptBefore = readFileSync(first.receiptPath, "utf8");
+  writeFileSync(subject, "payload");
+  process.env.ARTSHELF_NOW = "2026-03-02T00:00:00Z";
+
+  const second = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(first.result.status, "skipped");
+  assert.equal(second.result.status, "skipped");
+  assert.equal(second.executedAt, first.executedAt);
+  assert.equal(readFileSync(first.receiptPath, "utf8"), receiptBefore);
+  assert.equal(recordById(ledger, "shf_backup")?.status, "active");
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+});
+
 test("executeDisposePlan refuses when no plan id is supplied", () => {
   const { ledger } = presentBackupFixture();
   assert.throws(() => executeDisposePlan(ledger, ""), /requires --plan-id/);
@@ -249,6 +271,34 @@ test("executeDisposePlan refuses a plan whose entry is malformed before mutating
   assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
 });
 
+test("executeDisposePlan refuses malformed entry fields before writing a receipt", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
+  const tampered = JSON.parse(readFileSync(plan.planPath as string, "utf8"));
+  tampered.entry.reason = 42;
+  writeFileSync(plan.planPath as string, `${JSON.stringify(tampered, null, 2)}\n`);
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /malformed/i);
+  assert.equal(existsSync(receiptPath), false);
+  assert.equal(existsSync(subject), true);
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+});
+
+test("executeDisposePlan refuses malformed snooze fields before writing a receipt", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "snooze", ttl: "7d" });
+  const tampered = JSON.parse(readFileSync(plan.planPath as string, "utf8"));
+  delete tampered.entry.retention;
+  writeFileSync(plan.planPath as string, `${JSON.stringify(tampered, null, 2)}\n`);
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /malformed/i);
+  assert.equal(existsSync(receiptPath), false);
+  assert.equal(existsSync(subject), true);
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+});
+
 test("executeDisposePlan refuses a trash-resolve plan with a tampered target path", () => {
   const { repo, ledger, subject } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
@@ -277,6 +327,27 @@ test("executeDisposePlan skips a trash-resolve whose subject drifted since dry-r
   assert.equal(existsSync(target), false);
   const record = recordById(ledger, "shf_backup");
   assert.equal(record?.status, "active");
+  assert.equal(record?.disposePlanId, undefined);
+});
+
+test("executeDisposePlan skips when the live record path moved on since dry-run", () => {
+  const { repo, ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const target = plan.entry?.targetPath as string;
+  const newSubject = join(repo, "new-backup.tar");
+  writeFileSync(newSubject, "new payload");
+  writeLedgerFile(ledger, readLedger(ledger).map((record) => record.id === "shf_backup" ? { ...record, path: newSubject } : record));
+
+  const execution = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(execution.result.status, "skipped");
+  assert.match(execution.result.reason, /path|reviewed plan|stale/i);
+  assert.equal(existsSync(subject), true);
+  assert.equal(existsSync(newSubject), true);
+  assert.equal(existsSync(target), false);
+  const record = recordById(ledger, "shf_backup");
+  assert.equal(record?.status, "active");
+  assert.equal(record?.path, newSubject);
   assert.equal(record?.disposePlanId, undefined);
 });
 

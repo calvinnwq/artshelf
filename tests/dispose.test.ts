@@ -7,7 +7,7 @@ import { test } from "node:test";
 // Fix the clock so snooze horizons and generated ids are deterministic across calls.
 process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
-import { classifyDisposition, createDisposePlan, previewDisposePlan } from "../src/dispose.js";
+import { classifyDisposition, createDisposePlan, executeDisposePlan, previewDisposePlan } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 
 function fixture(): string {
@@ -299,6 +299,52 @@ test("createDisposePlan reuses an existing plan with a matching request", () => 
   assert.deepEqual(readdirSync(join(repo, ".artshelf", "dispose-plans")), [`${first.planId}.json`]);
   const artifacts = readLedger(ledger).filter((record) => record.labels.includes("dispose-plan"));
   assert.equal(artifacts.length, 1);
+});
+
+test("createDisposePlan returns a reused plan without rewriting the reviewed artifact", () => {
+  const { ledger } = presentBackupFixture();
+
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+  const first = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "no longer needed" });
+  const firstOnDisk = readFileSync(first.planPath as string, "utf8");
+  process.env.ARTSHELF_NOW = "2026-03-02T00:00:00Z";
+
+  const second = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "no longer needed" });
+
+  assert.deepEqual(second, first);
+  assert.equal(readFileSync(first.planPath as string, "utf8"), firstOnDisk);
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+});
+
+test("createDisposePlan creates a new ttl snooze plan when the reviewed horizon changes", () => {
+  const { repo, ledger } = presentBackupFixture();
+
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+  const first = createDisposePlan(ledger, { id: "shf_backup", action: "snooze", ttl: "7d" });
+  process.env.ARTSHELF_NOW = "2026-03-02T00:00:00Z";
+
+  const second = createDisposePlan(ledger, { id: "shf_backup", action: "snooze", ttl: "7d" });
+
+  assert.notEqual(second.planId, first.planId);
+  assert.equal(first.entry?.retainUntil, "2026-03-08T00:00:00Z");
+  assert.equal(second.entry?.retainUntil, "2026-03-09T00:00:00Z");
+  assert.deepEqual(readdirSync(join(repo, ".artshelf", "dispose-plans")).sort(), [`${first.planId}.json`, `${second.planId}.json`].sort());
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+});
+
+test("createDisposePlan does not reuse an already executed plan", () => {
+  const { repo, ledger } = presentBackupFixture();
+
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+  const first = createDisposePlan(ledger, { id: "shf_backup", action: "keep", reason: "still needed" });
+  executeDisposePlan(ledger, first.planId);
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:01Z";
+
+  const second = createDisposePlan(ledger, { id: "shf_backup", action: "keep", reason: "still needed" });
+
+  assert.notEqual(second.planId, first.planId);
+  assert.deepEqual(readdirSync(join(repo, ".artshelf", "dispose-plans")).sort(), [`${first.planId}.json`, `${second.planId}.json`].sort());
+  process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 });
 
 test("createDisposePlan creates a new plan when the reviewed subject snapshot changes", () => {
