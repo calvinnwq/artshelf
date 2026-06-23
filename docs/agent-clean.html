@@ -85,10 +85,11 @@ artshelf cleanup --execute --plan-id &lt;id&gt;</code></pre>
               It never runs in batch and never deletes physically.
             </p>
             <pre><code><span class="c"># classify one inspected record into a reviewed plan</span>
-artshelf dispose --id &lt;id&gt; --action trash-resolve|resolve-only|snooze|keep --dry-run --ledger &lt;ledger-path&gt; --json
+artshelf dispose --id &lt;id&gt; --action trash-resolve|resolve-only|snooze|keep --dry-run [--reason &lt;text&gt;] [--ttl &lt;ttl&gt;|--retain-until &lt;date&gt;] --ledger &lt;ledger-path&gt; --json
 
+<span class="c"># approve: approve artshelf dispose ledger &lt;ledger-path&gt; plan &lt;plan-id&gt;</span>
 <span class="c"># only after a human approves this exact plan id</span>
-artshelf dispose --execute --plan-id &lt;id&gt; --ledger &lt;ledger-path&gt;</code></pre>
+artshelf dispose --execute --plan-id &lt;plan-id&gt; --ledger &lt;ledger-path&gt;</code></pre>
             <p>
               Actions: <code>trash-resolve</code> moves the subject into plan-scoped Artshelf
               trash and resolves the row; <code>resolve-only</code> resolves the ledger row only
@@ -110,13 +111,15 @@ artshelf resolve &lt;id&gt; --status resolved --reason &lt;text&gt;</code></pre>
 
           <section>
             <h2>Verify quiet</h2>
-            <p>After cleanup execute or resolve, verify with <code>artshelf review --all --json</code>.</p>
+            <p>After cleanup execute, dispose execute, or resolve, verify with <code>artshelf review --all --json</code>.</p>
             <p>
-              Execution writes a started receipt before the first move, completes it after
+              Cleanup execution writes a started receipt before the first move, completes it after
               ledger updates, and updates touched ledger records to <code>trashed</code>,
-              <code>review-required</code>, or <code>cleanup-refused</code>. Rerunning the same
-              plan id resumes or idempotently replays durable receipt/trash evidence.
-              Generated plans and receipts are recorded as <code>owner=artshelf</code> artifacts.
+              <code>review-required</code>, or <code>cleanup-refused</code>. Dispose execution writes
+              its own receipt, stamps dispose audit fields, and either resolves, snoozes,
+              or keeps the reviewed row. Rerunning the same plan id resumes or idempotently
+              replays durable receipt/trash evidence. Generated plans and receipts are
+              recorded as <code>owner=artshelf</code> artifacts.
             </p>
           </section>
         </article>

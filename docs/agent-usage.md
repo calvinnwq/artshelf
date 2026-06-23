@@ -19,8 +19,8 @@ Use Artshelf as a five-stage loop around agent work:
    paths, and trash state.
 3. **Review**: turn raw output into an `ArtshelfReviewReport` decision packet
    with exact approval targets.
-4. **Clean**: execute approved cleanup plans (which trash, never delete),
-   resolve confirmed ids, then verify quiet.
+4. **Clean**: execute approved cleanup and dispose plans, resolve confirmed ids,
+   then verify quiet.
 5. **Purge**: clear old trash only from a separate, separately reviewed purge
    plan; physical deletion never piggybacks on the cleanup plan.
 
@@ -36,8 +36,8 @@ The browsable docs split the workflow into focused child pages:
   and preview plans.
 - [Review](agent-review.html): decision packet schema, classifications, and
   exact approval wording.
-- [Clean](agent-clean.html): approval-only cleanup, resolve, receipts, and
-  verify-quiet checks.
+- [Clean](agent-clean.html): approval-only cleanup, dispose, resolve, receipts,
+  and verify-quiet checks.
 - [Purge](agent-purge.html): separately reviewed trash purge that physically
   deletes, with its own approval target and receipts.
 
@@ -53,8 +53,8 @@ The browsable docs split the workflow into focused child pages:
 
 ## Render modes
 
-`review`, `status`, `doctor`, `ledgers prune --dry-run`, and per-record
-`get --inspect` share agent-oriented render modes so the same data fits both
+`review`, `status`, `doctor`, `ledgers prune --dry-run`, `dispose --dry-run`,
+and per-record `get --inspect` share agent-oriented render modes so the same data fits both
 people and agents:
 
 - **default**: a human render — scannable grouped counts, attention states, and a

@@ -1,6 +1,6 @@
 ---
 name: artshelf
-description: "Use before any final response, status update, handoff, or done report to check whether created/copied/exported/quarantined/backed-up/preserved non-source files or directories outlive the command; and when registering temporary artifacts, backups, run outputs, debug evidence, daily Artshelf reviews, cleanup plans, trash listings, or trash purge plans with Artshelf."
+description: "Use before any final response, status update, handoff, or done report to check whether created/copied/exported/quarantined/backed-up/preserved non-source files or directories outlive the command; and when registering temporary artifacts, backups, run outputs, debug evidence, daily Artshelf reviews, cleanup plans, dispose plans, trash listings, or trash purge plans with Artshelf."
 ---
 
 # Artshelf
@@ -22,8 +22,8 @@ review packets, and verify results.
   record a clear skip reason.
 - Include reason, TTL or manual-review, cleanup mode, owner, and labels.
 - Report the Artshelf id anywhere restart or cleanup context matters.
-- Use read-only commands freely; execute cleanup, trash purge, or resolve only
-  after exact human approval.
+- Use read-only and dry-run commands freely; execute cleanup, dispose, trash
+  purge, or resolve only after exact human approval.
 - Do not call work done while known eligible artifacts are neither registered
   nor explicitly skipped.
 
@@ -96,8 +96,9 @@ artshelf trash list --all --json
 
 `artshelf ledgers list --json` reports per-ledger validation status. `--plain`
 skips validation. `--all` is for discovery and review, not mutation permission.
-Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`, and
-`get --inspect` for compact decisions; use `--json` for full audit/API payloads,
+Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`,
+`dispose --dry-run`, and `get --inspect` for compact decisions; use `--json`
+for full audit/API payloads,
 custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
 
 Register existing project ledgers explicitly:
@@ -131,10 +132,11 @@ artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 
 Do not scan arbitrary filesystem locations for ledgers unless the user opted
 into that discovery scope. Scheduled jobs may review registry-prune plans but
-must not execute them. Never schedule cleanup, registry-prune, or purge execution:
+must not execute them. Never schedule cleanup, dispose, registry-prune, or purge execution:
 
 ```bash
 artshelf cleanup --execute --plan-id <id>
+artshelf dispose --execute --plan-id <id>
 artshelf ledgers prune --execute --plan-id <id>
 artshelf trash purge --execute --plan-id <id>
 ```
@@ -159,7 +161,8 @@ count dump.
    `ArtshelfReviewReport` from `schemas/artshelf-review-report.schema.json` and `examples/artshelf-review-report.json` when you need a host-specific card, attachment, or richer audit record.
 7. Render full packets with `scripts/render-review-report.mjs`; keep
    `decisionSummary` in audit, while `decisionGroups` drive counts. Emojis are encouraged only in host-specific wrappers, not the renderer.
-8. Always include the exact approval target in the message body as a fallback.
+8. For one inspected decision that needs a disposition plan, run `artshelf dispose --id <id> --action <trash-resolve|resolve-only|snooze|keep> --dry-run --ledger <ledger-path> --json` and include its exact approval target.
+9. Always include the exact approval target in the message body as a fallback.
    Do not paste the whole packet into chat unless the user asks for it.
 
 ### Review Plan Report Schema
@@ -206,6 +209,7 @@ Approval wording:
 
 ```text
 approve artshelf cleanup ledger <ledger-path> plan <plan-id>
+approve artshelf dispose ledger <ledger-path> plan <dispose-plan-id>
 approve artshelf trash purge ledger <ledger-path> plan <purge-plan-id>
 approve artshelf resolve missing ledger <ledger-path> ids <id...>
 approve artshelf reconcile ledger <ledger-path> plan <plan-id>
@@ -213,7 +217,7 @@ approve artshelf ledgers prune registry <registry-path> plan <plan-id>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and
-execute it in the same step. After cleanup, resolve, or registry-prune approval, verify with `artshelf review --all --json` and `artshelf ledgers list --json`; after trash purge approval, also run `artshelf trash list --all --json`.
+execute it in the same step. After cleanup, dispose, resolve, or registry-prune approval, verify with `artshelf review --all --json` and `artshelf ledgers list --json`; after trash purge approval, also run `artshelf trash list --all --json`.
 
 ## Clean
 
@@ -228,6 +232,18 @@ artshelf cleanup --execute --plan-id <id> --ledger <ledger-path> --json
 If cleanup is interrupted, rerun the same plan id; durable receipt/trash
 evidence resumes or replays without a fresh plan. `cleanup=trash` quarantines
 files into Artshelf trash. Physical deletion belongs to the separate Purge stage.
+
+Dispose execution requires approval naming the reviewed ledger and plan id:
+
+```bash
+artshelf dispose --execute --plan-id <id> --ledger <ledger-path> --json
+```
+
+`dispose` applies one inspected record decision: `trash-resolve` moves the
+subject into plan-scoped Artshelf trash and resolves the row, `resolve-only`
+closes the row without moving files, `snooze` extends retention, and `keep`
+stamps the record reviewed-and-kept. It refuses `--all`, stale plans, target
+conflicts, fresh-plan-then-execute, and physical deletion.
 
 Resolve only after confirmation; it updates the ledger and does not move or
 delete files:

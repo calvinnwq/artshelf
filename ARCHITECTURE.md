@@ -200,7 +200,9 @@ Artshelf's public contract is safety-first:
 - update notices and non-blocking warnings go to stderr.
 - `--agent` output should be compact, deterministic, and approval-target aware.
 - cleanup execution stays approval-only and plan-id bound.
-- `cleanup --execute --all` remains refused.
+- dispose execution stays approval-only, plan-id bound, scoped to one reviewed
+  record, and physically delete-free.
+- `cleanup --execute --all` and `dispose --all` remain refused.
 - reconcile is approval-gated ledger/registry housekeeping, not cleanup: it never
   creates, moves, or deletes files. Execution stays plan-id bound and scoped to one
   explicit `--ledger`; `reconcile --execute --all` is refused and `--all` is dry-run only.
@@ -244,6 +246,7 @@ node dist/src/cli.js --help
 node dist/src/cli.js status --agent
 node dist/src/cli.js doctor --agent
 node dist/src/cli.js review --agent
+node dist/src/cli.js dispose --help
 node dist/src/cli.js validate --json
 ARTSHELF_NO_UPDATE_CHECK=1 node dist/src/cli.js status --agent
 ARTSHELF_UPDATE_DRY_RUN=1 node dist/src/cli.js update --json

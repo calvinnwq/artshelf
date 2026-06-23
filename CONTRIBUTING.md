@@ -28,8 +28,8 @@ npm network checks and update-cache writes.
 
 - Keep changes scoped.
 - Add or update tests for CLI behavior.
-- Preserve the cleanup and trash purge execution contracts: no daemon, no
-  auto-execute, no global execute, and no fresh-plan-then-execute shortcut.
+- Preserve the cleanup, dispose, and trash purge execution contracts: no daemon,
+  no auto-execute, no global execute, and no fresh-plan-then-execute shortcut.
 - Do not add broad filesystem scanning or silent physical deletion behavior in
   v1; `cleanup=delete` stays refused, and trash purge must stay ledger-scoped,
   plan-reviewed, and receipted.

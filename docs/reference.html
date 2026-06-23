@@ -220,7 +220,7 @@ artshelf cleanup --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]
           <section class="cmd">
             <div class="cmd-head"><h2>artshelf dispose</h2><span class="cmd-flag approval">approval-gated</span></div>
             <pre><code><span class="c"># classify one reviewed record into a reviewed plan</span>
-artshelf dispose --id &lt;id&gt; --action trash-resolve|resolve-only|snooze|keep --dry-run [--reason &lt;text&gt;] [--ledger &lt;path&gt;] [--json|--agent]
+artshelf dispose --id &lt;id&gt; --action trash-resolve|resolve-only|snooze|keep --dry-run [--reason &lt;text&gt;] [--ttl &lt;ttl&gt;|--retain-until &lt;date&gt;] [--ledger &lt;path&gt;] [--json|--agent]
 
 <span class="c"># execute exactly one reviewed plan (approval only)</span>
 artshelf dispose --execute --plan-id &lt;id&gt; [--ledger &lt;path&gt;] [--json]</code></pre>
@@ -313,9 +313,9 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               output stays clean.
             </p>
             <p>
-              <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
+              <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
-              It names the relevant health, prune counts, or record recommendation, classifications, blockers, approval targets where applicable, and the command
+              It names the relevant health, prune counts, dispose plan status, or record recommendation, classifications, blockers, approval targets where applicable, and the command
               to re-run for verification, so an agent can act without parsing decorative output.
             </p>
             <p>
@@ -327,7 +327,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
             <table class="opts">
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>(default)</td><td>human render: grouped counts or a record card, ✓/⚠ attention glyphs, and a short next action</td></tr>
-              <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, and <code>get --inspect</code></td></tr>
+              <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code></td></tr>
               <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data</td></tr>
             </table>
           </section>

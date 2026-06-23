@@ -83,7 +83,7 @@ Follow the instructions in https://github.com/calvinnwq/artshelf/blob/main/INSTA
 It will install the CLI, copy the portable skill (with its bundled review-report
 renderer), register any existing project ledgers, and — only with your approval —
 schedule a **read-only** daily review. Scheduled jobs review and report only;
-cleanup and purge execution always come back to you. See [INSTALL.md](INSTALL.md)
+cleanup, dispose, and purge execution always come back to you. See [INSTALL.md](INSTALL.md)
 for the full steps.
 
 ## How it works
@@ -109,7 +109,7 @@ destructive deletion.
 - **Ledger-first**, not filesystem-scan-first — every artifact is a recorded decision.
 - **Dry-run before mutation**, and execute only from a reviewed plan id.
 - **No daemon, no auto-execute, no global execute** — `--all` is read-only or
-  dry-run reporting; cleanup and purge refuse it.
+  dry-run reporting; cleanup, dispose, and purge refuse it.
 - **No fresh-plan-then-execute shortcut** — review the plan, then run that plan.
 - **Trash before delete** — `cleanup=delete` stays refused; physical deletion
   needs its own reviewed trash purge. No silent deletion, ever.
@@ -118,8 +118,8 @@ destructive deletion.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`, and
-  `get --inspect`**, a compact, token-efficient decision packet for agents,
+- **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`,
+  `dispose --dry-run`, and `get --inspect`**, a compact, token-efficient decision packet for agents,
   while the default render stays human-scannable.
 
 ## Reference
@@ -147,7 +147,7 @@ artshelf doctor
 artshelf update [--json]
 artshelf cleanup --dry-run [--all]
 artshelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
-artshelf dispose --id <id> --action trash-resolve|resolve-only|snooze|keep --dry-run [--ledger <path>] [--json|--agent]
+artshelf dispose --id <id> --action trash-resolve|resolve-only|snooze|keep --dry-run [--reason <text>] [--ttl <ttl>|--retain-until <date>] [--ledger <path>] [--json|--agent]
 artshelf dispose --execute --plan-id <id> [--ledger <path>] [--json]
 artshelf reconcile --dry-run [--all] [--ledger <path>] [--json]
 artshelf reconcile --execute --plan-id <id> --ledger <path> [--json]
@@ -205,8 +205,9 @@ The package includes an agent-facing skill at `skills/artshelf`. Agents that
 support local skills can copy or reference this directory to learn when to call
 `artshelf put`, how to report deterministic footnotes after JSON registration,
 why `artshelf find` / `artshelf get` are the read-only idempotency lookup surface,
-why `cleanup --execute` requires an approved reviewed plan id, how to render
-dry-run cleanup and trash purge plans as review-report decision packets, and when
+why `cleanup --execute` and `dispose --execute` require approved reviewed plan ids, how to render
+dry-run cleanup and trash purge plans as review-report decision packets, how to use
+`dispose --agent` for per-record approval packets, and when
 `artshelf resolve <id> --status resolved --reason <text>` may mark a record handled
 without moving or deleting files.
 
