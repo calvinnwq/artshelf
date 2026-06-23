@@ -195,3 +195,71 @@ export type ReconcileExecution = {
   executedAt: string;
   results: ReconcileResult[];
 };
+
+// How a reviewed artifact is disposed (NGX-483). Each action mirrors an inspect
+// recommendation bucket so `get --inspect` hands straight off to a dispose plan:
+// - trash-resolve: move the recorded path to Artshelf trash and resolve the row.
+// - resolve-only:  resolve the ledger row only (no file move), reason required.
+// - snooze:        extend retention / the next review horizon, files untouched.
+// - keep:          mark the row reviewed and quiet until a new review boundary.
+export type DisposeAction = "trash-resolve" | "resolve-only" | "snooze" | "keep";
+
+// Snapshot of the disposition subject captured at dry-run time. `dispose --execute`
+// re-captures it and refuses the plan when the live subject drifted (path or metadata
+// changed since review), satisfying NGX-483's stale-plan refusal requirement.
+export type DisposeSubjectSnapshot = {
+  existence: "present" | "missing";
+  nodeKind: "file" | "directory" | "other" | null;
+  byteSize: number | null;
+};
+
+// Why a requested disposition cannot be planned. A blocked request is read-only: it
+// never writes a plan file or mutates the ledger; the caller renders the reason and
+// refuses with clear evidence.
+export type DisposeBlockReason =
+  | "already-resolved"
+  | "already-trashed"
+  | "missing-subject-path"
+  | "target-conflict"
+  | "terminal-record"
+  | "missing-reason"
+  | "missing-snooze-horizon"
+  | "unknown-action";
+
+// The single actionable entry of a reviewed dispose plan. One plan binds exactly one
+// record id to one action (unlike cleanup/reconcile, which scan a whole ledger), and
+// `dispose --execute` applies exactly this entry or refuses it as stale.
+export type DisposePlanEntry = {
+  id: string;
+  action: DisposeAction;
+  // Record status observed at dry-run time; execute refuses if the live status moved on.
+  status: ArtshelfStatus;
+  // The recorded artifact path at dry-run time.
+  path: string;
+  // The filesystem node the action reads or moves (record.path for live rows).
+  subjectPath: string;
+  // Disposition reason captured for the audit trail.
+  reason: string;
+  // Subject snapshot used to refuse a drifted plan at execute time.
+  subject: DisposeSubjectSnapshot;
+  // trash-resolve only: the Artshelf trash destination the subject will move to.
+  targetPath?: string;
+  // snooze only: the new retention and absolute review horizon the record will carry.
+  retention?: Retention;
+  retainUntil?: string;
+};
+
+// A reviewed dispose plan produced by `dispose --dry-run`. It mirrors the plan-id-bound
+// shape of cleanup/reconcile so execute can require an exact reviewed plan id. `entry`
+// is the actionable disposition, or null when the request is blocked; `blocked` carries
+// the refusal reason for review only. `planPath` is null until the plan is persisted and
+// stays null for a blocked (not-created) plan.
+export type DisposePlan = {
+  planId: string;
+  generatedAt: string;
+  ledgerPath: string;
+  request: { id: string; action: DisposeAction };
+  entry: DisposePlanEntry | null;
+  blocked: { id: string; action: DisposeAction; reason: DisposeBlockReason; detail: string } | null;
+  planPath: string | null;
+};
