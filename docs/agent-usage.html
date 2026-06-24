@@ -63,7 +63,7 @@
               <a class="ledger-row" href="agent-clean.html">
                 <span class="n">4.4</span>
                 <span class="stage">Clean</span>
-                <span class="what"><span class="cmdline">artshelf cleanup --execute --plan-id &lt;id&gt;</span>Run the one plan the human approved, resolve confirmed ids, and verify the next review is quiet.</span>
+                <span class="what"><span class="cmdline">artshelf cleanup --execute --plan-id &lt;id&gt;</span>Run cleanup or dispose plans the human approved, resolve confirmed ids, and verify the next review is quiet.</span>
               </a>
               <a class="ledger-row" href="agent-purge.html">
                 <span class="n">4.5</span>
@@ -90,7 +90,7 @@
           <section>
             <h2>Render modes</h2>
             <p>
-              <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, and per-record
+              <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and per-record
               <code>get --inspect</code> share agent-oriented render modes
               so the same data fits both people and agents. Reach for <code>--agent</code> when an agent
               decides and acts; reach for <code>--json</code> for full record, plan, or health detail.

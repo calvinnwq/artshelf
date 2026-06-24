@@ -53,6 +53,7 @@ test("cli entrypoint stays thin and handler-free", () => {
 
 const PUBLIC_COMMANDS = [
   "cleanup",
+  "dispose",
   "doctor",
   "due",
   "find",

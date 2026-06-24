@@ -2,6 +2,7 @@ import { normalizeLedgerPath } from "../ledger.js";
 import { boolFlag, stringFlag } from "../shared/flags.js";
 import type { CommandRunResult, ParsedArgs } from "../shared/cli-types.js";
 import { handleCleanup } from "./cleanup.js";
+import { handleDispose } from "./dispose.js";
 import { handleDoctor } from "./doctor.js";
 import { handleDue } from "./due.js";
 import { handleFind } from "./find.js";
@@ -47,6 +48,9 @@ export async function runCommand(parsed: ParsedArgs): Promise<CommandRunResult> 
       break;
     case "cleanup":
       status = handleCleanup(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      break;
+    case "dispose":
+      status = handleDispose(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       break;
     case "reconcile":
       status = handleReconcile(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));

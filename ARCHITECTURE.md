@@ -47,6 +47,7 @@ src/
   registry-prune.ts   registry-prune classification plus approval-gated prune plan and execute layers
   provenance.ts       reconcile-safe path provenance capture for new records
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
+  dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger and cleanup domain contracts
@@ -80,6 +81,7 @@ Public commands currently routed through real command modules:
 - `validate`
 - `review`
 - `cleanup`
+- `dispose`
 - `reconcile`
 - `trash`
 - `ledgers`
@@ -89,8 +91,8 @@ Public commands currently routed through real command modules:
 
 Each public command has a discoverable module named after the CLI surface:
 `put.ts`, `list.ts`, `find.ts`, `get.ts`, `resolve.ts`, `due.ts`, `validate.ts`,
-`review.ts`, `cleanup.ts`, `reconcile.ts`, `trash.ts`, `ledgers.ts`, `doctor.ts`,
-`status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
+`review.ts`, `cleanup.ts`, `dispose.ts`, `reconcile.ts`, `trash.ts`, `ledgers.ts`,
+`doctor.ts`, `status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
 these files must contain real command-family implementation code.
 
 ### Domain files
@@ -111,11 +113,15 @@ Current domain ownership:
   the missing registrations, and writes a receipt with the verification result
 - `provenance.ts`: reconcile-safe path provenance capture for new records
 - `reconcile.ts`: path-drift classification plus reconcile dry-run plan and execute layers
+- `dispose.ts`: disposition classification (trash-resolve/resolve-only/snooze/keep) plus the
+  approval-gated dry-run plan layer that writes a reviewed dispose plan and the plan-id-bound
+  execute layer that re-snapshots the live subject, refuses drift/target conflicts, moves the
+  subject to plan-scoped trash for trash-resolve, and writes a receipt with verification (NGX-483)
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
-- `types.ts`: ledger, cleanup, trash, provenance, reconcile, and registry-adjacent
+- `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, and registry-adjacent
   domain contracts
 
 ### `adapters/`
@@ -194,7 +200,9 @@ Artshelf's public contract is safety-first:
 - update notices and non-blocking warnings go to stderr.
 - `--agent` output should be compact, deterministic, and approval-target aware.
 - cleanup execution stays approval-only and plan-id bound.
-- `cleanup --execute --all` remains refused.
+- dispose execution stays approval-only, plan-id bound, scoped to one reviewed
+  record, and physically delete-free.
+- `cleanup --execute --all` and `dispose --all` remain refused.
 - reconcile is approval-gated ledger/registry housekeeping, not cleanup: it never
   creates, moves, or deletes files. Execution stays plan-id bound and scoped to one
   explicit `--ledger`; `reconcile --execute --all` is refused and `--all` is dry-run only.
@@ -238,6 +246,7 @@ node dist/src/cli.js --help
 node dist/src/cli.js status --agent
 node dist/src/cli.js doctor --agent
 node dist/src/cli.js review --agent
+node dist/src/cli.js dispose --help
 node dist/src/cli.js validate --json
 ARTSHELF_NO_UPDATE_CHECK=1 node dist/src/cli.js status --agent
 ARTSHELF_UPDATE_DRY_RUN=1 node dist/src/cli.js update --json

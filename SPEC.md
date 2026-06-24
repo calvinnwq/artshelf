@@ -218,7 +218,8 @@ exact next-safe action. It never reads or previews arbitrary file contents:
 - `keep` — held for manual review, already resolved, already trashed, or due
   with `cleanup=review`; it needs your judgment but nothing auto-runs.
 - `snooze` — retention has not expired yet; re-inspect after it is due.
-- `trash-safe` — due with `cleanup=trash`; safe to plan a reviewed cleanup.
+- `trash-safe` — due with `cleanup=trash`; safe to plan a reviewed dispose
+  `trash-resolve` decision.
 - `resolve-only` — the recorded path is gone; resolve the record (ledger-only)
   rather than cleaning a file.
 - `blocked` — needs a human decision first: `cleanup=delete` (refused at
@@ -246,7 +247,7 @@ path: <backup-path>
 status: active · cleanup: review · owner: agent · labels: registry-prune
 existence: present (directory, 49 B) · age: 14d · retention: manual-review · due: manual-review
 reason: rollback backup before registry prune
-next: Held for manual review — keep it, change its retention, or resolve it explicitly; no cleanup is scheduled.
+next: Held for manual review — run `artshelf dispose --id <id> --action keep --dry-run --reason '<why>' --ledger <ledger-path>` to keep it quiet through a reviewed decision, or choose resolve-only/snooze deliberately.
 ledger: <ledger-path>
 ```
 
@@ -325,12 +326,13 @@ registry-prune dry-run for missing registered ledgers, dry-run reconcile for
 missing-path or reconcile drift, or nothing to do). Review never writes a plan,
 so the next action always points at an explicit follow-up command.
 
-`review`, `status`, `doctor`, `ledgers prune --dry-run`, and `get --inspect`
-expose agent-oriented render modes. For review/status/doctor, the default human render
+`review`, `status`, `doctor`, `ledgers prune --dry-run`, `dispose --dry-run`,
+and `get --inspect` expose agent-oriented render modes. For review/status/doctor, the default human render
 leads each ledger and summary line with a `✓`/`⚠` attention glyph. `--json` stays
 the full, backward-compatible public audit report; and `--agent` emits a compact,
 deterministic single-line JSON decision packet for agents, taking precedence over
-`--json` when both are passed. For `get --inspect`, `--agent` returns the
+`--json` when both are passed. For `dispose --dry-run`, `--agent` returns the per-request plan or blocked packet.
+For `get --inspect`, `--agent` returns the
 per-record decision packet and requires `--inspect`. For `review`, the packet sorts records into
 ready-for-approval, needs-review-first, and blocked groups. Because review is
 read-only and never mints a cleanup or registry-prune plan, the exact approval
@@ -687,6 +689,54 @@ Execute rules:
 JSON output is deterministic (findings preserve ledger order) so agents can render a
 decision packet and approve a specific plan id.
 
+### `artshelf dispose`
+
+Approval-gated disposition for one reviewed record. `dispose` is the command
+surface that follows `get --inspect`: inspect stays read-only, then dispose
+creates or executes the exact reviewed plan for the chosen decision.
+
+```bash
+artshelf dispose --id <id> --action trash-resolve --dry-run [--reason <text>] [--ledger <path>] [--json|--agent]
+artshelf dispose --id <id> --action resolve-only --dry-run --reason <text> [--ledger <path>] [--json|--agent]
+artshelf dispose --id <id> --action snooze --dry-run (--ttl <ttl>|--retain-until <date>) [--reason <text>] [--ledger <path>] [--json|--agent]
+artshelf dispose --id <id> --action keep --dry-run [--reason <text>] [--ledger <path>] [--json|--agent]
+artshelf dispose --execute --plan-id <id> --ledger <path> [--json]
+```
+
+Actions:
+
+- `trash-resolve`: move the recorded path into plan-scoped Artshelf trash,
+  mark the row `trashed`, and leave physical deletion to a separate trash purge.
+- `resolve-only`: resolve the ledger row only; requires `--reason`.
+- `snooze`: extend retention; requires `--ttl` or `--retain-until`.
+- `keep`: stamp that the record was reviewed and kept.
+
+Dry-run rules:
+
+- Classifies exactly one record id and action. There is no `--all` path.
+- Writes a reviewed plan only when the request is actionable, under
+  `<ledger-dir>/dispose-plans/<id>.json`.
+- Registers the plan as an Artshelf-owned artifact (`owner=artshelf`,
+  `kind=run-artifact`, `ttl=14d`, `cleanup=trash`, labels including
+  `artshelf`, `dispose-plan`, and the plan id).
+- Prints the exact approval target:
+  `approve artshelf dispose ledger <ledger-path> plan <plan-id>`.
+- A blocked request reports `planId=not-created`, writes no plan, and exits
+  non-zero while still returning a JSON/agent packet when requested.
+
+Execute rules:
+
+- Requires one explicit reviewed `--plan-id` and the target `--ledger`.
+- Refuses missing, unknown, id-mismatched, ledger-mismatched, malformed, stale,
+  drifted, or target-conflicting plans before mutating.
+- Re-snapshots the subject before execution; stale entries are skipped rather
+  than applied.
+- Writes a dispose receipt to `<ledger-dir>/dispose-receipts/<id>.json` and
+  registers it as an Artshelf-owned artifact (`ttl=30d`, `cleanup=review`,
+  labels including `artshelf`, `dispose-receipt`, and the plan id).
+- There is no fresh-plan-then-execute, no global execute, no daemon, and no
+  physical deletion.
+
 ## Ledger Storage
 
 V1 supports two scopes:
@@ -738,9 +788,9 @@ V1 also supports a user-level registry of known ledgers:
   registry validation.
 - Registry-prune artifacts live next to the registry: `registry-prune-plans/`,
   `registry-prune-rollbacks/`, and `registry-prune-receipts/`.
-- `cleanup --execute --all`, `reconcile --execute --all`, and `trash purge --all`
-  are refused; execution stays scoped to one explicit ledger or registry and one
-  reviewed plan id.
+- `cleanup --execute --all`, `dispose --all`, `reconcile --execute --all`, and
+  `trash purge --all` are refused; execution stays scoped to one explicit ledger
+  or registry and one reviewed plan id.
 
 ## Ledger Registry Schema
 
@@ -823,6 +873,23 @@ the purge provenance:
 }
 ```
 
+Records touched by `artshelf dispose --execute` carry the dispose audit trail so
+reviewed disposition stays traceable to the plan and receipt that produced it:
+
+```json
+{
+  "disposePlanId": "dispose_20260601_063000_ab12",
+  "disposeReceiptPath": "/absolute/path/.artshelf/dispose-receipts/dispose_20260601_063000_ab12.json",
+  "disposedAt": "2026-06-01T06:30:00Z",
+  "disposeAction": "trash-resolve",
+  "disposeReason": "reviewed and no longer needed"
+}
+```
+
+`trash-resolve` also sets `previousPath` and `targetPath`; `resolve-only` sets
+the resolve fields without moving the subject; `snooze` updates retention; and
+`keep` leaves retention intact while making due classification quiet.
+
 Records touched by `artshelf reconcile --execute` carry the reconcile audit trail so a
 remap or resolve stays traceable to the reviewed plan that produced it:
 
@@ -895,15 +962,16 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
 - **No daemon.** Artshelf never runs in the background or watches the clock. It
   only does work while you are running an `artshelf` command.
 - **No auto-execute.** No command cleans up as a side effect. The only commands
-  that move, trash, or delete files are `artshelf cleanup --execute` and
-  `artshelf trash purge --execute`, each run by a human against a separately
-  reviewed plan id.
-- **No global execute.** `cleanup --execute --all` and `trash purge --all`
-  are refused; `--all` is read-only or dry-run reporting only. Execution is
-  always scoped to a single reviewed plan id.
-- **No fresh-plan-then-execute.** `cleanup --execute` refuses to compute a new
-  live set. It acts only on a plan id that an earlier `cleanup --dry-run`
-  produced and a human reviewed; it will not plan and execute in one step.
+  that move, trash, or delete files are `artshelf cleanup --execute`,
+  `artshelf dispose --execute`, and `artshelf trash purge --execute`, each run
+  by a human against a separately reviewed plan id.
+- **No global execute.** `cleanup --execute --all`, `dispose --all`, and
+  `trash purge --all` are refused; `--all` is read-only or dry-run reporting
+  only where supported. Execution is always scoped to a single reviewed plan id.
+- **No fresh-plan-then-execute.** `cleanup --execute` and `dispose --execute`
+  refuse to compute a new live set. They act only on plan ids that earlier
+  dry-runs produced and a human reviewed; they will not plan and execute in one
+  step.
 - **No silent deletion.** Cleanup trashes or flags for review and writes a
   receipt to the ledger. The `cleanup=delete` action stays refused in v1; the
   one sanctioned physical deletion is `artshelf trash purge --execute`, which only
@@ -940,9 +1008,9 @@ Agents should call `artshelf put` immediately after creating:
 - one-off generated reports
 - copied files kept for rollback
 
-Agents should not run `artshelf cleanup --execute` or
-`artshelf trash purge --execute` without explicit approval naming the ledger path
-and reviewed plan id.
+Agents should not run `artshelf cleanup --execute`,
+`artshelf dispose --execute`, or `artshelf trash purge --execute` without
+explicit approval naming the ledger path and reviewed plan id.
 
 Agents may run `artshelf find` and `artshelf get` before `put` to avoid duplicate
 registrations. `find`/`get` are read-only ledger queries; they must not be used
@@ -1004,11 +1072,14 @@ then render a compact decision report from it. The packet schema is
 docs/skills carry matching copies for browsable docs and portable agent
 installs. The report groups decisions into ready-for-approval,
 needs-review-first, and blocked sections, and must still include exact approval
-targets in the message body.
+targets in the message body. `dispose --dry-run --agent` already emits its own
+compact per-record approval packet, so it does not require wrapping in this
+review-report schema.
 
 Scheduled jobs must never run `artshelf cleanup --execute`,
-`artshelf ledgers prune --execute`, or `artshelf trash purge --execute`; they may
-only dry-run and report plans for later human review.
+`artshelf ledgers prune --execute`, `artshelf dispose --execute`, or
+`artshelf trash purge --execute`; they may only dry-run and report plans
+for later human review.
 
 ## Dogfood Scenarios
 
@@ -1016,7 +1087,9 @@ only dry-run and report plans for later human review.
 2. Record a config backup with manual review retention.
 3. Generate a dry-run cleanup plan after TTL expiry using fixture data.
 4. Execute a cleanup plan in a temporary test fixture and verify receipt output.
-5. List trashed records, dry-run an old-trash purge, then execute the reviewed
+5. Dispose one reviewed record through dry-run and exact execute approval, then
+   verify the receipt, audit fields, and quiet review state.
+6. List trashed records, dry-run an old-trash purge, then execute the reviewed
    purge plan in a fixture and verify receipt output plus resolved ledger state.
 
 ## V1 Acceptance Criteria
@@ -1054,6 +1127,11 @@ only dry-run and report plans for later human review.
 - Cleanup execute writes a started receipt before moving files, resumes or
   replays the same plan id from receipt/trash evidence, and completes the
   receipt idempotently.
+- CLI can dispose one reviewed record through `artshelf dispose`: `--dry-run`
+  creates or reuses an exact reviewed plan for trash-resolve, resolve-only,
+  snooze, or keep; `--execute` applies one plan id against one ledger, refuses
+  `--all`, stale state, and target conflicts, writes a receipt, and never
+  physically deletes.
 - CLI can list trashed records (single ledger or `--all`) and purge them through
   an approval-first, ledger-scoped dry-run/execute boundary that writes a purge
   receipt; purge refuses `--all` and never deletes without a reviewed plan id.
@@ -1071,14 +1149,14 @@ only dry-run and report plans for later human review.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`.
-- `review`, `status`, `doctor`, `ledgers prune --dry-run`, and `get --inspect`
-  also support `--agent`, a compact single-line JSON decision packet for agents
-  that takes precedence over `--json`.
+- `review`, `status`, `doctor`, `ledgers prune --dry-run`, `dispose --dry-run`,
+  and `get --inspect` also support `--agent`, a compact single-line JSON decision
+  packet for agents that takes precedence over `--json`.
 - Tests cover record/list/find/get/status-filter/due/validate/resolve/registry,
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent
   ledger writes, trash list/purge, path provenance validation, registry-prune,
-  and reconcile dry-run/execute behavior.
+  reconcile dry-run/execute, and dispose dry-run/execute behavior.
 
 ## Deferred
 

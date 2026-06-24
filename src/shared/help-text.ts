@@ -62,6 +62,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
     group: "Clean",
     commands: [
       { name: "cleanup", summary: "Plan and execute approved cleanups" },
+      { name: "dispose", summary: "Plan and execute reviewed artifact decisions" },
       { name: "reconcile", summary: "Reconcile drifted ledger paths via approval-gated plans" },
       { name: "trash", summary: "Inspect and purge Artshelf trash" },
       { name: "resolve", summary: "Mark a record manually resolved" }
@@ -122,6 +123,30 @@ Dry-run writes and registers a plan only when executable cleanup entries exist; 
 Matching dry-runs reuse the existing plan id and refresh its Artshelf-owned plan artifact.
 Execute writes and registers an Artshelf-owned receipt artifact.
 Global --all mode is dry-run only.
+`;
+  }
+
+  if (command === "dispose") {
+    return `Usage:
+  artshelf dispose --id <id> --action trash-resolve --dry-run [--reason <text>] [--ledger <path>] [--json|--agent]
+  artshelf dispose --id <id> --action resolve-only --dry-run --reason <text> [--ledger <path>] [--json|--agent]
+  artshelf dispose --id <id> --action snooze --dry-run (--ttl <ttl>|--retain-until <date>) [--reason <text>] [--ledger <path>] [--json|--agent]
+  artshelf dispose --id <id> --action keep --dry-run [--reason <text>] [--ledger <path>] [--json|--agent]
+  artshelf dispose --execute --plan-id <id> [--ledger <path>] [--json]
+
+Dispose is for records after human review, usually from \`get --inspect\`.
+Dry-run classifies exactly one record/action, writes a reviewed dispose plan when
+actionable, and prints the exact approval target:
+  approve artshelf dispose ledger <ledger-path> plan <plan-id>
+
+Actions:
+  trash-resolve   Move the recorded path into plan-scoped Artshelf trash and resolve the row
+  resolve-only    Resolve the ledger row only; requires --reason
+  snooze          Extend retention; requires --ttl or --retain-until
+  keep            Stamp that the record was reviewed and kept
+
+Execute applies exactly one reviewed plan id against one ledger. There is no
+dispose --all, no fresh-plan-then-execute, no daemon, and no physical delete.
 `;
   }
 

@@ -109,7 +109,7 @@ npm link</code></pre>
               with the full agent setup steps: install the portable skill together
               with its bundled report renderer script, register existing ledgers, and
               ask you first before creating any scheduled review job. Scheduled jobs
-              stay read-only; cleanup and purge execution always come back to you.
+              stay read-only; cleanup, dispose, and purge execution always come back to you.
             </p>
             <p>Copy this one line into your coding agent:</p>
             <pre><code>Follow the instructions in https://github.com/calvinnwq/artshelf/blob/main/INSTALL.md to set up Artshelf in this workspace.</code></pre>
@@ -219,7 +219,7 @@ artshelf review --all --json
 
 and reports what needs attention. Scheduled jobs are review and report only:
 never schedule `artshelf cleanup --execute`, `artshelf ledgers prune --execute`,
-or `artshelf trash purge --execute`.
+`artshelf dispose --execute`, or `artshelf trash purge --execute`.
 
 ## 5. Verify and report
 

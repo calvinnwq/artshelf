@@ -93,7 +93,7 @@ artshelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
               <li><strong>Read-only.</strong> Validate, status, due, review, doctor, and trash list are fine.</li>
               <li><strong>Quiet by default.</strong> Send nothing when the review is clean unless a summary was requested.</li>
               <li><strong>No network mode.</strong> Set <code>ARTSHELF_NO_UPDATE_CHECK=1</code> when jobs must avoid npm update checks and cache writes.</li>
-              <li><strong>Never schedule execution.</strong> Scheduled jobs must not run cleanup execute or trash purge execute.</li>
+              <li><strong>Never schedule execution.</strong> Scheduled jobs must not run cleanup execute, dispose execute, or trash purge execute.</li>
             </ul>
             <pre><code><span class="c"># ledger health, current ledger or all registered ledgers</span>
 artshelf validate --json
@@ -159,6 +159,7 @@ artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --js
             </div>
             <pre><code><span class="c"># mutating commands: approval only, never from a schedule</span>
 artshelf cleanup --execute --plan-id &lt;id&gt;
+artshelf dispose --execute --plan-id &lt;id&gt;
 artshelf ledgers prune --execute --plan-id &lt;id&gt;
 artshelf trash purge --execute --plan-id &lt;id&gt;</code></pre>
           </section>
