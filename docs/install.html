@@ -107,9 +107,11 @@ npm link</code></pre>
               Artshelf is agent-operated, so let your agent finish the job. The repo
               ships <a href="https://github.com/calvinnwq/artshelf/blob/main/INSTALL.md">INSTALL.md</a>
               with the full agent setup steps: install the portable skill together
-              with its bundled report renderer script, register existing ledgers, and
-              ask you first before creating any scheduled review job. Scheduled jobs
-              stay read-only; cleanup, dispose, and purge execution always come back to you.
+              with its bundled report renderer script, learn the four-move Capture
+              automatically, Review calmly, Approve exactly, Verify quiet loop, register
+              existing ledgers, and ask you first before creating any scheduled review job.
+              Scheduled jobs stay read-only; cleanup, dispose, and purge execution always
+              come back to you.
             </p>
             <p>Copy this one line into your coding agent:</p>
             <pre><code>Follow the instructions in https://github.com/calvinnwq/artshelf/blob/main/INSTALL.md to set up Artshelf in this workspace.</code></pre>
@@ -169,10 +171,12 @@ artshelf doctor
 ## 2. Install the portable skill, including its script
 
 Install, copy, or reference the portable skill so you register temporary
-artifacts when you create them and check the shelf before handoffs. Copy the
-whole `skills/artshelf` directory, not just SKILL.md: the skill ships with
-`scripts/render-review-report.mjs` (the deterministic review report renderer)
-plus its `schemas/` and `examples/`, and those must travel together.
+artifacts when you create them and check the shelf before handoffs.
+It teaches the four-move loop: Capture automatically, Review calmly, Approve
+exactly, and Verify quiet.
+Copy the whole `skills/artshelf` directory, not just SKILL.md: the skill ships
+with `scripts/render-review-report.mjs` (the deterministic review report
+renderer) plus its `schemas/` and `examples/`, and those must travel together.
 
 ```bash
 # from the installed npm package

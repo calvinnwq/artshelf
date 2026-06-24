@@ -27,8 +27,9 @@ Underneath, those four moves are five mechanical stages around agent work:
    `artshelf put`, or state the skip reason.
 2. **Monitor**: run read-only checks for registry health, due records, missing
    paths, and trash state.
-3. **Review**: turn raw output into an `ArtshelfReviewReport` decision packet
-   with exact approval targets.
+3. **Review**: use inspect plus cleanup, registry-prune, reconcile, and
+   dispose dry-runs to turn raw output into an `ArtshelfReviewReport` decision
+   packet with exact approval targets.
 4. **Clean**: execute approved cleanup and dispose plans, resolve confirmed ids,
    then verify quiet.
 5. **Purge**: clear old trash only from a separate, separately reviewed purge

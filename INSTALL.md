@@ -53,10 +53,12 @@ artshelf doctor
 ## 2. Install the portable skill, including its script
 
 Install, copy, or reference the portable skill so you register temporary
-artifacts when you create them and check the shelf before handoffs. Copy the
-whole `skills/artshelf` directory, not just SKILL.md: the skill ships with
-`scripts/render-review-report.mjs` (the deterministic review report renderer)
-plus its `schemas/` and `examples/`, and those must travel together.
+artifacts when you create them and check the shelf before handoffs.
+It teaches the four-move loop: Capture automatically, Review calmly, Approve
+exactly, and Verify quiet.
+Copy the whole `skills/artshelf` directory, not just SKILL.md: the skill ships
+with `scripts/render-review-report.mjs` (the deterministic review report
+renderer) plus its `schemas/` and `examples/`, and those must travel together.
 
 ```bash
 # from the installed npm package
