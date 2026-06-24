@@ -136,6 +136,16 @@
 - Moved `artshelf put` registry-warning output from stdout to stderr in human
   mode; `--json` output is unchanged (NGX-429).
 
+## [0.16.0](https://github.com/calvinnwq/artshelf/compare/v0.15.0...v0.16.0) (2026-06-24)
+
+
+### Features
+
+* **dispose:** add approval-gated artifact disposition ([ee2406e](https://github.com/calvinnwq/artshelf/commit/ee2406e1850f6f2775d5d581bb529fac295b5159))
+* **dispose:** add disposition dry-run domain layer ([c7bdbb3](https://github.com/calvinnwq/artshelf/commit/c7bdbb3d8a40ffc3c9c14c7da6eb6acfedb42859))
+* **dispose:** add disposition execute domain layer ([b9fda32](https://github.com/calvinnwq/artshelf/commit/b9fda3254576d99e5c222a6d1a04c25b1a08d8b0))
+* **dispose:** wire disposition CLI command ([7fe7921](https://github.com/calvinnwq/artshelf/commit/7fe792123b2d4a05bef37d360ced573b82dcd322))
+
 ## [0.15.0](https://github.com/calvinnwq/artshelf/compare/v0.14.0...v0.15.0) (2026-06-20)
 
 
