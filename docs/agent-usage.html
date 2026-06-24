@@ -41,6 +41,18 @@
             has its own page with the exact commands; this page is the contract that
             ties them together.
           </p>
+          <p>
+            One simple loop runs the whole shelf, four moves:
+            <strong>Capture automatically</strong> (register eligible artifacts at
+            creation with <code>artshelf put</code>, or state the skip reason),
+            <strong>Review calmly</strong> (read-only and dry-run only; turn the
+            output into a decision packet - nothing moves),
+            <strong>Approve exactly</strong> (a human approves one exact reviewed
+            ledger or registry plus plan id or record ids), and
+            <strong>Verify quiet</strong> (re-run a read-only check after every
+            approved mutation). The five stages below are the mechanics behind those
+            moves.
+          </p>
 
           <section>
             <h2>Workflow summary</h2>

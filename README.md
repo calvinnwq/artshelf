@@ -104,6 +104,11 @@ into Artshelf's local trash (`artshelf trash list`), and only a separately
 reviewed purge removes them for good — a second approval boundary before
 destructive deletion.
 
+Read as one rhythm, that lifecycle is a single simple loop, four moves:
+**Capture automatically**, **Review calmly**, **Approve exactly**, and
+**Verify quiet**. Agents capture and review; a human approves one exact target;
+everyone confirms the next read-only review is quiet.
+
 ## Safety model
 
 - **Ledger-first**, not filesystem-scan-first — every artifact is a recorded decision.
