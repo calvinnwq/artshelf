@@ -39,6 +39,8 @@
           <p class="lede">
             Review is where a human enters the loop. Show what is ready for approval,
             what needs a closer look, what is blocked, and the safety line.
+            This is the Review calmly move: read-only and dry-run surfaces only,
+            turned into a decision packet before anything mutates.
           </p>
 
           <section>
@@ -53,9 +55,10 @@
               <li>For missing-path records inside valid ledgers, run <code>validate --all --json</code>
                 and then <code>reconcile --dry-run --all --json --registry &lt;registry-path&gt;</code>
                 to produce reviewed-safe plans.</li>
+              <li>For one inspected record that needs a keep, snooze, trash-resolve, or resolve-only decision, run <code>dispose --dry-run</code> to produce one reviewed plan.</li>
               <li>Run explicit-ledger purge dry-runs only when old trash needs review.</li>
               <li>Classify each candidate: <code>trash-safe</code>, <code>needs-human-review</code>, <code>resolve-candidate</code>, or <code>registry-problem</code>.</li>
-              <li>Execute the exact approval path only after review packet verification: exact ledger path and reviewed plan id or ids.</li>
+              <li>Present an exact approval target only after review packet verification: exact ledger path and reviewed plan id or ids.</li>
             </ol>
             <p>
               Prefer the built-in <code>--agent</code> packet when an acting agent

@@ -13,6 +13,16 @@ Core rule: register artifacts at creation time, while the reason is still fresh.
 Humans approve dangerous mutations; agents install, register, monitor, produce
 review packets, and verify results.
 
+## Workflow
+
+One loop, four moves. **Capture automatically**: register eligible artifacts at
+creation with `artshelf put`, or record a clear skip reason. **Review calmly**:
+read-only and dry-run only, turned into a decision packet - nothing moves.
+**Approve exactly**: a human approves one exact reviewed ledger or registry plus
+plan id or record ids. **Verify quiet**: re-run a read-only check after every
+approved mutation. The stages below - Create, Monitor, Review, Clean, Purge - are
+the mechanics behind those moves.
+
 ## Contract
 
 - Before final/status/handoff/done, check whether the task created, copied,

@@ -11,14 +11,25 @@ mutation.
 
 ## Workflow Summary
 
-Use Artshelf as a five-stage loop around agent work:
+One simple loop runs the whole shelf, four moves:
+
+- **Capture automatically**: register eligible artifacts at creation, or state
+  the skip reason.
+- **Review calmly**: read-only and dry-run only; turn the output into a decision
+  packet. Nothing moves.
+- **Approve exactly**: a human approves one exact reviewed ledger or registry
+  plus plan id or record ids.
+- **Verify quiet**: re-run a read-only check after every approved mutation.
+
+Underneath, those four moves are five mechanical stages around agent work:
 
 1. **Create**: register durable temp artifacts with lookup-before-put and
    `artshelf put`, or state the skip reason.
 2. **Monitor**: run read-only checks for registry health, due records, missing
    paths, and trash state.
-3. **Review**: turn raw output into an `ArtshelfReviewReport` decision packet
-   with exact approval targets.
+3. **Review**: use inspect plus cleanup, registry-prune, reconcile, and
+   dispose dry-runs to turn raw output into an `ArtshelfReviewReport` decision
+   packet with exact approval targets.
 4. **Clean**: execute approved cleanup and dispose plans, resolve confirmed ids,
    then verify quiet.
 5. **Purge**: clear old trash only from a separate, separately reviewed purge

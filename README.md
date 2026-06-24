@@ -95,7 +95,7 @@ a reviewed plan a human approved:
 |------|--------------|---------|
 | **1. Register** | Record an artifact the moment it is created, while the reason is fresh. Returns an id. | `artshelf put <path> --reason "…" --ttl 3d --kind scratch --cleanup trash` |
 | **2. Monitor** | Read-only checks across all known ledgers — moves nothing. | `artshelf status --all --json` · `artshelf due --all` |
-| **3. Review** | Preview a cleanup plan. A real plan id appears only once entries are due. | `artshelf review --all` · `artshelf cleanup --dry-run` |
+| **3. Review** | Use read-only and dry-run decision surfaces: review, inspect, registry prune, reconcile, cleanup, and dispose. | `artshelf review --all` · `artshelf get <id> --inspect` · `artshelf cleanup --dry-run` |
 | **4. Clean** | Execute exactly the reviewed plan id, after approval. Trashes, never deletes. | `artshelf cleanup --execute --plan-id <id>` |
 | **5. Purge** | Permanently remove old trashed artifacts via a *separate* reviewed plan. | `artshelf trash purge --older-than 30d --dry-run` → `--execute --plan-id <id>` |
 
@@ -103,6 +103,11 @@ Trash is the holding area between steps 4 and 5: cleanup quarantines artifacts
 into Artshelf's local trash (`artshelf trash list`), and only a separately
 reviewed purge removes them for good — a second approval boundary before
 destructive deletion.
+
+Read as one rhythm, that lifecycle is a single simple loop, four moves:
+**Capture automatically**, **Review calmly**, **Approve exactly**, and
+**Verify quiet**. Agents capture and review; a human approves one exact target;
+everyone confirms the next read-only review is quiet.
 
 ## Safety model
 

@@ -1144,6 +1144,43 @@ test("README and quickstart lead with the core workflow", () => {
   assert.doesNotMatch(quickstart, /They never mutate files/);
 });
 
+test("docs and portable skill teach the simplified review workflow", () => {
+  const skill = read("skills/artshelf/SKILL.md");
+  const usageMd = read("docs/agent-usage.md");
+  const usageHtml = read("docs/agent-usage.html");
+  const overview = read("docs/index.html");
+  const readme = read("README.md");
+
+  // NGX-484: one simple workflow is named consistently across the agent-facing
+  // surfaces, layered on top of the Create/Monitor/Review/Clean/Purge mechanics.
+  for (const text of [skill, usageMd, usageHtml, overview, readme]) {
+    assert.match(text, /Capture automatically/);
+    assert.match(text, /Review calmly/);
+    assert.match(text, /Approve exactly/);
+    assert.match(text, /[Vv]erify quiet/);
+  }
+
+  // Each move names the read-only-first command that carries it.
+  for (const text of [skill, usageMd, usageHtml]) {
+    assert.match(text, /artshelf put/); // Capture automatically
+    assert.match(text, /--dry-run/); // Review calmly stays dry-run only
+    assert.match(text, /decision packet/); // Review calmly output shape
+    assert.match(text, /read-only/); // Verify quiet re-runs a read-only check
+  }
+
+  // Approve exactly keeps the exact approval wording for every mutation in the
+  // portable skill: registry prune, dispose, cleanup, reconcile, trash purge.
+  for (const wording of [
+    "approve artshelf cleanup ledger",
+    "approve artshelf dispose ledger",
+    "approve artshelf trash purge ledger",
+    "approve artshelf reconcile ledger",
+    "approve artshelf ledgers prune registry"
+  ]) {
+    assert.ok(skill.includes(wording), `portable skill missing approval wording: ${wording}`);
+  }
+});
+
 function read(path: string): string {
   return readFileSync(path, "utf8");
 }
