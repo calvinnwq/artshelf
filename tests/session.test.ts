@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
+import { withPathLock } from "../src/locks.js";
 import {
   appendEvent,
   approvalSnapshotFingerprint,
@@ -19,6 +21,8 @@ import {
   writeApprovalSnapshot
 } from "../src/session.js";
 import type { UiApprovalTarget } from "../src/types.js";
+
+const SESSION_MODULE = new URL("../src/session.js", import.meta.url);
 
 function freshHome(): string {
   return join(mkdtempSync(join(tmpdir(), "artshelf-ui-")), "ui");
@@ -49,6 +53,55 @@ function sampleTargets(): UiApprovalTarget[] {
       label: "trash scratch b"
     }
   ];
+}
+
+function waitUntil(predicate: () => boolean, timeoutMs: number): boolean {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return true;
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 25);
+  }
+  return predicate();
+}
+
+function childAppendEvent(home: string, sessionId: string, text: string): ReturnType<typeof spawn> {
+  const script = `
+    import { appendEvent } from ${JSON.stringify(SESSION_MODULE.href)};
+    try {
+      const event = appendEvent(process.env.ARTSHELF_TEST_UI_HOME, process.env.ARTSHELF_TEST_SESSION_ID, {
+        type: "comment_added",
+        payload: { text: process.env.ARTSHELF_TEST_TEXT }
+      });
+      process.stdout.write(JSON.stringify({ ok: true, eventId: event.id }));
+    } catch (error) {
+      process.stderr.write((error && error.message) || String(error));
+      process.exit(7);
+    }
+  `;
+  return spawn(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ARTSHELF_TEST_UI_HOME: home,
+      ARTSHELF_TEST_SESSION_ID: sessionId,
+      ARTSHELF_TEST_TEXT: text
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+}
+
+function childResult(child: ReturnType<typeof spawn>): Promise<{ status: number; stdout: string; stderr: string }> {
+  let stdout = "";
+  let stderr = "";
+  child.stdout?.on("data", (chunk: unknown) => {
+    stdout += String(chunk);
+  });
+  child.stderr?.on("data", (chunk: unknown) => {
+    stderr += String(chunk);
+  });
+  return new Promise((resolve) => {
+    child.on("close", (code: number | null) => resolve({ status: code ?? 1, stdout, stderr }));
+  });
 }
 
 test("resolveUiHome defaults to the user-level ~/.artshelf/ui tree", () => {
@@ -110,7 +163,47 @@ test("a ledger-scoped session is distinct from the multi-ledger default session"
 
 test("readSession throws a clear error for an unknown session id", () => {
   const home = freshHome();
-  assert.throws(() => readSession(home, "session_missing"), /session_missing/);
+  const missing = "session_20260625_010203_deadbeef";
+  assert.throws(() => readSession(home, missing), new RegExp(missing));
+});
+
+test("session and bundle ids cannot escape the session storage tree", () => {
+  const home = freshHome();
+  const escapedSession = join(home, "escaped-session", "session.json");
+  mkdirSync(join(home, "escaped-session"), { recursive: true });
+  writeFileSync(
+    escapedSession,
+    `${JSON.stringify({
+      version: 1,
+      id: "session_20260625_010203_deadbeef",
+      scope: "user",
+      status: "active",
+      createdAt: "2026-06-25T01:02:03Z",
+      updatedAt: "2026-06-25T01:02:03Z",
+      endedAt: null,
+      ledgerPath: null,
+      token: "secret"
+    })}\n`
+  );
+
+  assert.throws(() => readSession(home, "../escaped-session"), /session id/i);
+
+  const session = startUserSession(home);
+  const escapedBundle = join(home, "sessions", session.id, "escaped-bundle.json");
+  writeFileSync(
+    escapedBundle,
+    `${JSON.stringify({
+      id: "bundle_20260625_010203_deadbeef",
+      sessionId: session.id,
+      createdAt: "2026-06-25T01:02:03Z",
+      actionType: "trash-resolve",
+      targets: [],
+      reviewed: {},
+      fingerprint: "abc"
+    })}\n`
+  );
+
+  assert.throws(() => readApprovalSnapshot(home, session.id, "../escaped-bundle"), /bundle id/i);
 });
 
 test("endSession marks the session ended and records a session_done event", () => {
@@ -167,6 +260,33 @@ test("appendEvent refuses browser writes once the session has ended", () => {
     () => appendEvent(home, session.id, { type: "comment_added", payload: { text: "too late" } }),
     /ended/i
   );
+});
+
+test("appendEvent serializes browser writes against session end", async () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const sessionPath = join(home, "sessions", session.id, "session.json");
+  const eventsPath = join(home, "sessions", session.id, "events.jsonl");
+  const blockedText = "must wait for the session lock";
+  let child: ReturnType<typeof spawn> | null = null;
+  let appendedBeforeEnd = false;
+
+  withPathLock(sessionPath, () => {
+    child = childAppendEvent(home, session.id, blockedText);
+    appendedBeforeEnd = waitUntil(
+      () => existsSync(eventsPath) && readFileSync(eventsPath, "utf8").includes(blockedText),
+      500
+    );
+    if (!appendedBeforeEnd) endSession(home, session.id);
+  });
+
+  assert.ok(child);
+  const result = await childResult(child);
+  assert.equal(appendedBeforeEnd, false, "browser events must not append while the session lock is held");
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /ended/i);
+  const log = existsSync(eventsPath) ? readFileSync(eventsPath, "utf8") : "";
+  assert.doesNotMatch(log, new RegExp(blockedText));
 });
 
 test("replyToEvent advances event status, clears it from the poll queue, and is durable", () => {

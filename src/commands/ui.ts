@@ -43,7 +43,8 @@ function handleUiStart(parsed: ParsedArgs, json: boolean): number {
   const home = resolveUiHome({ scope, cwd: process.cwd() });
   const session = startOrResumeSession({ home, scope, ledgerPath });
   const link = buildLink(session);
-  const pollHint = `artshelf ui poll ${session.id} --json`;
+  const scopeHint = session.scope === "user" ? "" : ` --scope ${session.scope}`;
+  const pollHint = `artshelf ui poll ${session.id}${scopeHint} --json`;
 
   if (json) {
     return printCompactJson({

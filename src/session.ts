@@ -88,6 +88,13 @@ const UI_EVENT_STATUS_SET: Record<UiEventStatus, true> = {
 
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 
+const UI_ID_PATTERNS: Record<"session" | "event" | "reply" | "bundle", RegExp> = {
+  session: /^session_\d{8}_\d{6}_[0-9a-f]{8}$/,
+  event: /^event_\d{8}_\d{6}_[0-9a-f]{8}$/,
+  reply: /^reply_\d{8}_\d{6}_[0-9a-f]{8}$/,
+  bundle: /^bundle_\d{8}_\d{6}_[0-9a-f]{8}$/
+};
+
 export function isUiEventStatus(value: string): value is UiEventStatus {
   return Object.prototype.hasOwnProperty.call(UI_EVENT_STATUS_SET, value);
 }
@@ -145,6 +152,7 @@ export function listSessions(home: string): UiSession[] {
   if (!existsSync(root)) return [];
   const sessions: UiSession[] = [];
   for (const id of readdirSync(root)) {
+    if (!isUiId("session", id)) continue;
     if (!existsSync(sessionFile(home, id))) continue;
     sessions.push(readSession(home, id));
   }
@@ -155,7 +163,7 @@ export function readSession(home: string, sessionId: string): UiSession {
   const path = sessionFile(home, sessionId);
   if (!existsSync(path)) throw new Error(`Artshelf UI session not found: ${sessionId}`);
   const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<UiSession>;
-  if (parsed.version !== 1 || !parsed.id || !parsed.scope || !parsed.status || !parsed.token) {
+  if (parsed.version !== 1 || parsed.id !== sessionId || !parsed.scope || !parsed.status || !parsed.token) {
     throw new Error(`Invalid Artshelf UI session: ${path}`);
   }
   return {
@@ -201,16 +209,18 @@ export function validateBrowserToken(session: UiSession, token: string): boolean
 // Append an event to the durable log. Browser writes are refused once the session has ended;
 // agent-sourced bookkeeping is always allowed. Defaults: source browser, status pending.
 export function appendEvent(home: string, sessionId: string, input: AppendEventInput): UiEvent {
-  const session = readSession(home, sessionId);
-  const source = input.source ?? "browser";
-  if (source === "browser" && session.status !== "active") {
-    throw new Error(`Artshelf UI session ${sessionId} has ended; browser writes are closed`);
-  }
-  const createdAt = toIso(now());
-  const event = buildEvent(sessionId, input, createdAt);
-  appendLogLine(home, sessionId, { kind: "event", ...event });
-  touchSession(home, sessionId, createdAt);
-  return event;
+  return withPathLock(sessionFile(home, sessionId), () => {
+    const session = readSession(home, sessionId);
+    const source = input.source ?? "browser";
+    if (source === "browser" && session.status !== "active") {
+      throw new Error(`Artshelf UI session ${sessionId} has ended; browser writes are closed`);
+    }
+    const createdAt = toIso(now());
+    const event = buildEvent(sessionId, input, createdAt);
+    appendLogLine(home, sessionId, { kind: "event", ...event });
+    writeSession(home, { ...session, updatedAt: createdAt });
+    return event;
+  });
 }
 
 // Read every event with replies folded into the current status, in creation order. The log
@@ -369,7 +379,7 @@ function sessionsDir(home: string): string {
 }
 
 function sessionDir(home: string, sessionId: string): string {
-  return join(sessionsDir(home), sessionId);
+  return join(sessionsDir(home), assertUiId("session", sessionId));
 }
 
 function sessionFile(home: string, sessionId: string): string {
@@ -381,7 +391,18 @@ function eventsFile(home: string, sessionId: string): string {
 }
 
 function bundleFile(home: string, sessionId: string, bundleId: string): string {
-  return join(sessionDir(home, sessionId), "bundles", `${bundleId}.json`);
+  return join(sessionDir(home, sessionId), "bundles", `${assertUiId("bundle", bundleId)}.json`);
+}
+
+function isUiId(prefix: "session" | "event" | "reply" | "bundle", value: string): boolean {
+  return UI_ID_PATTERNS[prefix].test(value);
+}
+
+function assertUiId(prefix: "session" | "event" | "reply" | "bundle", value: string): string {
+  if (!isUiId(prefix, value)) {
+    throw new Error(`Invalid Artshelf UI ${prefix} id: ${value}`);
+  }
+  return value;
 }
 
 // Deterministic JSON with object keys sorted recursively, so the approval fingerprint does

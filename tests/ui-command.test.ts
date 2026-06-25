@@ -69,6 +69,7 @@ test("artshelf ui --scope repo and --ledger open sessions distinct from the mult
 
   assert.equal(repo.session.scope, "repo");
   assert.notEqual(repo.session.id, multi.session.id);
+  assert.equal(repo.poll, `artshelf ui poll ${repo.session.id} --scope repo --json`);
 
   assert.equal(scoped.session.ledgerPath, "/srv/ledgers/a/.artshelf/ledger.jsonl");
   assert.notEqual(scoped.session.id, multi.session.id);
