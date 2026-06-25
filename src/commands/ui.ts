@@ -1,4 +1,8 @@
+import type { ArtifactProvenanceView, BuildArtifactDetailOptions } from "../artifact-detail.js";
+import { buildArtifactDetail } from "../artifact-detail.js";
 import { uiLinkBaseUrl } from "../config/env.js";
+import type { BuildDashboardOptions, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
+import { buildDashboard } from "../dashboard.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
   endSession,
@@ -17,21 +21,25 @@ import type { UiEvent, UiSession, UiSessionScope } from "../types.js";
 
 // AXI-style command surface for the Artshelf UI v1 review session (NGX-532). This is the agent's
 // side of the v1 boundary: `ui` starts or resumes a durable review session, and the poll/reply/end
-// loop lets the agent drain browser-recorded decisions and write back receipts. The browser records
-// decisions through the durable session layer; this command never executes a mutating workflow and
-// exposes no browser-direct mutation path. Output defaults to a human summary; `--json` emits a
-// compact single-line packet optimized for agent consumption.
+// loop lets the agent drain browser-recorded decisions and write back receipts. `dashboard` and
+// `detail` are the read-only review surfaces (NGX-535/536/537): they recompute live multi-ledger
+// state and the single-record detail drawer from existing read-only domain cores. The browser
+// records decisions through the durable session layer; this command never executes a mutating
+// workflow, never reads or previews file contents, and exposes no browser-direct mutation path.
+// Output defaults to a human summary; `--json` emits a compact single-line packet for agents.
 export function handleUi(parsed: ParsedArgs, json: boolean): number {
   const sub = parsed.positionals[0];
   if (sub === "help") {
     process.stdout.write(UI_HELP);
     return 0;
   }
+  if (sub === "dashboard") return handleUiDashboard(parsed, json);
+  if (sub === "detail") return handleUiDetail(parsed, json);
   if (sub === "poll") return handleUiPoll(parsed, json);
   if (sub === "reply") return handleUiReply(parsed, json);
   if (sub === "end") return handleUiEnd(parsed, json);
   if (sub === undefined) return handleUiStart(parsed, json);
-  throw new Error(`Unknown ui subcommand: ${sub} (expected poll, reply, or end)`);
+  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, poll, reply, or end)`);
 }
 
 // `artshelf ui [--scope user|repo] [--ledger <path>] [--json]` - start or resume the session for
@@ -136,6 +144,110 @@ function handleUiEnd(parsed: ParsedArgs, json: boolean): number {
   }
   process.stdout.write(`artshelf ui end: session ${session.id} ended\n`);
   return 0;
+}
+
+// `artshelf ui dashboard [--registry <path>] [--json]` - the read-only multi-ledger review
+// dashboard (NGX-535). It recomputes live state across registered ledgers into the eight UI v1
+// lanes (including the NGX-537 needs-context bucket) without mutating anything or reading file
+// contents. No session is needed: this is live truth, not session-scoped state.
+function handleUiDashboard(parsed: ParsedArgs, json: boolean): number {
+  const options: BuildDashboardOptions = {};
+  const registryPath = stringFlag(parsed, "registry");
+  if (registryPath !== undefined) options.registryPath = registryPath;
+  const dashboard = buildDashboard(options);
+
+  if (json) {
+    return printCompactJson({ ok: true, command: "ui-dashboard", dashboard });
+  }
+
+  const okLedgers = dashboard.ledgers.filter((ledger) => ledger.ok).length;
+  process.stdout.write(
+    `artshelf ui dashboard: ${dashboard.ledgers.length} ledger(s) (${okLedgers} ok), generated ${dashboard.generatedAt}\n`
+  );
+  process.stdout.write(`registry: ${dashboard.registryPath}\n`);
+  for (const lane of DASHBOARD_LANES) {
+    process.stdout.write(`  ${lane.padEnd(LANE_LABEL_WIDTH)}${dashboard.counts[lane]}\n`);
+  }
+  // Surface unhealthy ledgers so a missing/invalid ledger is visible, not silently empty.
+  for (const ledger of dashboard.ledgers) {
+    if (!ledger.ok) process.stdout.write(`! ${ledger.name} (${ledger.path}): ${ledger.errors[0] ?? "unavailable"}\n`);
+  }
+  return 0;
+}
+
+// `artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]` - the read-only
+// artifact detail drawer (NGX-536). It composes the inspect decision card with provenance, the
+// audit trail, the last action, and the NGX-537 needs-context badge into the contract's Minimum
+// Human-Judgment Fields. File contents are never read or previewed.
+function handleUiDetail(parsed: ParsedArgs, json: boolean): number {
+  const recordId = parsed.positionals[1];
+  if (!recordId) {
+    throw new Error("Missing record id; usage: artshelf ui detail <record-id> [--ledger <path>] [--json]");
+  }
+  const options: BuildArtifactDetailOptions = { recordId };
+  const ledgerPath = stringFlag(parsed, "ledger");
+  if (ledgerPath !== undefined) options.ledgerPath = ledgerPath;
+  const registryPath = stringFlag(parsed, "registry");
+  if (registryPath !== undefined) options.registryPath = registryPath;
+  const detail = buildArtifactDetail(options);
+
+  if (json) {
+    return printCompactJson({ ok: true, command: "ui-detail", detail });
+  }
+
+  const inspect = detail.inspect;
+  const field = (label: string, value: string): string => `  ${`${label}:`.padEnd(DETAIL_LABEL_WIDTH)}${value}\n`;
+  process.stdout.write(`artshelf ui detail: ${detail.recordId} (${inspect.status}) in ${detail.ledgerName ?? detail.ledgerPath}\n`);
+  process.stdout.write(field("reason", inspect.reason.trim() ? inspect.reason : "(none recorded)"));
+  process.stdout.write(field("age", `${inspect.age} (created ${detail.createdAt})`));
+  process.stdout.write(field("retention", retentionLabel(inspect.retention.mode, inspect.retainUntil)));
+  process.stdout.write(field("cleanup", inspect.cleanup));
+  process.stdout.write(field("existence", existenceLabel(inspect.existence, inspect.nodeKind, inspect.byteSize)));
+  process.stdout.write(field("recommendation", inspect.recommendation));
+  process.stdout.write(field("due", detail.dueReason ?? "not due"));
+  process.stdout.write(field("provenance", provenanceLabel(detail.provenance)));
+  if (detail.needsContext) process.stdout.write(field("needs-context", detail.needsContext.label));
+  process.stdout.write(field("last action", lastActionLabel(detail.lastAction)));
+  process.stdout.write(field("next", inspect.nextAction));
+  return 0;
+}
+
+// Display order for the eight dashboard lanes, matching the UI v1 contract bucket order.
+const DASHBOARD_LANES: DashboardBucketKey[] = [
+  "needs-review",
+  "needs-context",
+  "cleanup",
+  "resolve",
+  "trash",
+  "purge-candidates",
+  "registry-reconcile",
+  "recent-receipts"
+];
+const LANE_LABEL_WIDTH = 20;
+const DETAIL_LABEL_WIDTH = 16;
+
+function retentionLabel(mode: string, retainUntil: string | null): string {
+  return retainUntil ? `${mode} (until ${retainUntil})` : mode;
+}
+
+function existenceLabel(existence: string, nodeKind: string | null, byteSize: number | null): string {
+  if (existence !== "present") return existence;
+  const facts = [nodeKind, byteSize === null ? null : `${byteSize} B`].filter((fact): fact is string => fact !== null);
+  return facts.length > 0 ? `present (${facts.join(", ")})` : "present";
+}
+
+function provenanceLabel(view: ArtifactProvenanceView): string {
+  if (!view.present || !view.provenance) return "none recorded";
+  const provenance = view.provenance;
+  const place = provenance.relativePath ? `${provenance.root}:${provenance.relativePath}` : provenance.root;
+  return provenance.fingerprint ? `${place} (fingerprinted)` : place;
+}
+
+function lastActionLabel(lastAction: DashboardLastAction | null): string {
+  if (!lastAction) return "none";
+  return lastAction.receiptPath
+    ? `${lastAction.kind} at ${lastAction.at} (receipt ${lastAction.receiptPath})`
+    : `${lastAction.kind} at ${lastAction.at}`;
 }
 
 function resolveHome(parsed: ParsedArgs): string {

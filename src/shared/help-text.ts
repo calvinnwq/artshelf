@@ -37,17 +37,21 @@ Usage:
   artshelf ui [command]
 
 Available Commands:
-  (start)   Start or resume a browser review session (default, no subcommand)
-  poll      Return pending actionable events for the agent
-  reply     Append an agent receipt/result/note and advance one event
-  end       End the session and revoke browser event writes
+  (start)     Start or resume a browser review session (default, no subcommand)
+  dashboard   Show the read-only multi-ledger review dashboard
+  detail      Show the read-only artifact detail drawer for one record
+  poll        Return pending actionable events for the agent
+  reply       Append an agent receipt/result/note and advance one event
+  end         End the session and revoke browser event writes
 
 Flags:
   -h, --help   help for ui
 
 The browser records review decisions; the agent polls them, executes existing
-approval-gated paths, and replies with receipts. There is no browser-direct
-mutation path. Defaults to user-level, multi-ledger review.
+approval-gated paths, and replies with receipts. The dashboard and detail
+surfaces are read-only: they never mutate state and never read file contents.
+There is no browser-direct mutation path. Defaults to user-level, multi-ledger
+review.
 
 Use "artshelf ui <command> --help" for more information about a command.
 `;
@@ -103,7 +107,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["poll", "reply", "end"])]
+  ["ui", new Set(["dashboard", "detail", "poll", "reply", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -469,6 +473,42 @@ whose ledger file reappeared or whose path became an ambiguous duplicate are
 skipped). It writes a rollback copy of the registry before mutating and a receipt
 after, both discoverable next to the registry under registry-prune-rollbacks/ and
 registry-prune-receipts/.
+`;
+  }
+
+  if (command === "ui dashboard") {
+    return `Usage:
+  artshelf ui dashboard [--registry <path>] [--json]
+
+Options:
+  --registry <path>        Aggregate the ledgers registered in this registry
+  --json                   Emit a compact single-line dashboard snapshot
+
+Dashboard is the read-only multi-ledger review surface. It recomputes live state
+across registered ledgers into the eight UI v1 lanes - needs-review, needs-context,
+cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts -
+by composing the existing read-only domain surfaces. It never mutates a ledger,
+registry, plan, or file, and never reads or previews file contents. Records with a
+missing or vague reason are bucketed as needs-context rather than treated as
+reviewable.
+`;
+  }
+
+  if (command === "ui detail") {
+    return `Usage:
+  artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
+
+Options:
+  --ledger <path>          Ledger that holds the record (defaults to the working ledger)
+  --registry <path>        Registry used to resolve the ledger's friendly name
+  --json                   Emit a compact single-line detail drawer
+
+Detail is the read-only artifact detail drawer a dashboard row opens into. It shows
+the contract's Minimum Human-Judgment Fields for one record: id, ledger/source,
+status, original reason, created age and review due reason, retention and cleanup
+policy, provenance, audit trail, existence facts, the get --inspect decision card,
+the needs-context badge, and the last action with its receipt. It is read-only and
+never reads or previews file contents.
 `;
   }
 
