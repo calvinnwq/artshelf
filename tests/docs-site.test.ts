@@ -455,6 +455,12 @@ test("docs document the Artshelf UI session command surface", () => {
   assert.match(spec, /sessions\/<session-id>\/session\.json/);
   assert.match(reference, /ARTSHELF_UI_HOME/);
   assert.match(reference, /ARTSHELF_UI_URL/);
+
+  for (const text of [readme, spec, reference, agentUsage]) {
+    assert.match(text, /ui dashboard/);
+    assert.match(text, /ui detail/);
+    assert.match(text, /needs-context/);
+  }
 });
 
 test("agent docs explain when to use the agent render versus json and human output", () => {

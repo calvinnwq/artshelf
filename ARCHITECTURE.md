@@ -45,6 +45,8 @@ src/
   ledger.ts           ledger domain rules, cleanup planning/execution, validation
   registry.ts         ledger registry domain and persistence helpers
   registry-prune.ts   registry-prune classification plus approval-gated prune plan and execute layers
+  dashboard.ts        read-only multi-ledger UI dashboard aggregation
+  artifact-detail.ts  read-only single-record UI detail drawer
   provenance.ts       reconcile-safe path provenance capture for new records
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
@@ -59,7 +61,7 @@ src/
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
-(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
+(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `dashboard.ts`, `artifact-detail.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
 the existing core/domain modules for this closeout. A future issue may move them under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
 
@@ -125,6 +127,13 @@ Current domain ownership:
   approval-gated dry-run plan layer that writes a reviewed dispose plan and the plan-id-bound
   execute layer that re-snapshots the live subject, refuses drift/target conflicts, moves the
   subject to plan-scoped trash for trash-resolve, and writes a receipt with verification (NGX-483)
+- `dashboard.ts`: read-only multi-ledger UI dashboard aggregation (NGX-535/NGX-537) over
+  registered ledgers, trash, purge candidates, registry/reconcile problems, recent receipts, and
+  needs-context classification. It must not mutate ledgers, registries, plans, or artifacts, and it
+  must not preview file contents
+- `artifact-detail.ts`: read-only single-record UI detail drawer (NGX-536/NGX-537) composing the
+  inspect decision card, provenance, audit trail, last action, and needs-context badge without
+  file content previews
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
   browser-write capability token, the append-only event log (events plus agent replies), and
@@ -224,9 +233,12 @@ Artshelf's public contract is safety-first:
   receipt. `doctor`, `status --all`, and `review --all` point users at this flow (never
   a manual registry edit) when stale registrations are detected; invalid-but-present
   ledgers still route to a manual re-register/fix.
-- `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, and `list`
-  remain read-only surfaces.
-- `ui` remains session-only: it may create session metadata, append browser events or agent replies, write approval snapshots, and end sessions, but it must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions itself.
+- `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, `list`,
+  `ui dashboard`, and `ui detail` remain read-only surfaces.
+- `ui` remains non-mutating: session subcommands may create session metadata, append browser events
+  or agent replies, write approval snapshots, and end sessions; dashboard/detail may read live
+  ledger, registry, trash, and inspect state. The command family must not execute cleanup, dispose,
+  reconcile, registry-prune, resolve, or purge actions itself.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
   update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.

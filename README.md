@@ -95,7 +95,7 @@ a reviewed plan a human approved:
 |------|--------------|---------|
 | **1. Register** | Record an artifact the moment it is created, while the reason is fresh. Returns an id. | `artshelf put <path> --reason "…" --ttl 3d --kind scratch --cleanup trash` |
 | **2. Monitor** | Read-only checks across all known ledgers — moves nothing. | `artshelf status --all --json` · `artshelf due --all` |
-| **3. Review** | Use read-only and dry-run decision surfaces: review, inspect, registry prune, reconcile, cleanup, and dispose. | `artshelf review --all` · `artshelf get <id> --inspect` · `artshelf cleanup --dry-run` |
+| **3. Review** | Use read-only and dry-run decision surfaces: dashboard, detail, review, inspect, registry prune, reconcile, cleanup, and dispose. | `artshelf ui dashboard --json` · `artshelf ui detail <id> --json` · `artshelf review --all` · `artshelf get <id> --inspect` |
 | **4. Clean** | Execute exactly the reviewed plan id, after approval. Trashes, never deletes. | `artshelf cleanup --execute --plan-id <id>` |
 | **5. Purge** | Permanently remove old trashed artifacts via a *separate* reviewed plan. | `artshelf trash purge --older-than 30d --dry-run` → `--execute --plan-id <id>` |
 
@@ -123,7 +123,7 @@ everyone confirms the next read-only review is quiet.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`artshelf ui` is session-only**, so the browser records review decisions while the agent polls, executes existing approval-gated commands, and replies with receipts.
+- **`artshelf ui` stays non-mutating**, with read-only dashboard/detail views plus a session loop where the browser records review decisions while the agent polls, executes existing approval-gated commands, and replies with receipts.
 - **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`,
   `dispose --dry-run`, and `get --inspect`**, a compact, token-efficient decision packet for agents,
   while the default render stays human-scannable.
@@ -151,6 +151,8 @@ artshelf review [--all]
 artshelf status [--all]
 artshelf doctor
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
+artshelf ui dashboard [--registry <path>] [--json]
+artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui end <session-id> [--scope user|repo] [--json]
@@ -170,10 +172,12 @@ artshelf resolve <id> --status resolved --reason "inspected and no longer needed
 Use `artshelf help` for a grouped command list, then `artshelf <command> --help`
 or `artshelf help <command>` for focused details. Nested commands such as
 `artshelf trash purge --help`, `artshelf ledgers add --help`,
-`artshelf ledgers prune --help`, and `artshelf ui poll --help` show only that
-subcommand. All core commands support `--json`; `artshelf ui --json` is a compact
-single-line session packet, and `ui poll`/`ui reply`/`ui end` use the same compact
-agent loop format. `review`, `status`, `doctor`, `ledgers prune --dry-run`,
+`artshelf ledgers prune --help`, `artshelf ui dashboard --help`, and
+`artshelf ui poll --help` show only that subcommand. All core commands support
+`--json`; `artshelf ui --json` is a compact single-line session packet,
+`ui dashboard --json` and `ui detail --json` emit compact read-only review
+snapshots, and `ui poll`/`ui reply`/`ui end` use the same compact agent loop
+format. `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` also take `--agent` for a compact
 decision packet; `--ledger`, `--registry`, and `--all` are scope flags only on
 commands that list them.
@@ -228,8 +232,11 @@ The skill ships in the npm package alongside `scripts/render-review-report.mjs`,
 `examples/artshelf-review-report.json` packet. Copy the whole `skills/artshelf`
 directory so the renderer, schema, and examples travel together.
 
-The `artshelf ui` command family opens a durable review session for an agent-mediated browser loop.
-It defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
+The `artshelf ui` command family exposes the agent-mediated review loop plus read-only review views.
+Use `artshelf ui dashboard --json` for a multi-ledger snapshot with needs-review, needs-context, cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts buckets.
+Use `artshelf ui detail <record-id> --ledger <path> --json` for the artifact detail drawer: metadata, original reason, provenance, audit trail, existence facts, inspect-card recommendation, needs-context badge, and last action.
+Both views are read-only and never preview file contents.
+The session command defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
 Set `ARTSHELF_UI_HOME` only for tests or controlled hosts that need to move that durable session home.
 The browser side records decisions into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
 There is no browser-direct mutation path.

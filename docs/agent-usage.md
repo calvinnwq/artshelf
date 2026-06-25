@@ -86,7 +86,10 @@ requires `--inspect`.
 ## UI sessions
 
 `artshelf ui` starts or resumes a durable browser review session for the agent-mediated loop.
-It defaults to user-level, multi-ledger review and stores session state under `~/.artshelf/ui`; use `--scope repo` or `--ledger <path>` when the review needs a narrower target.
+`artshelf ui dashboard --json` returns the read-only multi-ledger review buckets, including needs-context, cleanup, resolve, trash, purge candidates, registry/reconcile problems, and recent receipts.
+`artshelf ui detail <record-id> --ledger <path> --json` returns the read-only artifact detail drawer with inspect-card output, provenance, audit trail, existence facts, needs-context badge, and last action.
+Both views are metadata-only and never preview file contents.
+The session command defaults to user-level, multi-ledger review and stores session state under `~/.artshelf/ui`; use `--scope repo` or `--ledger <path>` when the review needs a narrower target.
 The browser records decisions, the agent polls with `artshelf ui poll <session-id> --json`, runs existing approval-gated commands only after exact human approval, replies with `artshelf ui reply`, and closes with `artshelf ui end`.
 There is no browser-direct mutation path.
 Treat the session token printed by `artshelf ui` as a secret same-machine browser-write capability; ending the session revokes future browser writes while keeping the audit trail readable.

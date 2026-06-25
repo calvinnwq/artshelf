@@ -110,8 +110,8 @@ Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` for compact decisions; use `--json`
 for full audit/API payloads, custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
 
-For browser review sessions, use `artshelf ui`, `ui poll`, `ui reply`, and
-`ui end`; there is no browser-direct mutation path, so agents still execute only existing approval-gated commands after exact human approval.
+For browser review sessions, use `artshelf ui`, read-only `ui dashboard --json` / `ui detail <record-id> --ledger <path> --json`, `ui poll`, `ui reply`, and `ui end`.
+There is no browser-direct mutation path or file-content preview, so agents still execute only existing approval-gated commands after exact human approval.
 Treat the session token printed by `artshelf ui` as a secret same-machine browser-write capability; `ui end` revokes future browser writes while preserving the audit trail.
 Register existing project ledgers explicitly:
 
