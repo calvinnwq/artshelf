@@ -281,6 +281,21 @@ test("appendEvent records a pending browser event surfaced by pollPendingEvents"
   assert.equal(pending[0]?.id, event.id);
 });
 
+test("appendEvent keeps browser-submitted events pending even when input supplies another status", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    status: "completed",
+    payload: { text: "do not hide this from poll" }
+  });
+
+  assert.equal(event.source, "browser");
+  assert.equal(event.status, "pending");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
 test("appendEvent refuses browser writes once the session has ended", () => {
   const home = freshHome();
   const session = startUserSession(home);

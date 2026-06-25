@@ -329,12 +329,13 @@ export function approvalSnapshotFingerprint(targets: UiApprovalTarget[], reviewe
 }
 
 function buildEvent(sessionId: string, input: AppendEventInput, createdAt: string): UiEvent {
+  const source = input.source ?? "browser";
   return {
     id: makeId("event"),
     sessionId,
     type: input.type,
-    status: input.status ?? "pending",
-    source: input.source ?? "browser",
+    status: source === "browser" ? "pending" : input.status ?? "pending",
+    source,
     createdAt,
     updatedAt: createdAt,
     target: input.target ?? {},
