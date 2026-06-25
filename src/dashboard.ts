@@ -283,7 +283,7 @@ function classifyLedgerRecords(ledger: LedgerRegistryEntry, at: Date, buckets: D
 
     const report = buildInspectReport(record, { ledgerPath: ledger.path, now: at });
     const needsContext = classifyNeedsContext(record);
-    const row = artifactRow(ledger, record, report, needsContext);
+    const row = artifactRow(ledger, record, report);
     // NGX-537: a record whose original reason or provenance is too weak to review is pulled out
     // of the normal review lanes and surfaced as needs-context so a human can add context first.
     if (needsContext) {
@@ -371,8 +371,7 @@ function receiptKindOf(record: ArtshelfRecord): DashboardReceiptKind | null {
 function artifactRow(
   ledger: LedgerRegistryEntry,
   record: ArtshelfRecord,
-  report: ReturnType<typeof buildInspectReport>,
-  needsContext: NeedsContextReason | null
+  report: ReturnType<typeof buildInspectReport>
 ): DashboardArtifactRow {
   return {
     recordId: record.id,
@@ -391,9 +390,17 @@ function artifactRow(
     dueState: report.dueState,
     recommendation: report.recommendation,
     hasProvenance: Boolean(record.provenance),
-    needsContext: needsContext ? { reason: needsContext, label: NEEDS_CONTEXT_COPY[needsContext] } : null,
+    needsContext: needsContextBadge(record),
     lastAction: lastActionOf(record)
   };
+}
+
+// NGX-537: the reviewer-facing needs-context badge for a record, or null when its reason and
+// provenance are strong enough to review normally. Shared by the dashboard rows and the artifact
+// detail drawer (NGX-536) so both branch on one consistent badge built from one classifier.
+export function needsContextBadge(record: ArtshelfRecord): DashboardNeedsContext | null {
+  const reason = classifyNeedsContext(record);
+  return reason ? { reason, label: NEEDS_CONTEXT_COPY[reason] } : null;
 }
 
 function trashRow(
@@ -409,8 +416,9 @@ function trashRow(
 }
 
 // The most recent completed action recorded on a row's audit trail. Each disposition writes a
-// distinct timestamp/receipt set, so the latest one is the row's "last action".
-function lastActionOf(record: ArtshelfRecord): DashboardLastAction | null {
+// distinct timestamp/receipt set, so the latest one is the row's "last action". Shared with the
+// artifact detail drawer (NGX-536), which shows the full audit trail alongside this latest action.
+export function lastActionOf(record: ArtshelfRecord): DashboardLastAction | null {
   const candidates: DashboardLastAction[] = [];
   if (record.cleanedAt) candidates.push({ kind: "cleanup", at: record.cleanedAt, receiptPath: record.receiptPath ?? null, reason: record.cleanupReason ?? null });
   if (record.disposedAt) candidates.push({ kind: "dispose", at: record.disposedAt, receiptPath: record.disposeReceiptPath ?? null, reason: record.disposeReason ?? null });
