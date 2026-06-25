@@ -71,6 +71,27 @@ type StoredEvent = UiEvent & { kind: "event" };
 type StoredReply = UiReply & { kind: "reply" };
 type UiLogLine = StoredEvent | StoredReply;
 
+// Runtime view of the UiEventStatus union for input validation at the command boundary. The
+// Record forces this to stay exhaustive: adding a status to the type without listing it here
+// (or vice versa) is a compile error, so the agent loop can never accept a status the storage
+// layer does not understand.
+const UI_EVENT_STATUS_SET: Record<UiEventStatus, true> = {
+  pending: true,
+  acknowledged: true,
+  in_progress: true,
+  completed: true,
+  rejected: true,
+  stale: true,
+  failed: true,
+  cancelled: true
+};
+
+export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
+
+export function isUiEventStatus(value: string): value is UiEventStatus {
+  return Object.prototype.hasOwnProperty.call(UI_EVENT_STATUS_SET, value);
+}
+
 // Resolve the UI home directory for a scope. An explicit ARTSHELF_UI_HOME/SHELF_UI_HOME
 // override always wins (the primary test and ops hook); otherwise user scope lives under
 // ~/.artshelf/ui and repo scope under the enclosing git root's .artshelf/ui (falling back

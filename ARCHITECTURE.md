@@ -85,6 +85,7 @@ Public commands currently routed through real command modules:
 - `dispose`
 - `reconcile`
 - `trash`
+- `ui`
 - `ledgers`
 - `doctor`
 - `status`
@@ -92,9 +93,15 @@ Public commands currently routed through real command modules:
 
 Each public command has a discoverable module named after the CLI surface:
 `put.ts`, `list.ts`, `find.ts`, `get.ts`, `resolve.ts`, `due.ts`, `validate.ts`,
-`review.ts`, `cleanup.ts`, `dispose.ts`, `reconcile.ts`, `trash.ts`, `ledgers.ts`,
-`doctor.ts`, `status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
+`review.ts`, `cleanup.ts`, `dispose.ts`, `reconcile.ts`, `trash.ts`, `ui.ts`,
+`ledgers.ts`, `doctor.ts`, `status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
 these files must contain real command-family implementation code.
+
+The `ui` command family (`artshelf ui`, `ui poll`, `ui reply`, `ui end`) is the
+agent-mediated AXI surface over `session.ts` (NGX-532): it starts or resumes a
+durable review session and runs the poll/reply/end agent loop with compact `--json`
+packets. It owns no browser-direct mutation path - the browser records decisions,
+the agent executes existing approval-gated commands and replies with receipts.
 
 ### Domain files
 
