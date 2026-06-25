@@ -9,6 +9,7 @@ import type {
   UiApprovalSnapshot,
   UiApprovalTarget,
   UiEvent,
+  UiReplyStatus,
   UiEventStatus,
   UiEventType,
   UiReply,
@@ -57,7 +58,7 @@ export type AppendEventInput = {
 };
 
 export type ReplyInput = {
-  status: UiEventStatus;
+  status: UiReplyStatus;
   payload?: Record<string, unknown>;
 };
 
@@ -87,6 +88,7 @@ const UI_EVENT_STATUS_SET: Record<UiEventStatus, true> = {
 };
 
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
+export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
 
 const UI_ID_PATTERNS: Record<"session" | "event" | "reply" | "bundle", RegExp> = {
   session: /^session_\d{8}_\d{6}_[0-9a-f]{8}$/,
@@ -99,6 +101,10 @@ const OWNER_ONLY_FILE_MODE = 0o600;
 
 export function isUiEventStatus(value: string): value is UiEventStatus {
   return Object.prototype.hasOwnProperty.call(UI_EVENT_STATUS_SET, value);
+}
+
+export function isUiReplyStatus(value: string): value is UiReplyStatus {
+  return isUiEventStatus(value) && value !== "pending";
 }
 
 // Resolve the UI home directory for a scope. An explicit ARTSHELF_UI_HOME/SHELF_UI_HOME
@@ -263,6 +269,9 @@ export function replyToEvent(
   eventId: string,
   input: ReplyInput
 ): { event: UiEvent; reply: UiReply } {
+  if (!isUiReplyStatus(input.status)) {
+    throw new Error(`Invalid Artshelf UI reply status "${input.status}"; expected one of: ${UI_REPLY_STATUSES.join(", ")}`);
+  }
   readSession(home, sessionId);
   const target = readSessionEvents(home, sessionId).find((event) => event.id === eventId);
   if (!target) throw new Error(`Artshelf UI event not found: ${eventId}`);

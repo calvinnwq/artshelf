@@ -367,6 +367,8 @@ export type UiEventStatus =
   | "failed"
   | "cancelled";
 
+export type UiReplyStatus = Exclude<UiEventStatus, "pending">;
+
 // Event taxonomy for the durable session log. The first block is the v1 set; the second
 // block is reserved future-compatible types the contract names so the storage model does
 // not need to change to carry them later.
@@ -409,7 +411,7 @@ export type UiReply = {
   id: string; // reply_<id>
   sessionId: string; // session_<id>
   eventId: string; // event_<id> this reply advances
-  status: UiEventStatus;
+  status: UiReplyStatus;
   createdAt: string;
   payload: Record<string, unknown>;
 };

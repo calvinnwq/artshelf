@@ -365,6 +365,18 @@ test("replyToEvent rejects a reply that targets an unknown event", () => {
   assert.throws(() => replyToEvent(home, session.id, "event_missing", { status: "completed" }), /event_missing/);
 });
 
+test("replyToEvent rejects pending and unknown reply statuses at the storage boundary", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const event = appendEvent(home, session.id, { type: "comment_added", payload: { text: "reviewed" } });
+
+  assert.throws(
+    () => replyToEvent(home, session.id, event.id, { status: "pending" as never }),
+    /expected one of/i
+  );
+  assert.throws(() => replyToEvent(home, session.id, event.id, { status: "donezo" as never }), /expected one of/i);
+});
+
 test("approvalSnapshotFingerprint is deterministic, order-independent, and drift-sensitive", () => {
   const targets = sampleTargets();
   const reviewed = { planId: "plan_a", total: 2 };

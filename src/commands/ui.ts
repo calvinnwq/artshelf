@@ -2,13 +2,13 @@ import { uiLinkBaseUrl } from "../config/env.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
   endSession,
-  isUiEventStatus,
+  isUiReplyStatus,
   pollPendingEvents,
   readSession,
   replyToEvent,
   resolveUiHome,
   startOrResumeSession,
-  UI_EVENT_STATUSES
+  UI_REPLY_STATUSES
 } from "../session.js";
 import type { ParsedArgs } from "../shared/cli-types.js";
 import { requiredStringFlag, stringFlag } from "../shared/flags.js";
@@ -104,9 +104,8 @@ function handleUiReply(parsed: ParsedArgs, json: boolean): number {
   const home = resolveHome(parsed);
   const eventId = requiredStringFlag(parsed, "event");
   const status = requiredStringFlag(parsed, "status");
-  if (!isUiEventStatus(status) || status === "pending") {
-    const replyStatuses = UI_EVENT_STATUSES.filter((entry) => entry !== "pending");
-    throw new Error(`Invalid --status "${status}"; expected one of: ${replyStatuses.join(", ")}`);
+  if (!isUiReplyStatus(status)) {
+    throw new Error(`Invalid --status "${status}"; expected one of: ${UI_REPLY_STATUSES.join(", ")}`);
   }
   const payload = parsePayload(stringFlag(parsed, "payload"));
   const { event, reply } = replyToEvent(home, sessionId, eventId, payload === null ? { status } : { status, payload });
