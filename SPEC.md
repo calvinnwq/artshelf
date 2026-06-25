@@ -430,6 +430,7 @@ It does not add a browser-direct mutation path.
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
 artshelf ui dashboard [--registry <path>] [--json]
 artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
+artshelf ui serve [--port <port>] [--registry <path>] [--ledger <path>]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui end <session-id> [--scope user|repo] [--json]
@@ -444,6 +445,8 @@ Rules:
 - `ui dashboard` recomputes a multi-ledger snapshot from registered ledgers and surfaces needs-review, needs-context, cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts buckets without mutating anything.
 - `ui detail <record-id>` composes the inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
+- `ui serve` hosts the `ui dashboard` and `ui detail` surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, and runs in the foreground until interrupted with Ctrl-C.
+- The served pages carry no script, embed no file contents, and expose no mutation path: the browser refuses non-GET requests, and bad or missing ledgers and records render as explicit non-crashing problem states rather than blank panels. It is the read-only display half of the UI; recording review decisions stays in the agent-mediated `ui` session loop.
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes while keeping the session readable for audit.

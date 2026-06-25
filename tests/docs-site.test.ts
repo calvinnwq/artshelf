@@ -463,6 +463,26 @@ test("docs document the Artshelf UI session command surface", () => {
   }
 });
 
+test("docs document the read-only ui serve browser dashboard launch command", () => {
+  const readme = read("README.md");
+  const spec = read("SPEC.md");
+  const reference = read("docs/reference.html");
+  const agentUsage = read("docs/agent-usage.md") + read("docs/agent-usage.html");
+
+  // NGX-535's "documented UI command/server path" to open a local browser dashboard
+  // is the `ui serve` launch command; it is named on every UI-documenting surface.
+  for (const text of [readme, spec, reference, agentUsage]) {
+    assert.match(text, /ui serve/);
+  }
+
+  // Its command signature and the loopback-only security boundary that keeps the
+  // browser surface same-machine are documented where the server is described.
+  for (const text of [readme, spec, reference]) {
+    assert.match(text, /ui serve \[--port/);
+    assert.match(text, /loopback/);
+  }
+});
+
 test("agent docs explain when to use the agent render versus json and human output", () => {
   const usageMd = read("docs/agent-usage.md");
   const usageHtml = read("docs/agent-usage.html");

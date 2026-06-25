@@ -278,3 +278,28 @@ test("responses are script-free, escape record text, and set a strict read-only 
     assert.match(html, /&lt;script&gt;/, "record-supplied text must be HTML-escaped, not rendered as markup");
   });
 });
+
+test("dashboard and drawer stay usable at desktop and narrow widths (NGX-535/536)", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async ({ url }) => {
+    const dashboard = await (await fetch(`${url}/`)).text();
+    const drawer = await (await fetch(`${url}/detail/shf_cleanup?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+
+    // Both NGX-535's dashboard and NGX-536's drawer name desktop-and-narrow usability as a
+    // verification point. Each surface must declare a mobile-aware viewport and carry a narrow-width
+    // breakpoint that collapses the field/lane grid to a single column instead of overflowing.
+    for (const [surface, html] of [["dashboard", dashboard], ["drawer", drawer]] as const) {
+      assert.match(
+        html,
+        /<meta name="viewport" content="width=device-width, initial-scale=1">/,
+        `${surface} should declare a mobile-aware viewport`
+      );
+      assert.match(html, /@media \(max-width: 560px\)/, `${surface} should adapt its layout at narrow widths`);
+    }
+  });
+});

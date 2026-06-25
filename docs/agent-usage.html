@@ -126,7 +126,11 @@
               receipts. <code>artshelf ui detail &lt;record-id&gt; --ledger &lt;path&gt; --json</code>
               returns the read-only artifact detail drawer with inspect-card output,
               provenance, audit trail, existence facts, needs-context badge, and last
-              action. Both views are metadata-only and never preview file contents. The
+              action. Both views are metadata-only and never preview file contents.
+              <code>artshelf ui serve [--port &lt;port&gt;]</code> hosts those same read-only
+              dashboard and detail views as a local browser page for a human reviewer; it
+              binds to loopback (127.0.0.1) only, recomputes live state per request, serves
+              no script and no file contents, and has no mutation path. The
               session command defaults to user-level multi-ledger review and stores session
               state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> or
               <code>--ledger &lt;path&gt;</code> when the review needs a narrower target.
