@@ -436,6 +436,27 @@ test("docs document the get --inspect review decision card with the registry-bac
   assert.match(skill, /get <id> --inspect/);
 });
 
+
+test("docs document the Artshelf UI session command surface", () => {
+  const readme = read("README.md");
+  const spec = read("SPEC.md");
+  const reference = read("docs/reference.html");
+  const agentUsage = read("docs/agent-usage.md") + read("docs/agent-usage.html");
+
+  for (const text of [readme, spec, reference, agentUsage]) {
+    assert.match(text, /artshelf ui/);
+    assert.match(text, /ui poll/);
+    assert.match(text, /ui reply/);
+    assert.match(text, /ui end/);
+    assert.match(text, /browser (?:side )?records|browser-recorded events/i);
+    assert.match(text, /no browser-direct|does not add a browser-direct/i);
+  }
+
+  assert.match(spec, /sessions\/<session-id>\/session\.json/);
+  assert.match(reference, /ARTSHELF_UI_HOME/);
+  assert.match(reference, /ARTSHELF_UI_URL/);
+});
+
 test("agent docs explain when to use the agent render versus json and human output", () => {
   const usageMd = read("docs/agent-usage.md");
   const usageHtml = read("docs/agent-usage.html");

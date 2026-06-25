@@ -123,6 +123,7 @@ everyone confirms the next read-only review is quiet.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
+- **`artshelf ui` is session-only**, so the browser records review decisions while the agent polls, executes existing approval-gated commands, and replies with receipts.
 - **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`,
   `dispose --dry-run`, and `get --inspect`**, a compact, token-efficient decision packet for agents,
   while the default render stays human-scannable.
@@ -149,6 +150,10 @@ artshelf validate [--all]
 artshelf review [--all]
 artshelf status [--all]
 artshelf doctor
+artshelf ui [--scope user|repo] [--ledger <path>] [--json]
+artshelf ui poll <session-id> [--scope user|repo] [--json]
+artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
+artshelf ui end <session-id> [--scope user|repo] [--json]
 artshelf update [--json]
 artshelf cleanup --dry-run [--all]
 artshelf cleanup --execute --plan-id <id> [--ledger <path>] [--json]
@@ -164,12 +169,14 @@ artshelf resolve <id> --status resolved --reason "inspected and no longer needed
 
 Use `artshelf help` for a grouped command list, then `artshelf <command> --help`
 or `artshelf help <command>` for focused details. Nested commands such as
-`artshelf trash purge --help`, `artshelf ledgers add --help`, and
-`artshelf ledgers prune --help` show only that subcommand. All core commands
-support `--json`; `review`, `status`, `doctor`, `ledgers prune --dry-run`,
+`artshelf trash purge --help`, `artshelf ledgers add --help`,
+`artshelf ledgers prune --help`, and `artshelf ui poll --help` show only that
+subcommand. All core commands support `--json`; `artshelf ui --json` is a compact
+single-line session packet, and `ui poll`/`ui reply`/`ui end` use the same compact
+agent loop format. `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` also take `--agent` for a compact
-decision packet; `--ledger`,
-`--registry`, and `--all` are scope flags only on commands that list them.
+decision packet; `--ledger`, `--registry`, and `--all` are scope flags only on
+commands that list them.
 </details>
 
 <details>
@@ -220,6 +227,12 @@ The skill ships in the npm package alongside `scripts/render-review-report.mjs`,
 `schemas/artshelf-review-report.schema.json`, and the canonical
 `examples/artshelf-review-report.json` packet. Copy the whole `skills/artshelf`
 directory so the renderer, schema, and examples travel together.
+
+The `artshelf ui` command family opens a durable review session for an agent-mediated browser loop.
+It defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
+The browser side records decisions into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
+There is no browser-direct mutation path.
+Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; otherwise the command prints a host-local instruction instead of a dead localhost link.
 </details>
 
 <details>

@@ -174,6 +174,33 @@ artshelf doctor [--agent] [--json]</code></pre>
             </p>
           </section>
 
+
+          <section class="cmd">
+            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag readonly">session-only</span></div>
+            <pre><code><span class="c"># start or resume a durable review session</span>
+artshelf ui [--scope user|repo] [--ledger &lt;path&gt;] [--json]
+
+<span class="c"># agent loop over browser-recorded events</span>
+artshelf ui poll &lt;session-id&gt; [--scope user|repo] [--json]
+artshelf ui reply &lt;session-id&gt; --event &lt;event-id&gt; --status &lt;status&gt; [--payload &lt;json&gt;] [--scope user|repo] [--json]
+artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
+            <p>
+              <code>ui</code> is the agent-mediated browser review shell. It starts or resumes a
+              durable session, defaults to user-level multi-ledger review, and stores session
+              metadata, the browser capability token, an append-only event log, and approval
+              snapshots under <code>~/.artshelf/ui</code>. Use <code>--scope repo</code> for
+              <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
+              to narrow the session target.
+            </p>
+            <p>
+              The browser records decisions; the agent polls pending events, runs existing
+              approval-gated commands after human approval, and replies with receipts or notes.
+              <code>ui end</code> revokes future browser writes while keeping the session readable
+              for audit. There is no browser-direct cleanup, dispose, reconcile, registry-prune,
+              resolve, or purge path.
+            </p>
+          </section>
+
           <section class="cmd">
             <div class="cmd-head"><h2>artshelf update</h2><span class="cmd-flag plan">npm install</span></div>
             <pre><code><span class="c"># install the latest published npm package</span>
@@ -313,6 +340,8 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               output stays clean.
             </p>
             <p>
+              <code>artshelf ui --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
+              and <code>ui end --json</code> emit compact session-loop packets.
               <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
               It names the relevant health, prune counts, dispose plan status, or record recommendation, classifications, blockers, approval targets where applicable, and the command
@@ -328,7 +357,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>(default)</td><td>human render: grouped counts or a record card, ✓/⚠ attention glyphs, and a short next action</td></tr>
               <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code></td></tr>
-              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data</td></tr>
+              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data; compact single-line packets for the <code>artshelf ui</code> session loop</td></tr>
             </table>
           </section>
 
@@ -343,6 +372,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><td>--ledger &lt;path&gt;</td><td>target an explicit JSONL ledger</td></tr>
               <tr><td>--registry &lt;path&gt;</td><td>target an explicit ledger registry</td></tr>
               <tr><td>--all</td><td>read every registered ledger on commands that support discovery (<code>list</code>, <code>find</code>, <code>get</code>, <code>due</code>, <code>validate</code>, <code>review</code>, <code>status</code>, <code>cleanup --dry-run</code>, <code>reconcile --dry-run</code>, <code>trash list</code>); registry pruning is scoped by <code>--registry</code>, not <code>--all</code></td></tr>
+              <tr><td>--scope user|repo</td><td>select the durable UI session home for <code>artshelf ui</code>, defaulting to user-level review</td></tr>
             </table>
           </section>
 
@@ -359,6 +389,8 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><td>ARTSHELF_NPM_REGISTRY_URL</td><td>override the npm latest-version endpoint</td></tr>
               <tr><td>ARTSHELF_UPDATE_DRY_RUN=1</td><td>print the npm update command without running it</td></tr>
               <tr><td>ARTSHELF_LATEST_VERSION</td><td>override the latest-version value for tests</td></tr>
+              <tr><td>ARTSHELF_UI_HOME</td><td>override the durable UI session home for tests or controlled hosts</td></tr>
+              <tr><td>ARTSHELF_UI_URL</td><td>trusted base URL printed by <code>artshelf ui</code> for review links</td></tr>
             </table>
           </section>
 
@@ -386,7 +418,11 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               repo-local ledgers. Registry-prune plans, rollback copies, and receipts live next to the
               selected registry under <code>registry-prune-plans/</code>,
               <code>registry-prune-rollbacks/</code>, and <code>registry-prune-receipts/</code>.
-              Automatic update checks cache their last npm result at
+              UI review sessions live separately under <code>~/.artshelf/ui</code> by default,
+              or <code>&lt;repo&gt;/.artshelf/ui</code> for repo scope, with
+              <code>sessions/&lt;session-id&gt;/session.json</code>,
+              <code>events.jsonl</code>, and immutable approval bundles under
+              <code>bundles/</code>. Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed
               results.

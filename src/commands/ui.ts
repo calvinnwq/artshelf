@@ -103,8 +103,9 @@ function handleUiReply(parsed: ParsedArgs, json: boolean): number {
   const home = resolveHome(parsed);
   const eventId = requiredStringFlag(parsed, "event");
   const status = requiredStringFlag(parsed, "status");
-  if (!isUiEventStatus(status)) {
-    throw new Error(`Invalid --status "${status}"; expected one of: ${UI_EVENT_STATUSES.join(", ")}`);
+  if (!isUiEventStatus(status) || status === "pending") {
+    const replyStatuses = UI_EVENT_STATUSES.filter((entry) => entry !== "pending");
+    throw new Error(`Invalid --status "${status}"; expected one of: ${replyStatuses.join(", ")}`);
   }
   const payload = parsePayload(stringFlag(parsed, "payload"));
   const { event, reply } = replyToEvent(home, sessionId, eventId, payload === null ? { status } : { status, payload });

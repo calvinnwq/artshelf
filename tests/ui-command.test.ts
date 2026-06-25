@@ -159,6 +159,10 @@ test("artshelf ui reply rejects a missing --event, an invalid --status, and an u
   assert.notEqual(badStatus.status, 0);
   assert.match(badStatus.stderr, /status/i);
 
+  const pendingStatus = ui(home, ["ui", "reply", session.id, "--event", event.id, "--status", "pending", "--json"]);
+  assert.notEqual(pendingStatus.status, 0);
+  assert.match(pendingStatus.stderr, /acknowledged/);
+
   const unknownEvent = ui(home, ["ui", "reply", session.id, "--event", "event_nope", "--status", "completed", "--json"]);
   assert.notEqual(unknownEvent.status, 0);
   assert.match(unknownEvent.stderr, /event_nope/);

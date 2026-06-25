@@ -492,7 +492,7 @@ nothing pending) so the receipt and decision trail survive restart and resume.
 
 Options:
   --event <event-id>       The pending event this reply advances
-  --status <status>        New event status: pending, acknowledged, in_progress,
+  --status <status>        New event status: acknowledged, in_progress,
                            completed, rejected, stale, failed, or cancelled
   --payload <json>         Optional JSON object body (receipt, result, or note)
   --scope <scope>          Locate the session in user (default) or repo scope
