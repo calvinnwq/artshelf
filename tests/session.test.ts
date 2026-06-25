@@ -296,6 +296,22 @@ test("appendEvent keeps browser-submitted events pending even when input supplie
   assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
 });
 
+test("appendEvent treats caller-supplied agent source as browser input", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    source: "agent",
+    status: "completed",
+    payload: { text: "do not bypass browser normalization" }
+  } as never);
+
+  assert.equal(event.source, "browser");
+  assert.equal(event.status, "pending");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
 test("appendEvent refuses browser writes once the session has ended", () => {
   const home = freshHome();
   const session = startUserSession(home);
@@ -303,6 +319,23 @@ test("appendEvent refuses browser writes once the session has ended", () => {
 
   assert.throws(
     () => appendEvent(home, session.id, { type: "comment_added", payload: { text: "too late" } }),
+    /ended/i
+  );
+});
+
+test("appendEvent refuses caller-supplied agent source once the session has ended", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  endSession(home, session.id);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        source: "agent",
+        status: "completed",
+        payload: { text: "do not bypass revocation" }
+      } as never),
     /ended/i
   );
 });

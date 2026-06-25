@@ -53,7 +53,6 @@ export type AppendEventInput = {
   type: UiEventType;
   target?: Record<string, unknown>;
   payload?: Record<string, unknown>;
-  source?: "browser" | "agent";
   status?: UiEventStatus;
 };
 
@@ -199,7 +198,7 @@ export function endSession(home: string, sessionId: string): UiSession {
     const endedAt = toIso(now());
     appendLogLine(home, sessionId, {
       kind: "event",
-      ...buildEvent(sessionId, { type: "session_done", source: "agent", status: "completed" }, endedAt)
+      ...buildEvent(sessionId, { type: "session_done", status: "completed" }, "agent", endedAt)
     });
     const ended: UiSession = { ...session, status: "ended", endedAt, updatedAt: endedAt };
     writeSession(home, ended);
@@ -216,18 +215,17 @@ export function validateBrowserToken(session: UiSession, token: string): boolean
   return constantTimeEqual(token, session.token);
 }
 
-// Append an event to the durable log. Browser writes are refused once the session has ended;
-// agent-sourced bookkeeping is always allowed. Defaults: source browser, status pending.
+// Append a browser event to the durable log. Browser writes are refused once the session has
+// ended and always enter the agent poll queue as pending.
 export function appendEvent(home: string, sessionId: string, input: AppendEventInput): UiEvent {
   const path = sessionFile(home, sessionId);
   return withUiStorageLock(home, path, () => {
     const session = readSession(home, sessionId);
-    const source = input.source ?? "browser";
-    if (source === "browser" && session.status !== "active") {
+    if (session.status !== "active") {
       throw new Error(`Artshelf UI session ${sessionId} has ended; browser writes are closed`);
     }
     const createdAt = toIso(now());
-    const event = buildEvent(sessionId, input, createdAt);
+    const event = buildEvent(sessionId, input, "browser", createdAt);
     appendLogLine(home, sessionId, { kind: "event", ...event });
     writeSession(home, { ...session, updatedAt: createdAt });
     return event;
@@ -337,8 +335,7 @@ export function approvalSnapshotFingerprint(targets: UiApprovalTarget[], reviewe
   return createHash("sha256").update(canonical).digest("hex");
 }
 
-function buildEvent(sessionId: string, input: AppendEventInput, createdAt: string): UiEvent {
-  const source = input.source ?? "browser";
+function buildEvent(sessionId: string, input: AppendEventInput, source: UiEvent["source"], createdAt: string): UiEvent {
   return {
     id: makeId("event"),
     sessionId,
