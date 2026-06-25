@@ -18,8 +18,8 @@ import type { ArtshelfKind, ArtshelfRecord, ArtshelfStatus, CleanupAction, DueSt
 // module is the data core both the browser and the agent read.
 
 // The eight dashboard lanes from the UI v1 contract. `needs-context` is the bucket for records
-// whose original reason/provenance is too weak to review normally; its classifier lands in
-// NGX-537, so this slice ships the lane wired but unpopulated.
+// whose original reason or provenance is too weak to review normally (NGX-537): they are pulled
+// out of the normal review lanes so a human can add context before any disposition.
 export type DashboardBucketKey =
   | "needs-review"
   | "needs-context"
@@ -42,6 +42,12 @@ export type DashboardLastAction = {
   reason: string | null;
 };
 
+// Why a record is bucketed as needs-context (NGX-537): its original reason is missing or too
+// vague to act on, or its provenance can't establish the artifact's origin. `label` is the
+// reviewer-facing display copy the dashboard shows in place of a normal review action.
+export type NeedsContextReason = "missing-reason" | "vague-reason" | "insufficient-provenance";
+export type DashboardNeedsContext = { reason: NeedsContextReason; label: string };
+
 // A reviewable artifact row (needs-review / needs-context / cleanup / resolve). Carries the
 // contract's minimum human-judgment fields and never any file content.
 export type DashboardArtifactRow = {
@@ -61,6 +67,9 @@ export type DashboardArtifactRow = {
   dueState: DueStatus | null;
   recommendation: InspectRecommendation;
   hasProvenance: boolean;
+  // Non-null when the record is pulled into the needs-context lane; null on rows that are
+  // reviewable normally, so the UI can branch on a single field.
+  needsContext: DashboardNeedsContext | null;
   lastAction: DashboardLastAction | null;
 };
 
@@ -273,10 +282,11 @@ function classifyLedgerRecords(ledger: LedgerRegistryEntry, at: Date, buckets: D
     if (record.status === "trashed" || record.status === "resolved") continue;
 
     const report = buildInspectReport(record, { ledgerPath: ledger.path, now: at });
-    const row = artifactRow(ledger, record, report);
-    // NGX-537 seam: a weak-reason/insufficient-provenance record will route here and out of
-    // the reviewable lanes. Until that classifier lands, nothing is bucketed as needs-context.
-    if (isNeedsContext(record)) {
+    const needsContext = classifyNeedsContext(record);
+    const row = artifactRow(ledger, record, report, needsContext);
+    // NGX-537: a record whose original reason or provenance is too weak to review is pulled out
+    // of the normal review lanes and surfaced as needs-context so a human can add context first.
+    if (needsContext) {
       buckets.needsContext.push(row);
       continue;
     }
@@ -299,10 +309,54 @@ function classifyLedgerRecords(ledger: LedgerRegistryEntry, at: Date, buckets: D
   }
 }
 
-// Placeholder for the NGX-537 weak-reason/insufficient-provenance classifier. Kept as an
-// explicit seam so this slice ships the lane without yet owning the detection rules.
-function isNeedsContext(_record: ArtshelfRecord): boolean {
-  return false;
+// Reviewer-facing copy for each needs-context reason (NGX-537). The dashboard shows this in
+// place of a normal review action, telling the reviewer what context to add.
+const NEEDS_CONTEXT_COPY: Record<NeedsContextReason, string> = {
+  "missing-reason": "No original reason was recorded - add context before this artifact can be reviewed.",
+  "vague-reason": "The original reason is too vague to act on - add context before this artifact can be reviewed.",
+  "insufficient-provenance": "Provenance can't establish where this artifact came from - add context before this artifact can be reviewed."
+};
+
+// Tokens that carry no review signal on their own - scratch/placeholder words and generic
+// nouns that never say WHY an artifact is worth tracking. A reason built only from these is
+// too vague to act on.
+const LOW_SIGNAL_TOKENS: ReadonlySet<string> = new Set([
+  "tmp", "temp", "test", "tests", "testing", "todo", "fixme", "wip", "stuff", "thing", "things",
+  "misc", "file", "files", "data", "asdf", "foo", "bar", "baz", "qux", "na", "none", "null",
+  "nil", "tbd", "placeholder", "scratch", "junk", "untitled", "new", "old", "copy", "draft",
+  "sample", "demo", "dummy", "delete", "remove", "x", "y", "z"
+]);
+
+// Below this many alphanumerics a reason is too small to convey purpose ("x", "ab", "...").
+const MIN_REASON_ALNUM = 4;
+
+// NGX-537: classify how weak a record's review context is. Reason quality is the dominant
+// signal (the contract buckets missing/vague reasons as needs-context); provenance is a
+// secondary fallback. Returns null when the record carries enough context to review normally.
+function classifyNeedsContext(record: ArtshelfRecord): NeedsContextReason | null {
+  const reason = record.reason.trim();
+  if (reason.length === 0) return "missing-reason";
+  if (isVagueReason(reason)) return "vague-reason";
+  if (hasInsufficientProvenance(record)) return "insufficient-provenance";
+  return null;
+}
+
+function isVagueReason(reason: string): boolean {
+  const tokens = reason.toLowerCase().split(/[^a-z0-9]+/).filter((token) => token.length > 0);
+  // Punctuation-only ("...", "???") or too few alphanumerics to mean anything.
+  if (tokens.join("").length < MIN_REASON_ALNUM) return true;
+  // Every token is a scratch/placeholder/generic word, so nothing says why it is tracked.
+  return tokens.every((token) => LOW_SIGNAL_TOKENS.has(token));
+}
+
+// "Insufficient provenance" is deliberately narrow. A record written without any provenance is
+// a legacy/unknown-origin row the dashboard still reviews normally - its reason carries the
+// context. Only a present-but-uninformative provenance is too weak: an external root with no
+// fingerprint can place the artifact through neither a known root nor a content match.
+function hasInsufficientProvenance(record: ArtshelfRecord): boolean {
+  const provenance = record.provenance;
+  if (!provenance) return false;
+  return provenance.root === "external" && provenance.fingerprint === undefined;
 }
 
 function receiptKindOf(record: ArtshelfRecord): DashboardReceiptKind | null {
@@ -314,7 +368,12 @@ function receiptKindOf(record: ArtshelfRecord): DashboardReceiptKind | null {
   return null;
 }
 
-function artifactRow(ledger: LedgerRegistryEntry, record: ArtshelfRecord, report: ReturnType<typeof buildInspectReport>): DashboardArtifactRow {
+function artifactRow(
+  ledger: LedgerRegistryEntry,
+  record: ArtshelfRecord,
+  report: ReturnType<typeof buildInspectReport>,
+  needsContext: NeedsContextReason | null
+): DashboardArtifactRow {
   return {
     recordId: record.id,
     ledgerName: ledger.name,
@@ -332,6 +391,7 @@ function artifactRow(ledger: LedgerRegistryEntry, record: ArtshelfRecord, report
     dueState: report.dueState,
     recommendation: report.recommendation,
     hasProvenance: Boolean(record.provenance),
+    needsContext: needsContext ? { reason: needsContext, label: NEEDS_CONTEXT_COPY[needsContext] } : null,
     lastAction: lastActionOf(record)
   };
 }

@@ -312,19 +312,99 @@ test("recent receipts are newest-first and capped by the limit", () => {
   assert.equal(snapshot.buckets.recentReceipts[0]!.receiptKind, "reconcile");
 });
 
-test("the needs-context lane is present and unpopulated until the NGX-537 classifier lands", () => {
+test("a record with a missing reason is pulled out of the review lanes into needs-context (NGX-537)", () => {
   const dir = fixture();
-  const present = realFile(dir, "vague.txt");
-  // Even a record with an empty reason stays a normal reviewable artifact in this slice.
+  const present = realFile(dir, "no-reason.txt");
+  // Without the classifier this due trash row is a cleanup candidate; a blank reason makes it
+  // un-reviewable, so it moves to needs-context and carries reviewer-facing display copy.
   const { registryPath } = singleLedger([
-    baseRecord({ id: "shf_vague", path: present, reason: "", retention: { mode: "ttl", ttl: "1d" }, retainUntil: PAST_DUE, cleanup: "trash" })
+    baseRecord({ id: "shf_missing", path: present, reason: "   ", retention: { mode: "ttl", ttl: "1d" }, retainUntil: PAST_DUE, cleanup: "trash" })
   ]);
 
   const snapshot = buildDashboard({ registryPath });
 
-  assert.ok(Array.isArray(snapshot.buckets.needsContext));
+  assert.equal(snapshot.buckets.cleanup.length, 0);
+  assert.equal(snapshot.buckets.needsContext.length, 1);
+  const row = snapshot.buckets.needsContext[0]!;
+  assert.equal(row.recordId, "shf_missing");
+  assert.equal(row.needsContext?.reason, "missing-reason");
+  assert.match(row.needsContext?.label ?? "", /reason/i);
+  assert.equal(snapshot.counts["needs-context"], 1);
+});
+
+test("a low-signal placeholder reason lands in needs-context as vague (NGX-537)", () => {
+  const dir = fixture();
+  const present = realFile(dir, "tmp.txt");
+  const { registryPath } = singleLedger([
+    baseRecord({ id: "shf_vague", path: present, reason: "tmp file", retention: { mode: "ttl", ttl: "1d" }, retainUntil: PAST_DUE, cleanup: "trash" })
+  ]);
+
+  const snapshot = buildDashboard({ registryPath });
+
+  assert.equal(snapshot.buckets.needsContext.length, 1);
+  assert.equal(snapshot.buckets.needsContext[0]!.needsContext?.reason, "vague-reason");
+  assert.equal(snapshot.buckets.cleanup.length, 0);
+});
+
+test("a clear reason with no provenance keyword still reads as reviewable, not vague (NGX-537)", () => {
+  const dir = fixture();
+  const present = realFile(dir, "audit.txt");
+  // A genuine sentence-length reason must never be mistaken for a placeholder.
+  const { registryPath } = singleLedger([
+    baseRecord({ id: "shf_clear", path: present, reason: "build output kept for the release audit", retention: { mode: "ttl", ttl: "1d" }, retainUntil: PAST_DUE, cleanup: "trash" })
+  ]);
+
+  const snapshot = buildDashboard({ registryPath });
+
   assert.equal(snapshot.buckets.needsContext.length, 0);
-  // The weak-reason record is still classified normally for now.
+  assert.equal(snapshot.buckets.cleanup.length, 1);
+  // Reviewable rows carry an explicit null needs-context badge so the UI can branch on it.
+  assert.equal(snapshot.buckets.cleanup[0]!.needsContext, null);
+});
+
+test("a clear reason with insufficient provenance still needs context (NGX-537)", () => {
+  const dir = fixture();
+  const present = realFile(dir, "external.bin");
+  // Provenance is present but can't place the artifact (external root, no fingerprint), so even
+  // a clear reason cannot fully establish the record's origin.
+  const { registryPath } = singleLedger([
+    baseRecord({
+      id: "shf_prov",
+      path: present,
+      reason: "exported analytics dump pending review",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: PAST_DUE,
+      cleanup: "trash",
+      provenance: { root: "external", rootPath: null, relativePath: null, basename: "external.bin", pathKind: "other" }
+    })
+  ]);
+
+  const snapshot = buildDashboard({ registryPath });
+
+  assert.equal(snapshot.buckets.needsContext.length, 1);
+  assert.equal(snapshot.buckets.needsContext[0]!.needsContext?.reason, "insufficient-provenance");
+  assert.equal(snapshot.buckets.cleanup.length, 0);
+});
+
+test("reconstructable provenance with a clear reason stays reviewable (NGX-537)", () => {
+  const dir = fixture();
+  const present = realFile(dir, "keep.txt");
+  // A repo-rooted provenance with a fingerprint can place the artifact, so it is not weak.
+  const { registryPath } = singleLedger([
+    baseRecord({
+      id: "shf_rooted",
+      path: present,
+      reason: "release notes draft awaiting sign-off",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: PAST_DUE,
+      cleanup: "trash",
+      provenance: { root: "repo", rootPath: "/repo", relativePath: "out/keep.txt", basename: "keep.txt", pathKind: "file", fingerprint: { byteSize: 1 } }
+    })
+  ]);
+
+  const snapshot = buildDashboard({ registryPath });
+
+  assert.equal(snapshot.buckets.needsContext.length, 0);
   assert.equal(snapshot.buckets.cleanup.length, 1);
 });
 
