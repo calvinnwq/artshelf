@@ -48,6 +48,7 @@ src/
   provenance.ts       reconcile-safe path provenance capture for new records
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
+  session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger and cleanup domain contracts
@@ -118,11 +119,16 @@ Current domain ownership:
   execute layer that re-snapshots the live subject, refuses drift/target conflicts, moves the
   subject to plan-scoped trash for trash-resolve, and writes a receipt with verification (NGX-483)
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
+- `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
+  browser-write capability token, the append-only event log (events plus agent replies), and
+  immutable fingerprinted approval snapshots. This is the v1 handoff layer where the browser
+  records decisions and the agent executes existing approval-gated paths, so it never runs a
+  mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped optionally
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
-- `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, and registry-adjacent
-  domain contracts
+- `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, UI session/event/approval,
+  and registry-adjacent domain contracts
 
 ### `adapters/`
 

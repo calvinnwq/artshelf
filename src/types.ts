@@ -318,3 +318,130 @@ export type DisposeExecution = {
   executedAt: string;
   result: DisposeResult;
 };
+
+// === Artshelf UI session (NGX-531, Artshelf UI v1 contract slice 1) ===
+
+// The review surface scope. "user" is the default global, working-directory-agnostic
+// review across registered ledgers; "repo" narrows the session - and its on-disk
+// storage location - to the current repository's `.artshelf/ui` tree.
+export type UiSessionScope = "user" | "repo";
+
+// Lifecycle of a UI review session. "active" accepts browser event writes (gated by the
+// capability token) and agent polling; "ended" revokes the browser write capability but
+// stays readable so history/receipts survive for audit and resume.
+export type UiSessionStatus = "active" | "ended";
+
+// Durable session metadata persisted at `<ui-home>/sessions/<id>/session.json`. The
+// session is the handoff layer of the v1 contract: the browser records decisions and the
+// agent executes, so this row never holds executable authority itself - only the
+// capability token that authorizes browser event writes while the session is active.
+// The token is an unguessable, same-machine capability secret (capability protection,
+// not full account authentication), so it is stored alongside the user-owned session
+// state rather than hashed: `artshelf ui` reprints the access link with the token on
+// resume, and `validateBrowserToken` only honors it while the session stays active.
+export type UiSession = {
+  version: 1;
+  id: string; // session_<id>
+  scope: UiSessionScope;
+  status: UiSessionStatus;
+  createdAt: string;
+  updatedAt: string;
+  // ISO-8601 when the session was ended, else null while active.
+  endedAt: string | null;
+  // Explicit single-ledger target captured at start, or null for the multi-ledger
+  // default. A non-null value narrows resume matching and the (later) dashboard scope.
+  ledgerPath: string | null;
+  // Unguessable capability token gating browser event writes for this session.
+  token: string;
+};
+
+// Lifecycle of one actionable event. Browser-submitted events start `pending` and leave
+// the agent's poll queue once the agent replies with a terminal/progress status.
+export type UiEventStatus =
+  | "pending"
+  | "acknowledged"
+  | "in_progress"
+  | "completed"
+  | "rejected"
+  | "stale"
+  | "failed"
+  | "cancelled";
+
+// Event taxonomy for the durable session log. The first block is the v1 set; the second
+// block is reserved future-compatible types the contract names so the storage model does
+// not need to change to carry them later.
+export type UiEventType =
+  | "inspect_requested"
+  | "comment_added"
+  | "decision_submitted"
+  | "dry_run_requested"
+  | "approval_bundle_submitted"
+  | "session_done"
+  | "question_answered"
+  | "filter_saved"
+  | "session_note_added";
+
+// One event in the durable, append-only session log. `target` carries the exact
+// ledger/registry/record/plan identifiers the event concerns (never an ambiguous global
+// action); `payload` is the type-specific body (comment text, decision intent, bundle id,
+// dry-run request, etc.). `source` records who wrote the event so the agent's poll queue
+// can distinguish browser-submitted work from its own bookkeeping. Replies the agent
+// appends reference this event by id and advance its status; the event row's own
+// `status`/`updatedAt` reflect the latest reply when read back.
+export type UiEvent = {
+  id: string; // event_<id>
+  sessionId: string; // session_<id>
+  type: UiEventType;
+  status: UiEventStatus;
+  source: "browser" | "agent";
+  createdAt: string;
+  updatedAt: string;
+  target: Record<string, unknown>;
+  payload: Record<string, unknown>;
+};
+
+// An agent reply appended to the session log. A reply advances exactly one event's status
+// (acknowledged/in_progress/completed/rejected/stale/failed/cancelled) and carries the
+// agent's result, receipt, validation failure, question, or status note in `payload`. The
+// log stays append-only - replies are never rewritten into the event row on disk - so the
+// full receipt/decision trail survives reload, restart, and resume.
+export type UiReply = {
+  id: string; // reply_<id>
+  sessionId: string; // session_<id>
+  eventId: string; // event_<id> this reply advances
+  status: UiEventStatus;
+  createdAt: string;
+  payload: Record<string, unknown>;
+};
+
+// One exact target inside an approval snapshot. Cross-ledger action is always a bundle of
+// exact per-target actions, so every target carries its own ledger/registry/record/plan
+// context plus the human-facing label shown at approval time - never a global execute.
+export type UiApprovalTarget = {
+  targetId: string;
+  ledgerPath: string;
+  registryPath: string | null;
+  recordPath: string | null;
+  planId: string | null;
+  actionType: string;
+  // Row-level human label shown at approval time.
+  label: string;
+};
+
+// Immutable reviewed approval snapshot persisted at
+// `<ui-home>/sessions/<id>/bundles/<bundle-id>.json`. Slice 1 only defines the storage
+// model and fingerprint; the full review/execute flow lands in later slices. The
+// `fingerprint` is a deterministic digest over the selected targets and key reviewed
+// facts so a later agent can detect drift and refuse a stale or tampered bundle before
+// executing any exact target.
+export type UiApprovalSnapshot = {
+  id: string; // bundle_<id>
+  sessionId: string; // session_<id>
+  createdAt: string;
+  actionType: string;
+  targets: UiApprovalTarget[];
+  // Reviewed snapshot of the key plan facts captured at approval time.
+  reviewed: Record<string, unknown>;
+  // Deterministic fingerprint over `targets` + `reviewed`.
+  fingerprint: string;
+};
