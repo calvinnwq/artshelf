@@ -437,8 +437,9 @@ Rules:
 - `artshelf ui` defaults to user-level, multi-ledger review and stores the session under `~/.artshelf/ui` unless an explicit UI home override is set.
 - `--scope repo` anchors the session home at the current repository's `.artshelf/ui` tree, and `--ledger <path>` narrows the session target while keeping the same session model.
 - Starting an active session for the same scope and ledger target resumes it instead of creating a duplicate.
+- `artshelf ui --json` returns the session token separately from the public session view; the token is a same-machine browser-write capability and must be treated as secret.
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
-- `ui reply` appends an agent reply for one event with a known status and an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
+- `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes while keeping the session readable for audit.
 - `ARTSHELF_UI_URL` may provide a trusted review UI base URL for printed links; when unset, the command prints a host-local instruction instead of inventing a localhost URL.
 

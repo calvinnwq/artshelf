@@ -51,7 +51,7 @@ src/
   session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
-  types.ts            ledger and cleanup domain contracts
+  types.ts            ledger, cleanup, disposal, reconcile, registry, and UI contracts
   adapters/           npm/process/update infrastructure edges
   renderers/          human, --json, and --agent output formatting helpers
   config/             env, package metadata, defaults, and path normalization
@@ -59,7 +59,7 @@ src/
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
-(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
+(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
 the existing core/domain modules for this closeout. A future issue may move them under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
 
@@ -165,8 +165,7 @@ Render modes:
 ### `config/`
 
 Config modules normalize env vars, package metadata, defaults, and paths. They
-keep compatibility behavior clear, especially for `ARTSHELF_*` env vars,
-repo-local storage, user-global storage, update TTLs, and npm registry URLs.
+keep compatibility behavior clear, especially for `ARTSHELF_*` env vars, repo-local storage, user-global storage, UI session storage, trusted UI URLs, update TTLs, and npm registry URLs.
 
 ### `shared/`
 
@@ -227,6 +226,7 @@ Artshelf's public contract is safety-first:
   ledgers still route to a manual re-register/fix.
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, and `list`
   remain read-only surfaces.
+- `ui` remains session-only: it may create session metadata, append browser events or agent replies, write approval snapshots, and end sessions, but it must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions itself.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
   update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.
@@ -240,7 +240,7 @@ Artshelf's public contract is safety-first:
 - `CONTRIBUTING.md` links this contract for humans
 - `src/cli.ts` stays within a thin-entrypoint line/function budget and does not
   import ledger/registry, adapters, or renderers directly
-- the public command surface, including `validate`, is documented in this file,
+- the public command surface, including `validate` and `ui`, is documented in this file,
   appears in `src/shared/help-text.ts` top-level help, and is dispatched by
   `src/commands/index.ts`
 - help text routing/rendering stays in `src/shared/help-text.ts`, not in

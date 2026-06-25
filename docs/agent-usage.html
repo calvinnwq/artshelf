@@ -132,6 +132,11 @@
               <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
               There is no browser-direct mutation path.
             </p>
+            <p>
+              Treat the session token printed by <code>artshelf ui</code> as a secret
+              same-machine browser-write capability; ending the session revokes future
+              browser writes while keeping the audit trail readable.
+            </p>
           </section>
 
           <section>

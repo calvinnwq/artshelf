@@ -230,8 +230,10 @@ directory so the renderer, schema, and examples travel together.
 
 The `artshelf ui` command family opens a durable review session for an agent-mediated browser loop.
 It defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
+Set `ARTSHELF_UI_HOME` only for tests or controlled hosts that need to move that durable session home.
 The browser side records decisions into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
 There is no browser-direct mutation path.
+The session token printed by `artshelf ui` is a same-machine browser-write capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes while keeping the audit trail.
 Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; otherwise the command prints a host-local instruction instead of a dead localhost link.
 </details>
 

@@ -89,6 +89,7 @@ requires `--inspect`.
 It defaults to user-level, multi-ledger review and stores session state under `~/.artshelf/ui`; use `--scope repo` or `--ledger <path>` when the review needs a narrower target.
 The browser records decisions, the agent polls with `artshelf ui poll <session-id> --json`, runs existing approval-gated commands only after exact human approval, replies with `artshelf ui reply`, and closes with `artshelf ui end`.
 There is no browser-direct mutation path.
+Treat the session token printed by `artshelf ui` as a secret same-machine browser-write capability; ending the session revokes future browser writes while keeping the audit trail readable.
 
 ## Portable Skill
 

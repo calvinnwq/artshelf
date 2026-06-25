@@ -195,9 +195,18 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
             <p>
               The browser records decisions; the agent polls pending events, runs existing
               approval-gated commands after human approval, and replies with receipts or notes.
+              <code>ui reply</code> accepts <code>acknowledged</code>,
+              <code>in_progress</code>, <code>completed</code>, <code>rejected</code>,
+              <code>stale</code>, <code>failed</code>, or <code>cancelled</code> status values,
+              and <code>--payload</code> must be a JSON object when present.
               <code>ui end</code> revokes future browser writes while keeping the session readable
               for audit. There is no browser-direct cleanup, dispose, reconcile, registry-prune,
               resolve, or purge path.
+            </p>
+            <p>
+              The session token printed by <code>artshelf ui</code> is a same-machine
+              browser-write capability. Treat it as secret and end the session to revoke
+              future browser writes.
             </p>
           </section>
 
@@ -389,7 +398,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><td>ARTSHELF_NPM_REGISTRY_URL</td><td>override the npm latest-version endpoint</td></tr>
               <tr><td>ARTSHELF_UPDATE_DRY_RUN=1</td><td>print the npm update command without running it</td></tr>
               <tr><td>ARTSHELF_LATEST_VERSION</td><td>override the latest-version value for tests</td></tr>
-              <tr><td>ARTSHELF_UI_HOME</td><td>override the durable UI session home for tests or controlled hosts</td></tr>
+              <tr><td>ARTSHELF_UI_HOME</td><td>override the durable UI session home for tests or controlled hosts; legacy <code>SHELF_UI_HOME</code> is a fallback only when unset</td></tr>
               <tr><td>ARTSHELF_UI_URL</td><td>trusted base URL printed by <code>artshelf ui</code> for review links</td></tr>
             </table>
           </section>

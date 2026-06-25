@@ -112,7 +112,7 @@ for full audit/API payloads, custom rendering, or debugging. On `get`, `--agent`
 
 For browser review sessions, use `artshelf ui`, `ui poll`, `ui reply`, and
 `ui end`; there is no browser-direct mutation path, so agents still execute only existing approval-gated commands after exact human approval.
-
+Treat the session token printed by `artshelf ui` as a secret same-machine browser-write capability; `ui end` revokes future browser writes while preserving the audit trail.
 Register existing project ledgers explicitly:
 
 ```bash

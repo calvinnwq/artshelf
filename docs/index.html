@@ -130,6 +130,10 @@ artshelf review --json</code></pre>
                 <span class="stamp readonly">Read-only</span>
                 <span><code>review</code>, <code>status</code>, and <code>doctor</code> never write plans, receipts, or records.</span>
               </li>
+              <li>
+                <span class="stamp readonly">Session-only</span>
+                <span><code>artshelf ui</code> stores review sessions and agent replies, but the browser never gets a direct cleanup, dispose, reconcile, registry-prune, resolve, or purge path.</span>
+              </li>
             </ul>
           </section>
 
