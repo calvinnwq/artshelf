@@ -122,8 +122,7 @@ export function normalizeLedgerPath(path?: string): string {
 
 export function putRecord(ledgerPath: string, input: PutInput): ArtshelfRecord {
   const record = prepareRecord(input, ledgerPath);
-  appendPreparedRecord(ledgerPath, record);
-  return record;
+  return appendPreparedRecord(ledgerPath, record);
 }
 
 export function prepareRecord(input: PutInput, ledgerPath: string): ArtshelfRecord {
@@ -163,8 +162,8 @@ export function prepareRecord(input: PutInput, ledgerPath: string): ArtshelfReco
   return record;
 }
 
-export function appendPreparedRecord(ledgerPath: string, record: ArtshelfRecord): void {
-  appendRecord(ledgerPath, record);
+export function appendPreparedRecord(ledgerPath: string, record: ArtshelfRecord): ArtshelfRecord {
+  return appendRecord(ledgerPath, record);
 }
 
 export function readLedger(ledgerPath: string): ArtshelfRecord[] {
@@ -997,12 +996,28 @@ function atomicWriteFileSync(targetPath: string, content: string): void {
   renameSync(tmpPath, targetPath);
 }
 
-function appendRecord(ledgerPath: string, record: ArtshelfRecord): void {
-  withLedgerLock(ledgerPath, () => {
+function appendRecord(ledgerPath: string, record: ArtshelfRecord): ArtshelfRecord {
+  return withLedgerLock(ledgerPath, () => {
     mkdirSync(dirname(ledgerPath), { recursive: true });
     const previous = existsSync(ledgerPath) ? readFileSync(ledgerPath, "utf8") : "";
-    atomicWriteFileSync(ledgerPath, `${previous}${previous && !previous.endsWith("\n") ? "\n" : ""}${JSON.stringify(record)}\n`);
+    const existing = previous.trim() ? readLedger(ledgerPath) : [];
+    const appended = withUniqueRecordId(record, existing);
+    atomicWriteFileSync(ledgerPath, `${previous}${previous && !previous.endsWith("\n") ? "\n" : ""}${JSON.stringify(appended)}\n`);
+    return appended;
   });
+}
+
+function withUniqueRecordId(record: ArtshelfRecord, existing: ArtshelfRecord[]): ArtshelfRecord {
+  const ids = new Set(existing.map((entry) => entry.id));
+  if (!ids.has(record.id)) return record;
+
+  const createdAt = new Date(record.createdAt);
+  const seed = Number.isNaN(createdAt.getTime()) ? now() : createdAt;
+  for (let attempt = 0; attempt < 1000; attempt++) {
+    const candidate = { ...record, id: makeId(seed) };
+    if (!ids.has(candidate.id)) return candidate;
+  }
+  throw new Error("Unable to allocate a unique Artshelf record id");
 }
 
 // Exported so the reconcile execute layer (src/reconcile.ts) persists its mutated

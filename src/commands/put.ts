@@ -9,7 +9,7 @@ export function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean)
   const path = parsed.positionals[0];
   if (!path) throw new Error("put requires <path>");
 
-  const record = prepareRecord({
+  const prepared = prepareRecord({
     path,
     reason: requiredStringFlag(parsed, "reason"),
     ttl: stringFlag(parsed, "ttl"),
@@ -21,7 +21,7 @@ export function handlePut(parsed: ParsedArgs, ledgerPath: string, json: boolean)
     labels: arrayFlag(parsed, "label")
   }, ledgerPath);
   const registryPath = normalizeRegistryPath(stringFlag(parsed, "registry"));
-  appendPreparedRecord(ledgerPath, record);
+  const record = appendPreparedRecord(ledgerPath, prepared);
   let ledger: LedgerRegistryEntry | undefined;
   let registryError: string | undefined;
   try {
