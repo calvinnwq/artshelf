@@ -40,6 +40,7 @@ Available Commands:
   (start)     Start or resume a browser review session (default, no subcommand)
   dashboard   Show the read-only multi-ledger review dashboard
   detail      Show the read-only artifact detail drawer for one record
+  serve       Serve the read-only dashboard and drawers in a local browser
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
   end         End the session and revoke browser event writes
@@ -107,7 +108,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["dashboard", "detail", "poll", "reply", "end"])]
+  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -509,6 +510,23 @@ status, original reason, created age and review due reason, retention and cleanu
 policy, provenance, audit trail, existence facts, the get --inspect decision card,
 the needs-context badge, and the last action with its receipt. It is read-only and
 never reads or previews file contents.
+`;
+  }
+
+  if (command === "ui serve") {
+    return `Usage:
+  artshelf ui serve [--port <port>] [--registry <path>] [--ledger <path>]
+
+Options:
+  --port <port>            Loopback port to bind (default: an ephemeral free port)
+  --registry <path>        Registry whose ledgers the dashboard aggregates
+  --ledger <path>          Fallback ledger for detail drawers opened without a target
+
+Serve hosts the read-only review dashboard and artifact detail drawers as a local
+browser surface. It binds to loopback (127.0.0.1) only, never a wildcard interface,
+and recomputes live state on every request. The pages carry no script, embed no file
+contents, and expose no mutation path - the browser only displays state. The process
+runs in the foreground; press Ctrl-C to stop it.
 `;
   }
 

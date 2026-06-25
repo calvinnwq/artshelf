@@ -18,6 +18,8 @@ import type { ParsedArgs } from "../shared/cli-types.js";
 import { requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { UI_HELP } from "../shared/help-text.js";
 import type { UiEvent, UiSession, UiSessionScope } from "../types.js";
+import type { StartUiServerOptions, UiServerHandle } from "../ui-server.js";
+import { startUiServer } from "../ui-server.js";
 
 // AXI-style command surface for the Artshelf UI v1 review session (NGX-532). This is the agent's
 // side of the v1 boundary: `ui` starts or resumes a durable review session, and the poll/reply/end
@@ -27,7 +29,7 @@ import type { UiEvent, UiSession, UiSessionScope } from "../types.js";
 // records decisions through the durable session layer; this command never executes a mutating
 // workflow, never reads or previews file contents, and exposes no browser-direct mutation path.
 // Output defaults to a human summary; `--json` emits a compact single-line packet for agents.
-export function handleUi(parsed: ParsedArgs, json: boolean): number {
+export async function handleUi(parsed: ParsedArgs, json: boolean): Promise<number> {
   const sub = parsed.positionals[0];
   if (sub === "help") {
     process.stdout.write(UI_HELP);
@@ -35,11 +37,12 @@ export function handleUi(parsed: ParsedArgs, json: boolean): number {
   }
   if (sub === "dashboard") return handleUiDashboard(parsed, json);
   if (sub === "detail") return handleUiDetail(parsed, json);
+  if (sub === "serve") return handleUiServe(parsed, json);
   if (sub === "poll") return handleUiPoll(parsed, json);
   if (sub === "reply") return handleUiReply(parsed, json);
   if (sub === "end") return handleUiEnd(parsed, json);
   if (sub === undefined) return handleUiStart(parsed, json);
-  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, poll, reply, or end)`);
+  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, poll, reply, or end)`);
 }
 
 // `artshelf ui [--scope user|repo] [--ledger <path>] [--json]` - start or resume the session for
@@ -210,6 +213,45 @@ function handleUiDetail(parsed: ParsedArgs, json: boolean): number {
   process.stdout.write(field("last action", lastActionLabel(detail.lastAction)));
   process.stdout.write(field("next", inspect.nextAction));
   return 0;
+}
+
+// `artshelf ui serve [--port <port>] [--registry <path>] [--ledger <path>]` - host the read-only
+// dashboard (NGX-535) and artifact detail drawers (NGX-536) as a local browser surface. It binds
+// to loopback only, recomputes live state per request, and never mutates state or reads file
+// contents. The process runs in the foreground until interrupted, so this is the one `ui`
+// subcommand that does not return immediately.
+async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number> {
+  const options: StartUiServerOptions = {};
+  const portRaw = stringFlag(parsed, "port");
+  if (portRaw !== undefined) {
+    const port = Number(portRaw);
+    if (!Number.isInteger(port) || port < 0 || port > 65535) {
+      throw new Error(`Invalid --port "${portRaw}"; expected an integer between 0 and 65535`);
+    }
+    options.port = port;
+  }
+  const registryPath = stringFlag(parsed, "registry");
+  if (registryPath !== undefined) options.registryPath = registryPath;
+  const ledgerPath = stringFlag(parsed, "ledger");
+  if (ledgerPath !== undefined) options.ledgerPath = ledgerPath;
+
+  const handle = await startUiServer(options);
+  if (json) {
+    printCompactJson({ ok: true, command: "ui-serve", url: handle.url, host: handle.host, port: handle.port });
+  } else {
+    process.stdout.write(`artshelf ui serve: read-only review dashboard on ${handle.url}\n`);
+    process.stdout.write(`open ${handle.url} in a browser on this machine; press Ctrl-C to stop.\n`);
+  }
+  // Keep the foreground process alive while the loopback server runs. SIGINT/SIGTERM terminate it;
+  // nothing in this read-only surface needs a graceful flush.
+  await waitForServerClose(handle);
+  return 0;
+}
+
+function waitForServerClose(handle: UiServerHandle): Promise<void> {
+  return new Promise<void>((resolve) => {
+    handle.server.once("close", () => resolve());
+  });
 }
 
 // Display order for the eight dashboard lanes, matching the UI v1 contract bucket order.

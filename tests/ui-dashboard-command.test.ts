@@ -257,7 +257,7 @@ test("artshelf ui detail requires a record id", () => {
 test("artshelf ui help and nested help cover the dashboard and detail read surface", () => {
   const family = run(["ui", "--help"]);
   assert.equal(family.status, 0, family.stderr);
-  for (const sub of ["dashboard", "detail", "poll", "reply", "end"]) {
+  for (const sub of ["dashboard", "detail", "serve", "poll", "reply", "end"]) {
     assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
   }
 
@@ -270,4 +270,13 @@ test("artshelf ui help and nested help cover the dashboard and detail read surfa
   assert.equal(detail.status, 0, detail.stderr);
   assert.match(detail.stdout, /artshelf ui detail/);
   assert.match(detail.stdout, /<record-id>|&lt;record-id&gt;/);
+});
+
+test("artshelf ui serve help documents the read-only loopback browser launch", () => {
+  const serve = run(["help", "ui", "serve"]);
+  assert.equal(serve.status, 0, serve.stderr);
+  assert.match(serve.stdout, /artshelf ui serve/);
+  assert.match(serve.stdout, /read-only/i);
+  assert.match(serve.stdout, /loopback|127\.0\.0\.1/);
+  assert.doesNotMatch(serve.stdout, /Available Commands:/);
 });
