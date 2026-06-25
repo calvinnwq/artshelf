@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -90,6 +90,31 @@ function childAppendEvent(home: string, sessionId: string, text: string): Return
   });
 }
 
+function childPollPendingEvents(home: string, sessionId: string, markerPath: string): ReturnType<typeof spawn> {
+  const script = `
+    import { writeFileSync } from "node:fs";
+    import { pollPendingEvents } from ${JSON.stringify(SESSION_MODULE.href)};
+    try {
+      const events = pollPendingEvents(process.env.ARTSHELF_TEST_UI_HOME, process.env.ARTSHELF_TEST_SESSION_ID);
+      if (events.length > 0) writeFileSync(process.env.ARTSHELF_TEST_MARKER, "pending");
+      process.stdout.write(JSON.stringify({ ok: true, pending: events.length }));
+    } catch (error) {
+      process.stderr.write((error && error.message) || String(error));
+      process.exit(7);
+    }
+  `;
+  return spawn(process.execPath, ["--input-type=module", "-e", script], {
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      ARTSHELF_TEST_UI_HOME: home,
+      ARTSHELF_TEST_SESSION_ID: sessionId,
+      ARTSHELF_TEST_MARKER: markerPath
+    },
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+}
+
 function childResult(child: ReturnType<typeof spawn>): Promise<{ status: number; stdout: string; stderr: string }> {
   let stdout = "";
   let stderr = "";
@@ -163,13 +188,24 @@ test("session storage uses owner-only directory and token file permissions", () 
   }
 
   const sessionDir = join(home, "sessions", session.id);
-  assert.equal(statSync(home).mode & 0o777, 0o700);
   assert.equal(statSync(join(home, "sessions")).mode & 0o777, 0o700);
   assert.equal(statSync(sessionDir).mode & 0o777, 0o700);
   assert.equal(statSync(join(sessionDir, "bundles")).mode & 0o777, 0o700);
   assert.equal(statSync(join(sessionDir, "session.json")).mode & 0o777, 0o600);
   assert.equal(statSync(join(sessionDir, "events.jsonl")).mode & 0o777, 0o600);
   assert.equal(statSync(join(sessionDir, "bundles", `${bundleId}.json`)).mode & 0o777, 0o600);
+});
+
+test("session storage does not chmod an existing configured UI home", () => {
+  const home = freshHome();
+  mkdirSync(home, { recursive: true });
+  chmodSync(home, 0o755);
+
+  const session = startUserSession(home);
+
+  assert.equal(statSync(home).mode & 0o777, 0o755);
+  assert.equal(statSync(join(home, "sessions")).mode & 0o777, 0o700);
+  assert.equal(statSync(join(home, "sessions", session.id)).mode & 0o777, 0o700);
 });
 
 test("startOrResumeSession resumes the active session instead of creating a second one", () => {
@@ -400,6 +436,29 @@ test("appendEvent serializes browser writes against session end", async () => {
   assert.match(result.stderr, /ended/i);
   const log = existsSync(eventsPath) ? readFileSync(eventsPath, "utf8") : "";
   assert.doesNotMatch(log, new RegExp(blockedText));
+});
+
+test("pollPendingEvents serializes pending queue reads against session end", async () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  appendEvent(home, session.id, { type: "comment_added", payload: { text: "review me before close" } });
+  const sessionPath = join(home, "sessions", session.id, "session.json");
+  const markerPath = join(home, "sessions", session.id, "poll-marker");
+  let child: ReturnType<typeof spawn> | null = null;
+  let polledBeforeEnd = false;
+
+  withPathLock(sessionPath, () => {
+    child = childPollPendingEvents(home, session.id, markerPath);
+    polledBeforeEnd = waitUntil(() => existsSync(markerPath), 500);
+    if (!polledBeforeEnd) endSession(home, session.id);
+  });
+
+  assert.ok(child);
+  const result = await childResult(child);
+  assert.equal(polledBeforeEnd, false, "poll must not return pending events while the session lock is held");
+  assert.equal(result.status, 0);
+  assert.deepEqual(JSON.parse(result.stdout), { ok: true, pending: 0 });
+  assert.equal(existsSync(markerPath), false);
 });
 
 test("replyToEvent advances event status, clears it from the poll queue, and is durable", () => {

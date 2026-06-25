@@ -271,9 +271,12 @@ export function readSessionEvents(home: string, sessionId: string): UiEvent[] {
 
 // Compact actionable queue for agent consumption: events still awaiting an agent reply.
 export function pollPendingEvents(home: string, sessionId: string): UiEvent[] {
-  const session = readSession(home, sessionId);
-  if (session.status === "ended") return [];
-  return readSessionEvents(home, sessionId).filter((event) => event.status === "pending");
+  const path = sessionFile(home, sessionId);
+  return withUiStorageLock(home, path, () => {
+    const session = readSession(home, sessionId);
+    if (session.status === "ended") return [];
+    return readSessionEvents(home, sessionId).filter((event) => event.status === "pending");
+  });
 }
 
 // Append an agent reply that advances exactly one event's status and carries the agent's
@@ -429,13 +432,13 @@ function withUiStorageLock<T>(home: string, targetPath: string, fn: () => T): T 
 }
 
 function ensureOwnerOnlyDirectoryTree(home: string, targetPath: string): void {
-  const root = resolve(home);
+  const root = sessionsDir(home);
   const target = resolve(targetPath);
   mkdirSync(target, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
   const directories: string[] = [];
   let current = target;
   while (true) {
-    directories.push(current);
+    if (current === root || current.startsWith(`${root}/`)) directories.push(current);
     if (current === root) break;
     const parent = dirname(current);
     if (parent === current) break;
