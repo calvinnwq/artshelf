@@ -115,6 +115,30 @@
             </dl>
           </section>
 
+
+          <section>
+            <h2>UI sessions</h2>
+            <p>
+              <code>artshelf ui</code> starts or resumes a durable browser review session for
+              the agent-mediated loop. It defaults to user-level multi-ledger review and
+              stores session state under <code>~/.artshelf/ui</code>; use
+              <code>--scope repo</code> or <code>--ledger &lt;path&gt;</code> when the review
+              needs a narrower target.
+            </p>
+            <p>
+              The browser records decisions, the agent polls with
+              <code>artshelf ui poll &lt;session-id&gt; --json</code>, runs existing
+              approval-gated commands only after exact human approval, replies with
+              <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
+              There is no browser-direct mutation path.
+            </p>
+            <p>
+              Treat the session token printed by <code>artshelf ui</code> as a secret
+              same-machine browser-write capability; ending the session revokes future
+              browser writes while keeping the audit trail readable.
+            </p>
+          </section>
+
           <section>
             <h2>The mental model</h2>
             <ul class="boundary-list">

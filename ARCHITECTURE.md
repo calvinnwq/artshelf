@@ -48,9 +48,10 @@ src/
   provenance.ts       reconcile-safe path provenance capture for new records
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
+  session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
-  types.ts            ledger and cleanup domain contracts
+  types.ts            ledger, cleanup, disposal, reconcile, registry, and UI contracts
   adapters/           npm/process/update infrastructure edges
   renderers/          human, --json, and --agent output formatting helpers
   config/             env, package metadata, defaults, and path normalization
@@ -58,7 +59,7 @@ src/
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
-(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
+(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
 the existing core/domain modules for this closeout. A future issue may move them under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
 
@@ -84,6 +85,7 @@ Public commands currently routed through real command modules:
 - `dispose`
 - `reconcile`
 - `trash`
+- `ui`
 - `ledgers`
 - `doctor`
 - `status`
@@ -91,9 +93,15 @@ Public commands currently routed through real command modules:
 
 Each public command has a discoverable module named after the CLI surface:
 `put.ts`, `list.ts`, `find.ts`, `get.ts`, `resolve.ts`, `due.ts`, `validate.ts`,
-`review.ts`, `cleanup.ts`, `dispose.ts`, `reconcile.ts`, `trash.ts`, `ledgers.ts`,
-`doctor.ts`, `status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
+`review.ts`, `cleanup.ts`, `dispose.ts`, `reconcile.ts`, `trash.ts`, `ui.ts`,
+`ledgers.ts`, `doctor.ts`, `status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
 these files must contain real command-family implementation code.
+
+The `ui` command family (`artshelf ui`, `ui poll`, `ui reply`, `ui end`) is the
+agent-mediated AXI surface over `session.ts` (NGX-532): it starts or resumes a
+durable review session and runs the poll/reply/end agent loop with compact `--json`
+packets. It owns no browser-direct mutation path - the browser records decisions,
+the agent executes existing approval-gated commands and replies with receipts.
 
 ### Domain files
 
@@ -118,11 +126,16 @@ Current domain ownership:
   execute layer that re-snapshots the live subject, refuses drift/target conflicts, moves the
   subject to plan-scoped trash for trash-resolve, and writes a receipt with verification (NGX-483)
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
+- `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
+  browser-write capability token, the append-only event log (events plus agent replies), and
+  immutable fingerprinted approval snapshots. This is the v1 handoff layer where the browser
+  records decisions and the agent executes existing approval-gated paths, so it never runs a
+  mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped optionally
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
-- `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, and registry-adjacent
-  domain contracts
+- `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, UI session/event/approval,
+  and registry-adjacent domain contracts
 
 ### `adapters/`
 
@@ -152,8 +165,7 @@ Render modes:
 ### `config/`
 
 Config modules normalize env vars, package metadata, defaults, and paths. They
-keep compatibility behavior clear, especially for `ARTSHELF_*` env vars,
-repo-local storage, user-global storage, update TTLs, and npm registry URLs.
+keep compatibility behavior clear, especially for `ARTSHELF_*` env vars, repo-local storage, user-global storage, UI session storage, trusted UI URLs, update TTLs, and npm registry URLs.
 
 ### `shared/`
 
@@ -214,6 +226,7 @@ Artshelf's public contract is safety-first:
   ledgers still route to a manual re-register/fix.
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, and `list`
   remain read-only surfaces.
+- `ui` remains session-only: it may create session metadata, append browser events or agent replies, write approval snapshots, and end sessions, but it must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions itself.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
   update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.
@@ -227,7 +240,7 @@ Artshelf's public contract is safety-first:
 - `CONTRIBUTING.md` links this contract for humans
 - `src/cli.ts` stays within a thin-entrypoint line/function budget and does not
   import ledger/registry, adapters, or renderers directly
-- the public command surface, including `validate`, is documented in this file,
+- the public command surface, including `validate` and `ui`, is documented in this file,
   appears in `src/shared/help-text.ts` top-level help, and is dispatched by
   `src/commands/index.ts`
 - help text routing/rendering stays in `src/shared/help-text.ts`, not in

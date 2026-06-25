@@ -66,6 +66,7 @@ const PUBLIC_COMMANDS = [
   "review",
   "status",
   "trash",
+  "ui",
   "update",
   "validate"
 ] as const;

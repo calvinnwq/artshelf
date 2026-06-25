@@ -108,9 +108,11 @@ artshelf trash list --all --json
 skips validation. `--all` is for discovery and review, not mutation permission.
 Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` for compact decisions; use `--json`
-for full audit/API payloads,
-custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
+for full audit/API payloads, custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
 
+For browser review sessions, use `artshelf ui`, `ui poll`, `ui reply`, and
+`ui end`; there is no browser-direct mutation path, so agents still execute only existing approval-gated commands after exact human approval.
+Treat the session token printed by `artshelf ui` as a secret same-machine browser-write capability; `ui end` revokes future browser writes while preserving the audit trail.
 Register existing project ledgers explicitly:
 
 ```bash

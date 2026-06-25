@@ -15,6 +15,7 @@ import { handleResolve } from "./resolve.js";
 import { handleReview } from "./review.js";
 import { handleStatus } from "./status.js";
 import { handleTrash } from "./trash.js";
+import { handleUi } from "./ui.js";
 import { handleUpdate, maybeNotifyAvailableUpdate } from "./update.js";
 import { handleValidate } from "./validate.js";
 
@@ -69,6 +70,9 @@ export async function runCommand(parsed: ParsedArgs): Promise<CommandRunResult> 
       break;
     case "resolve":
       status = handleResolve(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
+      break;
+    case "ui":
+      status = handleUi(parsed, boolFlag(parsed, "json"));
       break;
     case "update":
       shouldCheckForUpdate = false;

@@ -419,6 +419,30 @@ not-yet-created ledger reports empty counts. Like `review` and `doctor`,
 single-line JSON decision packet (health, counts, attention categories, blockers,
 next action, and a verify command); `--agent` takes precedence over `--json`.
 
+### `artshelf ui`
+
+Starts or resumes a durable agent-mediated review session.
+The command family is the AXI-style shell for the human review UI contract: the browser records decisions in the session log, the agent polls those decisions, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
+It does not add a browser-direct mutation path.
+
+```bash
+artshelf ui [--scope user|repo] [--ledger <path>] [--json]
+artshelf ui poll <session-id> [--scope user|repo] [--json]
+artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
+artshelf ui end <session-id> [--scope user|repo] [--json]
+```
+
+Rules:
+
+- `artshelf ui` defaults to user-level, multi-ledger review and stores the session under `~/.artshelf/ui` unless an explicit UI home override is set.
+- `--scope repo` anchors the session home at the current repository's `.artshelf/ui` tree, and `--ledger <path>` narrows the session target while keeping the same session model.
+- Starting an active session for the same scope and ledger target resumes it instead of creating a duplicate.
+- `artshelf ui --json` returns the session token separately from the public session view; the token is a same-machine browser-write capability and must be treated as secret.
+- `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
+- `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
+- `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes while keeping the session readable for audit.
+- `ARTSHELF_UI_URL` may provide a trusted review UI base URL for printed links; when unset, the command prints a host-local instruction instead of inventing a localhost URL.
+
 ### `artshelf update`
 
 Checks the latest published npm version and, for npm global installs, updates the
@@ -450,6 +474,8 @@ Rules:
   (falling back to `ARTSHELF_UPDATE_CHECK_TTL_MS` for compatibility), and
   `ARTSHELF_NPM_REGISTRY_URL` overrides the npm latest-version endpoint.
 - `ARTSHELF_LATEST_VERSION` overrides the discovered latest version for tests.
+- `ARTSHELF_UI_HOME` overrides the durable UI session home for tests or controlled hosts; legacy `SHELF_UI_HOME` is read only when it is unset.
+- `ARTSHELF_UI_URL` sets the trusted base URL printed by `artshelf ui` for browser review links.
 - `ARTSHELF_UPDATE_DRY_RUN=1` makes `artshelf update` report the npm command it
   would run without invoking npm.
 - `artshelf update` forces a fresh latest-version check and does not run the
@@ -736,6 +762,35 @@ Execute rules:
   labels including `artshelf`, `dispose-receipt`, and the plan id).
 - There is no fresh-plan-then-execute, no global execute, no daemon, and no
   physical deletion.
+
+
+## UI Session Storage
+
+The Artshelf UI session model is durable user-level storage by default, separate from ledger records and cleanup plans.
+It is a handoff contract for review state, not an execution engine.
+
+Default layout:
+
+- user scope: `~/.artshelf/ui`
+- repo scope: `<repo>/.artshelf/ui`
+- override for tests or controlled hosts: `ARTSHELF_UI_HOME` (legacy `SHELF_UI_HOME` is still read as a fallback)
+
+Per-session layout under the resolved UI home:
+
+```text
+sessions/<session-id>/session.json
+sessions/<session-id>/events.jsonl
+sessions/<session-id>/bundles/<bundle-id>.json
+```
+
+`session.json` stores versioned metadata, the scope, lifecycle status, timestamps, optional ledger path, and the same-machine browser capability token.
+The token authorizes browser event writes only while the session is active; ending the session revokes writes without deleting audit history.
+`events.jsonl` is append-only and stores browser events plus agent replies as separate log lines, with read-side projection folding replies into the current event status.
+Approval snapshots under `bundles/` are immutable JSON documents with exact per-target ledger or registry context and a deterministic fingerprint over the selected targets and reviewed facts.
+A later executor can use that fingerprint to detect drift or tampering before running an approval-gated command.
+
+The storage layer must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions.
+Those remain existing explicit CLI paths that require the same reviewed plan ids and approval wording as the non-UI flow.
 
 ## Ledger Storage
 
@@ -1118,6 +1173,13 @@ for later human review.
   a chat; status never creates plans, receipts, or records.
 - CLI can check for npm package updates, print non-blocking stderr notices, and
   update npm global installs through `artshelf update`.
+- CLI can define and persist durable UI review sessions with metadata, browser
+  capability tokens, append-only events, agent replies, and immutable approval
+  snapshots, defaulting to user-level multi-ledger review with optional repo or
+  ledger scoping.
+- CLI can run the AXI-style `artshelf ui` command family: start/resume a session,
+  poll pending browser events, reply with agent receipts or notes, and end the
+  session without adding a browser-direct mutation path.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf
@@ -1148,7 +1210,8 @@ for later human review.
   the reconcile audit trail and receipt.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
-- All core commands support `--json`.
+- All core commands support `--json`; the `artshelf ui` family uses compact
+  single-line JSON packets for the session loop.
 - `review`, `status`, `doctor`, `ledgers prune --dry-run`, `dispose --dry-run`,
   and `get --inspect` also support `--agent`, a compact single-line JSON decision
   packet for agents that takes precedence over `--json`.
@@ -1156,7 +1219,8 @@ for later human review.
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent
   ledger writes, trash list/purge, path provenance validation, registry-prune,
-  reconcile dry-run/execute, and dispose dry-run/execute behavior.
+  reconcile dry-run/execute, dispose dry-run/execute, and UI session/command
+  behavior.
 
 ## Deferred
 

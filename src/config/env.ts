@@ -4,6 +4,16 @@ export function latestVersionOverride(env: ArtshelfEnv = process.env): string | 
   return env.ARTSHELF_LATEST_VERSION;
 }
 
+// Optional configured trusted base URL for Artshelf UI review links (Artshelf UI v1 contract).
+// When set, `artshelf ui` surfaces a capability-protected remote link agents can post to their
+// own channel; when unset, the command states the dashboard must be opened on the host machine
+// rather than emitting a dead localhost link. Trailing slashes are trimmed for clean joins.
+export function uiLinkBaseUrl(env: ArtshelfEnv = process.env): string | null {
+  const raw = (env.ARTSHELF_UI_URL ?? "").trim();
+  if (!raw) return null;
+  return raw.replace(/\/+$/, "");
+}
+
 export function npmRegistryUrlFromEnv(packageName: string, env: ArtshelfEnv = process.env): string {
   return env.ARTSHELF_NPM_REGISTRY_URL ?? `https://registry.npmjs.org/${packageName}/latest`;
 }

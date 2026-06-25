@@ -5,6 +5,7 @@ const COMMAND_BOOLEAN_FLAGS = new Map<string, ReadonlySet<string>>([["get", new 
 export const VALUE_FLAGS = new Set([
   "cleanup",
   "action",
+  "event",
   "id",
   "kind",
   "label",
@@ -12,6 +13,7 @@ export const VALUE_FLAGS = new Set([
   "name",
   "owner",
   "path",
+  "payload",
   "plan-id",
   "older-than",
   "registry",

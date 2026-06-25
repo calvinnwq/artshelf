@@ -31,6 +31,27 @@ Flags:
 Use "artshelf trash <command> --help" for more information about a command.
 `;
 
+export const UI_HELP = `Start and drive an agent-mediated Artshelf review session.
+
+Usage:
+  artshelf ui [command]
+
+Available Commands:
+  (start)   Start or resume a browser review session (default, no subcommand)
+  poll      Return pending actionable events for the agent
+  reply     Append an agent receipt/result/note and advance one event
+  end       End the session and revoke browser event writes
+
+Flags:
+  -h, --help   help for ui
+
+The browser records review decisions; the agent polls them, executes existing
+approval-gated paths, and replies with receipts. There is no browser-direct
+mutation path. Defaults to user-level, multi-ledger review.
+
+Use "artshelf ui <command> --help" for more information about a command.
+`;
+
 type HelpGroupName = "Create" | "Inspect" | "Review" | "Clean" | "System";
 
 const COMMAND_GROUPS: ReadonlyArray<{
@@ -55,7 +76,8 @@ const COMMAND_GROUPS: ReadonlyArray<{
     group: "Review",
     commands: [
       { name: "validate", summary: "Check ledger shape and report warnings" },
-      { name: "review", summary: "Preview validate, due, and cleanup plans (read-only)" }
+      { name: "review", summary: "Preview validate, due, and cleanup plans (read-only)" },
+      { name: "ui", summary: "Start or drive an agent-mediated browser review session" }
     ]
   },
   {
@@ -80,7 +102,8 @@ const COMMAND_GROUPS: ReadonlyArray<{
 
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
-  ["ledgers", new Set(["list", "add", "prune"])]
+  ["ledgers", new Set(["list", "add", "prune"])],
+  ["ui", new Set(["poll", "reply", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -178,6 +201,7 @@ Global --all mode is dry-run only.
 
   if (command === "trash") return TRASH_HELP;
   if (command === "ledgers") return LEDGERS_HELP;
+  if (command === "ui") return UI_HELP;
 
   if (command === "list") {
     return `Usage:
@@ -445,6 +469,52 @@ whose ledger file reappeared or whose path became an ambiguous duplicate are
 skipped). It writes a rollback copy of the registry before mutating and a receipt
 after, both discoverable next to the registry under registry-prune-rollbacks/ and
 registry-prune-receipts/.
+`;
+  }
+
+  if (command === "ui poll") {
+    return `Usage:
+  artshelf ui poll <session-id> [--scope user|repo] [--json]
+
+Options:
+  --scope <scope>          Locate the session in user (default) or repo scope
+  --json                   Emit a compact single-line agent packet
+
+Poll returns the session's pending actionable events for the agent without
+dumping the full dashboard. It is read-only; an ended session still polls (with
+nothing pending) so the receipt and decision trail survive restart and resume.
+`;
+  }
+
+  if (command === "ui reply") {
+    return `Usage:
+  artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
+
+Options:
+  --event <event-id>       The pending event this reply advances
+  --status <status>        New event status: acknowledged, in_progress,
+                           completed, rejected, stale, failed, or cancelled
+  --payload <json>         Optional JSON object body (receipt, result, or note)
+  --scope <scope>          Locate the session in user (default) or repo scope
+  --json                   Emit a compact single-line agent packet
+
+Reply appends an agent receipt, result, validation failure, question, or status
+note and advances exactly one event. The browser records decisions; the agent
+replies after running existing approval-gated paths. There is no browser-direct
+execution path.
+`;
+  }
+
+  if (command === "ui end") {
+    return `Usage:
+  artshelf ui end <session-id> [--scope user|repo] [--json]
+
+Options:
+  --scope <scope>          Locate the session in user (default) or repo scope
+  --json                   Emit a compact single-line agent packet
+
+End closes the session and revokes browser event writes for it. The session
+stays readable so its receipt and decision trail survive for audit and resume.
 `;
   }
 
