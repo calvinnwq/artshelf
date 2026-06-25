@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { ArtshelfEnv } from "./config/env.js";
@@ -94,6 +94,8 @@ const UI_ID_PATTERNS: Record<"session" | "event" | "reply" | "bundle", RegExp> =
   reply: /^reply_\d{8}_\d{6}_[0-9a-f]{8}$/,
   bundle: /^bundle_\d{8}_\d{6}_[0-9a-f]{8}$/
 };
+const OWNER_ONLY_DIRECTORY_MODE = 0o700;
+const OWNER_ONLY_FILE_MODE = 0o600;
 
 export function isUiEventStatus(value: string): value is UiEventStatus {
   return Object.prototype.hasOwnProperty.call(UI_EVENT_STATUS_SET, value);
@@ -124,7 +126,8 @@ export function resolveUiHome(input: ResolveUiHomeInput = {}): string {
 export function startOrResumeSession(input: StartSessionInput): UiSession {
   const home = input.home;
   const ledgerPath = input.ledgerPath ? resolve(input.ledgerPath) : null;
-  return withPathLock(join(sessionsDir(home), "create"), () => {
+  const lockPath = join(sessionsDir(home), "create");
+  return withUiStorageLock(home, lockPath, () => {
     const existing = listSessions(home)
       .filter((session) => session.status === "active" && session.scope === input.scope && session.ledgerPath === ledgerPath)
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
@@ -182,7 +185,8 @@ export function readSession(home: string, sessionId: string): UiSession {
 // End a session: revoke the browser write capability and record a session_done event in the
 // durable log for audit. Idempotent - ending an already-ended session is a no-op read.
 export function endSession(home: string, sessionId: string): UiSession {
-  return withPathLock(sessionFile(home, sessionId), () => {
+  const path = sessionFile(home, sessionId);
+  return withUiStorageLock(home, path, () => {
     const session = readSession(home, sessionId);
     if (session.status === "ended") return session;
 
@@ -209,7 +213,8 @@ export function validateBrowserToken(session: UiSession, token: string): boolean
 // Append an event to the durable log. Browser writes are refused once the session has ended;
 // agent-sourced bookkeeping is always allowed. Defaults: source browser, status pending.
 export function appendEvent(home: string, sessionId: string, input: AppendEventInput): UiEvent {
-  return withPathLock(sessionFile(home, sessionId), () => {
+  const path = sessionFile(home, sessionId);
+  return withUiStorageLock(home, path, () => {
     const session = readSession(home, sessionId);
     const source = input.source ?? "browser";
     if (source === "browser" && session.status !== "active") {
@@ -298,8 +303,8 @@ export function writeApprovalSnapshot(home: string, sessionId: string, input: Ap
     fingerprint: approvalSnapshotFingerprint(input.targets, reviewed)
   };
   const path = bundleFile(home, sessionId, snapshot.id);
-  withPathLock(path, () => {
-    mkdirSync(dirname(path), { recursive: true });
+  withUiStorageLock(home, path, () => {
+    ensureOwnerOnlyDirectoryTree(home, dirname(path));
     atomicWriteFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`);
   });
   return snapshot;
@@ -338,7 +343,8 @@ function buildEvent(sessionId: string, input: AppendEventInput, createdAt: strin
 }
 
 function touchSession(home: string, sessionId: string, when: string): void {
-  withPathLock(sessionFile(home, sessionId), () => {
+  const path = sessionFile(home, sessionId);
+  withUiStorageLock(home, path, () => {
     const session = readSession(home, sessionId);
     writeSession(home, { ...session, updatedAt: when });
   });
@@ -346,18 +352,41 @@ function touchSession(home: string, sessionId: string, when: string): void {
 
 function writeSession(home: string, session: UiSession): void {
   const path = sessionFile(home, session.id);
-  mkdirSync(dirname(path), { recursive: true });
+  ensureOwnerOnlyDirectoryTree(home, dirname(path));
   atomicWriteFileSync(path, `${JSON.stringify(session, null, 2)}\n`);
 }
 
 function appendLogLine(home: string, sessionId: string, line: UiLogLine): void {
   const path = eventsFile(home, sessionId);
-  withPathLock(path, () => {
-    mkdirSync(dirname(path), { recursive: true });
+  withUiStorageLock(home, path, () => {
+    ensureOwnerOnlyDirectoryTree(home, dirname(path));
     const previous = existsSync(path) ? readFileSync(path, "utf8") : "";
     const separator = previous && !previous.endsWith("\n") ? "\n" : "";
     atomicWriteFileSync(path, `${previous}${separator}${JSON.stringify(line)}\n`);
   });
+}
+
+function withUiStorageLock<T>(home: string, targetPath: string, fn: () => T): T {
+  ensureOwnerOnlyDirectoryTree(home, dirname(targetPath));
+  return withPathLock(targetPath, fn);
+}
+
+function ensureOwnerOnlyDirectoryTree(home: string, targetPath: string): void {
+  const root = resolve(home);
+  const target = resolve(targetPath);
+  mkdirSync(target, { recursive: true, mode: OWNER_ONLY_DIRECTORY_MODE });
+  const directories: string[] = [];
+  let current = target;
+  while (true) {
+    directories.push(current);
+    if (current === root) break;
+    const parent = dirname(current);
+    if (parent === current) break;
+    current = parent;
+  }
+  for (const directory of directories.reverse()) {
+    chmodSync(directory, OWNER_ONLY_DIRECTORY_MODE);
+  }
 }
 
 function readLog(home: string, sessionId: string): UiLogLine[] {
@@ -432,8 +461,10 @@ function constantTimeEqual(a: string, b: string): boolean {
 
 function atomicWriteFileSync(targetPath: string, content: string): void {
   const tmpPath = `${targetPath}.${Date.now().toString(36)}-${randomBytes(4).toString("hex")}.tmp`;
-  writeFileSync(tmpPath, content);
+  writeFileSync(tmpPath, content, { mode: OWNER_ONLY_FILE_MODE });
+  chmodSync(tmpPath, OWNER_ONLY_FILE_MODE);
   renameSync(tmpPath, targetPath);
+  chmodSync(targetPath, OWNER_ONLY_FILE_MODE);
 }
 
 function makeId(prefix: "session" | "event" | "reply" | "bundle"): string {

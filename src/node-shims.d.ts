@@ -53,7 +53,7 @@ declare module "node:fs" {
   export function rmSync(path: string, options?: any): void;
   export function statSync(path: string): any;
   export function symlinkSync(target: string, path: string): void;
-  export function writeFileSync(path: string, data: string): void;
+  export function writeFileSync(path: string, data: string, options?: any): void;
   export function mkdtempSync(prefix: string): string;
 }
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -140,6 +140,36 @@ test("startOrResumeSession creates a durable, token-protected user session", () 
   const persisted = join(home, "sessions", session.id, "session.json");
   assert.equal(existsSync(persisted), true);
   assert.deepEqual(readSession(home, session.id), session);
+});
+
+test("session storage uses owner-only directory and token file permissions", () => {
+  const home = freshHome();
+  const processWithUmask = process as unknown as { umask(mask?: number): number };
+  const previousUmask = processWithUmask.umask(0);
+  let session: ReturnType<typeof startUserSession>;
+  let eventId: string;
+  let bundleId: string;
+  try {
+    session = startUserSession(home);
+    eventId = appendEvent(home, session.id, { type: "comment_added", payload: { text: "private" } }).id;
+    assert.match(eventId, /^event_/);
+    bundleId = writeApprovalSnapshot(home, session.id, {
+      actionType: "trash-resolve",
+      targets: sampleTargets(),
+      reviewed: { planId: "plan_a" }
+    }).id;
+  } finally {
+    processWithUmask.umask(previousUmask);
+  }
+
+  const sessionDir = join(home, "sessions", session.id);
+  assert.equal(statSync(home).mode & 0o777, 0o700);
+  assert.equal(statSync(join(home, "sessions")).mode & 0o777, 0o700);
+  assert.equal(statSync(sessionDir).mode & 0o777, 0o700);
+  assert.equal(statSync(join(sessionDir, "bundles")).mode & 0o777, 0o700);
+  assert.equal(statSync(join(sessionDir, "session.json")).mode & 0o777, 0o600);
+  assert.equal(statSync(join(sessionDir, "events.jsonl")).mode & 0o777, 0o600);
+  assert.equal(statSync(join(sessionDir, "bundles", `${bundleId}.json`)).mode & 0o777, 0o600);
 });
 
 test("startOrResumeSession resumes the active session instead of creating a second one", () => {
