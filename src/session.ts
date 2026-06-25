@@ -86,6 +86,18 @@ const UI_EVENT_STATUS_SET: Record<UiEventStatus, true> = {
   cancelled: true
 };
 
+const UI_EVENT_TYPE_SET: Record<UiEventType, true> = {
+  inspect_requested: true,
+  comment_added: true,
+  decision_submitted: true,
+  dry_run_requested: true,
+  approval_bundle_submitted: true,
+  session_done: true,
+  question_answered: true,
+  filter_saved: true,
+  session_note_added: true
+};
+
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
 
@@ -100,6 +112,10 @@ const OWNER_ONLY_FILE_MODE = 0o600;
 
 export function isUiEventStatus(value: string): value is UiEventStatus {
   return Object.prototype.hasOwnProperty.call(UI_EVENT_STATUS_SET, value);
+}
+
+export function isUiEventType(value: unknown): value is UiEventType {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(UI_EVENT_TYPE_SET, value);
 }
 
 export function isUiReplyStatus(value: string): value is UiReplyStatus {
@@ -255,7 +271,8 @@ export function readSessionEvents(home: string, sessionId: string): UiEvent[] {
 
 // Compact actionable queue for agent consumption: events still awaiting an agent reply.
 export function pollPendingEvents(home: string, sessionId: string): UiEvent[] {
-  readSession(home, sessionId);
+  const session = readSession(home, sessionId);
+  if (session.status === "ended") return [];
   return readSessionEvents(home, sessionId).filter((event) => event.status === "pending");
 }
 
@@ -336,17 +353,50 @@ export function approvalSnapshotFingerprint(targets: UiApprovalTarget[], reviewe
 }
 
 function buildEvent(sessionId: string, input: AppendEventInput, source: UiEvent["source"], createdAt: string): UiEvent {
+  const normalized = validateEventInput(input);
   return {
     id: makeId("event"),
     sessionId,
-    type: input.type,
-    status: source === "browser" ? "pending" : input.status ?? "pending",
+    type: normalized.type,
+    status: source === "browser" ? "pending" : normalized.status ?? "pending",
     source,
     createdAt,
     updatedAt: createdAt,
-    target: input.target ?? {},
-    payload: input.payload ?? {}
+    target: normalized.target,
+    payload: normalized.payload
   };
+}
+
+function validateEventInput(input: AppendEventInput): Required<AppendEventInput> {
+  if (!input || typeof input !== "object") {
+    throw new Error("Invalid Artshelf UI event input; expected an object");
+  }
+  if (!isUiEventType(input.type)) {
+    throw new Error(`Invalid Artshelf UI event type "${String(input.type)}"`);
+  }
+  if (input.status !== undefined && !isUiEventStatus(input.status)) {
+    throw new Error(`Invalid Artshelf UI event status "${String(input.status)}"`);
+  }
+  return {
+    type: input.type,
+    status: input.status ?? "pending",
+    target: normalizeEventRecord("target", input.target),
+    payload: normalizeEventRecord("payload", input.payload)
+  };
+}
+
+function normalizeEventRecord(name: "target" | "payload", value: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (value === undefined) return {};
+  if (!isPlainRecord(value)) {
+    throw new Error(`Invalid Artshelf UI event ${name}; expected a JSON object`);
+  }
+  return value;
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 function touchSession(home: string, sessionId: string, when: string): void {

@@ -340,6 +340,41 @@ test("appendEvent refuses caller-supplied agent source once the session has ende
   );
 });
 
+test("pollPendingEvents returns no actionable browser events after the session ends", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  appendEvent(home, session.id, { type: "comment_added", payload: { text: "review me" } });
+
+  endSession(home, session.id);
+
+  assert.deepEqual(pollPendingEvents(home, session.id), []);
+});
+
+test("appendEvent rejects unknown types and non-object event bodies", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(() => appendEvent(home, session.id, { type: "unknown_event" as never }), /event type/i);
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: [] as never
+      }),
+    /target/i
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        payload: null as never
+      }),
+    /payload/i
+  );
+
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
 test("appendEvent serializes browser writes against session end", async () => {
   const home = freshHome();
   const session = startUserSession(home);
