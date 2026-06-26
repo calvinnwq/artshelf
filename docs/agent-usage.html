@@ -127,12 +127,15 @@
               returns the read-only artifact detail drawer with path label, inspect-card
               output, provenance, audit trail, existence facts, needs-context badge, and
               last action. Both views are metadata-only and never preview file contents.
-              <code>artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--json]</code> hosts those same read-only
+              <code>artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--json]</code> hosts those
               dashboard and detail views as a local browser page for a human reviewer; it
               binds to loopback (127.0.0.1) only, recomputes live state per request, requires
               the active UI session capability token printed in the serve URL, serves no script
-              and no file contents, supports <code>--json</code> for a compact launch packet,
-              and has no mutation path. The
+              and no file contents, and supports <code>--json</code> for a compact launch packet.
+              The dashboard stays display-only, while the detail drawer adds scriptless forms that
+              capture lightweight human triage intents - inspect, comment, keep/trash/resolve/defer,
+              and dry-run request - recording each as a pending event in the durable session log for
+              the agent to act on after approval. The
               session command defaults to user-level multi-ledger review and stores session
               state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> or
               <code>--ledger &lt;path&gt;</code> when the review needs a narrower target.
@@ -142,7 +145,7 @@
               <code>artshelf ui poll &lt;session-id&gt; --json</code>, runs existing
               approval-gated commands only after exact human approval, replies with
               <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
-              There is no browser-direct mutation path.
+              The browser captures triage intents only and never mutates ledgers, files, trash, or plans directly.
             </p>
             <p>
               Treat the session token printed by <code>artshelf ui</code> and

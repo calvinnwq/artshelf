@@ -102,7 +102,8 @@ dl.fields dd { margin: 0; word-break: break-word; }
 @media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } .intents button { align-self: stretch; } }
 `;
 
-const READ_ONLY_NOTE = "Read-only review surface - no file contents, no mutations, no browser-direct actions.";
+const REVIEW_SURFACE_NOTE =
+  "Review surface - metadata only, never file contents, and never mutates files or ledgers directly; open a record to capture a triage intent for the agent.";
 
 // Contract bucket order for the count summary. The literal hyphenated keys double as the
 // machine-precise lane labels in the first viewport.
@@ -127,7 +128,7 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string)
 <h1>Artshelf review dashboard</h1>
 <div class="meta">${snapshot.ledgers.length} ledger(s), ${okLedgers} healthy &middot; generated ${escapeHtml(snapshot.generatedAt)} &middot; registry ${escapeHtml(snapshot.registryPath)}</div>
 </header>
-<p class="banner">${READ_ONLY_NOTE}</p>
+<p class="banner">${REVIEW_SURFACE_NOTE}</p>
 <main>
 <ul class="chips">${chips}</ul>
 ${ledgerHealthSection(snapshot.ledgers)}

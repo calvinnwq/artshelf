@@ -202,7 +202,9 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               surfaces as a local browser page bound to loopback (<code>127.0.0.1</code>) only; it
               recomputes live state on every request, requires the active UI session capability
               token printed in the serve URL, serves no script and embeds no file contents,
-              accepts safe GET/HEAD reads, refuses mutating methods, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C.
+              accepts safe GET/HEAD reads plus a token-bound POST that records human triage intents
+              (inspect, comment, keep/trash/resolve/defer, dry-run request) as pending session events,
+              never mutates ledgers or files directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C.
               The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>

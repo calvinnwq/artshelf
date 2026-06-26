@@ -7,14 +7,15 @@ import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
 import { endSession, pollPendingEvents, readSessionEvents, replyToEvent, startOrResumeSession } from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
 
-// Tests for the read-only loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
+// Tests for the loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
 // dashboard, NGX-536's detail drawer, and NGX-537's needs-context presentation all named the
 // actual browser-rendered experience as their missing acceptance area; this exercises it end to
 // end. The server is started in-process on an ephemeral loopback port and driven over real HTTP,
 // so the assertions cover the rendered HTML a browser would receive. The clock is pinned and the
 // registry is always passed explicitly so ages/due classification stay deterministic and a real
-// registry never leaks. Everything here is read-only: it must never mutate state or embed file
-// contents, and there must be no browser-direct mutation path.
+// registry never leaks. The read surfaces never embed file contents, and the browser's only write
+// path is capturing human triage intents (NGX-538); it must never mutate ledgers, files, trash, or
+// plans directly.
 
 process.env.ARTSHELF_NO_UPDATE_CHECK = "1";
 process.env.ARTSHELF_NOW = "2026-06-25T12:00:00.000Z";

@@ -106,9 +106,9 @@ The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
 `session.ts` plus the read-only review data surface over `dashboard.ts`,
 `artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
 sessions, serves token-protected loopback dashboard/detail pages, returns compact
-`--json` review snapshots, and runs the poll/reply/end agent loop. It owns no
-browser-direct mutation path - the browser records decisions, the agent executes
-existing approval-gated commands and replies with receipts.
+`--json` review snapshots, and runs the poll/reply/end agent loop. The browser
+captures human triage intents but never mutates ledgers or files directly - the
+agent executes existing approval-gated commands and replies with receipts.
 
 ### Domain files
 

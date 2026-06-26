@@ -50,9 +50,9 @@ Flags:
 
 The browser records review decisions; the agent polls them, executes existing
 approval-gated paths, and replies with receipts. The dashboard and detail
-surfaces are read-only: they never mutate state and never read file contents.
-There is no browser-direct mutation path. Defaults to user-level, multi-ledger
-review.
+surfaces never read file contents. The browser captures human triage intents
+only; it never executes or mutates ledgers, files, trash, or plans directly.
+Defaults to user-level, multi-ledger review.
 
 Use "artshelf ui <command> --help" for more information about a command.
 `;
@@ -524,13 +524,15 @@ Options:
   --ledger <path>          Fallback ledger for detail drawers opened without a target
   --json                   Emit a compact launch packet before waiting in the foreground
 
-Serve hosts the read-only review dashboard and artifact detail drawers as a local
-browser surface. It binds to loopback (127.0.0.1) only, never a wildcard interface,
-and recomputes live state on every request. Dashboard and detail pages require the
+Serve hosts the review dashboard and artifact detail drawers as a local browser
+surface. It binds to loopback (127.0.0.1) only, never a wildcard interface, and
+recomputes live state on every request. Dashboard and detail pages require the
 active UI session capability token printed in the serve URL; ending that session
-revokes browser access. The pages carry no script, embed no file contents, and expose
-no mutation path - the browser only displays state. Safe GET/HEAD reads are accepted;
-mutating methods are refused. The process runs in the foreground; press Ctrl-C to stop it.
+revokes browser access. The pages carry no script and embed no file contents. The
+dashboard only displays state; the detail drawer also captures human triage intents
+(inspect, comment, keep/trash/resolve/defer, dry-run request) as pending session
+events through a token-bound POST, but never mutates ledgers, files, trash, or plans
+directly. The process runs in the foreground; press Ctrl-C to stop it.
 `;
   }
 

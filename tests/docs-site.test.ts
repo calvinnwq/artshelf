@@ -449,7 +449,10 @@ test("docs document the Artshelf UI session command surface", () => {
     assert.match(text, /ui reply/);
     assert.match(text, /ui end/);
     assert.match(text, /browser (?:side )?records|browser-recorded events/i);
-    assert.match(text, /no browser-direct|does not add a browser-direct/i);
+    // NGX-538: every UI-documenting surface states the browser captures human triage
+    // intents but never directly mutates ledgers/files/trash/plans.
+    assert.match(text, /triage intents?/i);
+    assert.match(text, /never (?:executes or )?mutates? ledgers/i);
   }
 
   assert.match(spec, /sessions\/<session-id>\/session\.json/);
@@ -463,7 +466,7 @@ test("docs document the Artshelf UI session command surface", () => {
   }
 });
 
-test("docs document the read-only ui serve browser dashboard launch command", () => {
+test("docs document the ui serve browser dashboard launch command", () => {
   const readme = read("README.md");
   const spec = read("SPEC.md");
   const reference = read("docs/reference.html");

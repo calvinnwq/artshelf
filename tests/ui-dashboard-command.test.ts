@@ -272,11 +272,14 @@ test("artshelf ui help and nested help cover the dashboard and detail read surfa
   assert.match(detail.stdout, /<record-id>|&lt;record-id&gt;/);
 });
 
-test("artshelf ui serve help documents the read-only loopback browser launch", () => {
+test("artshelf ui serve help documents the loopback browser launch and triage-intent boundary", () => {
   const serve = run(["help", "ui", "serve"]);
   assert.equal(serve.status, 0, serve.stderr);
   assert.match(serve.stdout, /artshelf ui serve/);
-  assert.match(serve.stdout, /read-only/i);
+  // NGX-538: the detail drawer captures human triage intents but the served surface
+  // still never mutates ledgers/files/trash/plans directly, and stays loopback-bound.
+  assert.match(serve.stdout, /triage intents/i);
+  assert.match(serve.stdout, /never mutates ledgers, files, trash, or plans/i);
   assert.match(serve.stdout, /loopback|127\.0\.0\.1/);
   assert.doesNotMatch(serve.stdout, /Available Commands:/);
 });
