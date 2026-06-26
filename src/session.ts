@@ -8,6 +8,7 @@ import { now, toIso } from "./time.js";
 import type {
   UiApprovalSnapshot,
   UiApprovalTarget,
+  UiDecisionIntent,
   UiEvent,
   UiReplyStatus,
   UiEventStatus,
@@ -98,8 +99,18 @@ const UI_EVENT_TYPE_SET: Record<UiEventType, true> = {
   session_note_added: true
 };
 
+// Exhaustive runtime view of the UiDecisionIntent union, mirroring UI_EVENT_TYPE_SET so a new
+// triage intent cannot be added to the type without the storage layer learning to validate it.
+const UI_DECISION_INTENT_SET: Record<UiDecisionIntent, true> = {
+  keep: true,
+  trash: true,
+  resolve: true,
+  defer: true
+};
+
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
+export const UI_DECISION_INTENTS = Object.keys(UI_DECISION_INTENT_SET) as UiDecisionIntent[];
 
 const UI_ID_PATTERNS: Record<"session" | "event" | "reply" | "bundle", RegExp> = {
   session: /^session_\d{8}_\d{6}_[0-9a-f]{8}$/,
@@ -120,6 +131,10 @@ export function isUiEventType(value: unknown): value is UiEventType {
 
 export function isUiReplyStatus(value: string): value is UiReplyStatus {
   return isUiEventStatus(value) && value !== "pending";
+}
+
+export function isUiDecisionIntent(value: unknown): value is UiDecisionIntent {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(UI_DECISION_INTENT_SET, value);
 }
 
 // Resolve the UI home directory for a scope. An explicit ARTSHELF_UI_HOME/SHELF_UI_HOME
@@ -380,12 +395,58 @@ function validateEventInput(input: AppendEventInput): Required<AppendEventInput>
   if (input.status !== undefined && !isUiEventStatus(input.status)) {
     throw new Error(`Invalid Artshelf UI event status "${String(input.status)}"`);
   }
+  const target = normalizeEventRecord("target", input.target);
+  const payload = normalizeEventRecord("payload", input.payload);
+  UI_EVENT_VALIDATORS[input.type]?.(target, payload);
   return {
     type: input.type,
     status: input.status ?? "pending",
-    target: normalizeEventRecord("target", input.target),
-    payload: normalizeEventRecord("payload", input.payload)
+    target,
+    payload
   };
+}
+
+// Per-intent payload/target validators run before the event reaches the durable log, enforcing
+// the NGX-538 rule that every decision intent carries exact target context and a well-formed body
+// - no vague global action events. Event types without an entry keep the permissive base
+// validation (plain-object target/payload only); record-scoped intents are tightened here as the
+// browser affordances for them land.
+const UI_EVENT_VALIDATORS: Partial<
+  Record<UiEventType, (target: Record<string, unknown>, payload: Record<string, unknown>) => void>
+> = {
+  decision_submitted: validateDecisionIntent
+};
+
+// A keep/trash/resolve/defer triage intent must name the exact record + ledger it concerns and
+// carry a recognized decision; the optional reason, when present, must be a non-empty string so a
+// blank-but-present reason cannot slip into the audit trail.
+function validateDecisionIntent(target: Record<string, unknown>, payload: Record<string, unknown>): void {
+  requireRecordTarget(target);
+  if (!isUiDecisionIntent(payload.decision)) {
+    throw new Error(
+      `Invalid Artshelf UI decision intent "${String(payload.decision)}"; expected one of: ${UI_DECISION_INTENTS.join(", ")}`
+    );
+  }
+  if (payload.reason !== undefined && !isNonEmptyString(payload.reason)) {
+    throw new Error("Invalid Artshelf UI decision reason; expected a non-empty string when provided");
+  }
+}
+
+// Exact-target guard shared by record-scoped intents: the record id and its owning ledger path
+// must both be present so a multi-ledger agent can act on an unambiguous target.
+function requireRecordTarget(target: Record<string, unknown>): void {
+  requireNonEmptyTargetField(target, "recordId");
+  requireNonEmptyTargetField(target, "ledgerPath");
+}
+
+function requireNonEmptyTargetField(target: Record<string, unknown>, field: string): void {
+  if (!isNonEmptyString(target[field])) {
+    throw new Error(`Invalid Artshelf UI event target.${field}; expected a non-empty string`);
+  }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function normalizeEventRecord(name: "target" | "payload", value: Record<string, unknown> | undefined): Record<string, unknown> {

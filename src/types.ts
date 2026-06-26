@@ -383,6 +383,17 @@ export type UiEventType =
   | "filter_saved"
   | "session_note_added";
 
+// The lightweight human triage decisions the browser records against one reviewed record
+// (NGX-538). Each is an *intent*, not an execution: it names what the human wants done, and
+// the agent later translates it into the matching approval-gated `dispose` action and runs
+// that through the existing CLI path. The browser never mutates a ledger/file/trash/plan
+// itself. The 1:1 mapping the agent applies is:
+//   - keep    -> dispose --action keep          (mark reviewed-and-quiet, retention kept)
+//   - trash   -> dispose --action trash-resolve (move the path to Artshelf trash, resolve row)
+//   - resolve -> dispose --action resolve-only  (resolve the ledger row only, no file move)
+//   - defer   -> dispose --action snooze        (extend retention / the next review horizon)
+export type UiDecisionIntent = "keep" | "trash" | "resolve" | "defer";
+
 // One event in the durable, append-only session log. `target` carries the exact
 // ledger/registry/record/plan identifiers the event concerns (never an ambiguous global
 // action); `payload` is the type-specific body (comment text, decision intent, bundle id,

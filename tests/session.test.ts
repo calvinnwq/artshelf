@@ -9,6 +9,7 @@ import {
   appendEvent,
   approvalSnapshotFingerprint,
   endSession,
+  isUiDecisionIntent,
   pollPendingEvents,
   readApprovalSnapshot,
   readReplies,
@@ -17,6 +18,7 @@ import {
   replyToEvent,
   resolveUiHome,
   startOrResumeSession,
+  UI_DECISION_INTENTS,
   validateBrowserToken,
   writeApprovalSnapshot
 } from "../src/session.js";
@@ -408,6 +410,133 @@ test("appendEvent rejects unknown types and non-object event bodies", () => {
     /payload/i
   );
 
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("isUiDecisionIntent recognizes exactly the keep/trash/resolve/defer triage set", () => {
+  assert.deepEqual([...UI_DECISION_INTENTS].sort(), ["defer", "keep", "resolve", "trash"]);
+  for (const decision of UI_DECISION_INTENTS) assert.equal(isUiDecisionIntent(decision), true);
+  assert.equal(isUiDecisionIntent("purge"), false);
+  assert.equal(isUiDecisionIntent("approve_all"), false);
+  assert.equal(isUiDecisionIntent(""), false);
+  assert.equal(isUiDecisionIntent(undefined), false);
+});
+
+test("appendEvent records each keep/trash/resolve/defer decision intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  for (const decision of UI_DECISION_INTENTS) {
+    const event = appendEvent(home, session.id, {
+      type: "decision_submitted",
+      target: { recordId: `shf_${decision}`, ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { decision }
+    });
+    assert.equal(event.type, "decision_submitted");
+    assert.equal(event.status, "pending");
+    assert.equal(event.source, "browser");
+    assert.equal(event.payload.decision, decision);
+    assert.equal(event.target.recordId, `shf_${decision}`);
+  }
+
+  assert.equal(pollPendingEvents(home, session.id).length, UI_DECISION_INTENTS.length);
+});
+
+test("a decision intent survives a fresh read with its compact target and payload intact", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const event = appendEvent(home, session.id, {
+    type: "decision_submitted",
+    target: { recordId: "shf_keep", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { decision: "keep", reason: "still in active use" }
+  });
+
+  const reloaded = readSessionEvents(home, session.id).find((entry) => entry.id === event.id);
+  assert.deepEqual(reloaded?.target, { recordId: "shf_keep", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" });
+  assert.deepEqual(reloaded?.payload, { decision: "keep", reason: "still in active use" });
+});
+
+test("a decision intent flows through the agent poll/reply loop and leaves the queue", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const event = appendEvent(home, session.id, {
+    type: "decision_submitted",
+    target: { recordId: "shf_trash", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { decision: "trash" }
+  });
+
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+  replyToEvent(home, session.id, event.id, { status: "completed", payload: { receipt: "trashed via dispose" } });
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+
+  const folded = readSessionEvents(home, session.id).find((entry) => entry.id === event.id);
+  assert.equal(folded?.status, "completed");
+});
+
+test("appendEvent rejects a decision intent with an unknown decision before it enters the log", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { decision: "purge" }
+      }),
+    /decision intent/i
+  );
+  // No vague global "approve all" action may be smuggled in as a decision intent.
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: {}
+      }),
+    /decision intent/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects a decision intent missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { decision: "keep" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1" },
+        payload: { decision: "keep" }
+      }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects a decision intent whose optional reason is present but blank", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { decision: "resolve", reason: "   " }
+      }),
+    /reason/i
+  );
   assert.equal(pollPendingEvents(home, session.id).length, 0);
 });
 
