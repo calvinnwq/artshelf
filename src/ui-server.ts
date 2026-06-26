@@ -7,8 +7,8 @@ import { normalizeLedgerPath } from "./ledger.js";
 import { renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
 import { listRegisteredLedgers } from "./registry.js";
 import type { AppendEventInput } from "./session.js";
-import { appendEvent, readSession, validateBrowserToken } from "./session.js";
-import type { UiEventType } from "./types.js";
+import { appendEvent, readSession, readSessionHistory, validateBrowserToken } from "./session.js";
+import type { UiEventType, UiSessionHistoryEntry } from "./types.js";
 
 // Loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard, NGX-536 detail
 // drawer, NGX-537 needs-context presentation, NGX-538 human triage intents). It binds to 127.0.0.1
@@ -337,7 +337,9 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
   if (options.registryPath !== undefined) detailOptions.registryPath = options.registryPath;
 
   try {
-    sendHtml(response, 200, renderDetailPage(buildArtifactDetail(detailOptions), token));
+    const detail = buildArtifactDetail(detailOptions);
+    const history = recordSessionHistory(options, detail.recordId, detail.ledgerPath);
+    sendHtml(response, 200, renderDetailPage(detail, token, history));
   } catch (error) {
     const message = errorMessage(error);
     // A missing record is an expected, non-crashing state; anything else is a real server error.
@@ -359,6 +361,21 @@ function scopedDetailLedgerPath(options: UiServerOptions, requestedLedgerPath: s
   const allowed = new Set<string>();
   for (const ledger of listRegisteredLedgers(options.registryPath)) allowed.add(ledger.path);
   return allowed.has(normalized) ? normalized : null;
+}
+
+// The session intent history for exactly one record, folded with the agent's replies, for the detail
+// drawer (NGX-538 criterion 5: agent replies are visible in the session history). Entries are matched
+// on the same exact record + ledger target the intent forms submit, so one record's intents never
+// leak onto another's drawer. The session log is supplementary to the read-only artifact detail, so a
+// read failure degrades to an empty history rather than breaking the primary page.
+function recordSessionHistory(options: UiServerOptions, recordId: string, ledgerPath: string): UiSessionHistoryEntry[] {
+  try {
+    return readSessionHistory(options.uiHome, options.sessionId).filter(
+      (entry) => entry.event.target.recordId === recordId && entry.event.target.ledgerPath === ledgerPath
+    );
+  } catch {
+    return [];
+  }
 }
 
 function dashboardOptions(options: UiServerOptions): BuildDashboardOptions {

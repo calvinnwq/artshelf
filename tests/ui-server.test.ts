@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
-import { endSession, pollPendingEvents, readSessionEvents, startOrResumeSession } from "../src/session.js";
+import { endSession, pollPendingEvents, readSessionEvents, replyToEvent, startOrResumeSession } from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
 
 // Tests for the read-only loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
@@ -771,5 +771,62 @@ test("the served detail page exposes token-bound intent forms under a form-actio
     assert.match(html, /name="recordId"[^>]*value="shf_1"/, "forms carry the exact record target");
     assert.match(html, new RegExp(`value="${server.token}"`), "forms carry the capability token as a hidden field");
     assert.doesNotMatch(html, /<script/i, "intent affordances must not introduce executable script");
+  });
+});
+
+// NGX-538 acceptance criterion 5: agent replies update the event projection and are visible in the
+// session/dashboard history. The detail drawer must surface this record's queued triage intents and,
+// after the agent replies, the reply's status and note - the browser half of the poll/reply loop.
+test("the detail drawer shows this record's triage intents and the agent's reply in history (NGX-538 criterion 5)", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    // A human records a decision intent from the browser.
+    const submitted = await postIntent(server, {
+      type: "decision_submitted",
+      recordId: "shf_1",
+      ledgerPath,
+      decision: "trash",
+      reason: "superseded by newer export"
+    });
+    assert.equal(submitted.status, 303);
+
+    // Before any agent reply, the detail history shows the pending intent and its reason.
+    const detailHref = `/detail/shf_1?ledger=${encodeURIComponent(ledgerPath)}`;
+    let html = await (await server.request(detailHref)).text();
+    assert.match(html, /Session activity/i, "the detail drawer should carry a session activity section");
+    assert.match(html, /Decision:\s*trash/i, "the queued decision intent should appear in history");
+    assert.match(html, /superseded by newer export/, "the intent's reason should be visible in history");
+    assert.match(html, /pending/i, "an unanswered intent should read as pending");
+
+    // The agent polls and replies; criterion 5 requires the reply to be visible on reload.
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 1, "the intent is queued for the agent");
+    replyToEvent(server.home, server.sessionId, pending[0]!.id, {
+      status: "completed",
+      payload: { receipt: "trashed via dispose" }
+    });
+
+    html = await (await server.request(detailHref)).text();
+    assert.match(html, /completed/i, "the agent's reply status must be visible in the browser history");
+    assert.match(html, /trashed via dispose/i, "the agent's reply note must be visible in the browser history");
+  });
+});
+
+test("the detail history is scoped to its record so intents never leak across drawers (NGX-538 exact target)", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_a" }), baseRecord({ id: "shf_b" })]);
+
+  await withServer({ registryPath }, async (server) => {
+    assert.equal(
+      (await postIntent(server, { type: "comment_added", recordId: "shf_a", ledgerPath, text: "only-on-a note" })).status,
+      303
+    );
+
+    const aHtml = await (await server.request(`/detail/shf_a?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+    assert.match(aHtml, /only-on-a note/, "the record's own intent appears on its drawer");
+
+    const bHtml = await (await server.request(`/detail/shf_b?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+    assert.doesNotMatch(bHtml, /only-on-a note/, "another record's intent must not leak into this drawer");
+    assert.match(bHtml, /No triage intents recorded/i, "a record with no intents shows the empty history state");
   });
 });

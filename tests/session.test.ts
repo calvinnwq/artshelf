@@ -15,6 +15,7 @@ import {
   readReplies,
   readSession,
   readSessionEvents,
+  readSessionHistory,
   replyToEvent,
   resolveUiHome,
   startOrResumeSession,
@@ -488,6 +489,34 @@ test("a decision intent flows through the agent poll/reply loop and leaves the q
 
   const folded = readSessionEvents(home, session.id).find((entry) => entry.id === event.id);
   assert.equal(folded?.status, "completed");
+});
+
+test("readSessionHistory pairs each event with the agent replies that advanced it (NGX-538 history)", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const target = { recordId: "shf_keep", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" };
+  const comment = appendEvent(home, session.id, { type: "comment_added", target, payload: { text: "needs a look" } });
+  const decision = appendEvent(home, session.id, { type: "decision_submitted", target, payload: { decision: "keep" } });
+
+  // Two replies advance the decision; both must survive in order so the agent's trail is visible.
+  replyToEvent(home, session.id, decision.id, { status: "acknowledged", payload: { note: "queued" } });
+  replyToEvent(home, session.id, decision.id, { status: "completed", payload: { receipt: "kept via dispose" } });
+
+  const history = readSessionHistory(home, session.id);
+  assert.deepEqual(history.map((entry) => entry.event.id), [comment.id, decision.id], "history preserves creation order");
+
+  const commentEntry = history[0]!;
+  assert.equal(commentEntry.event.status, "pending", "an unanswered intent stays pending in history");
+  assert.equal(commentEntry.replies.length, 0, "an unanswered intent carries no replies");
+
+  const decisionEntry = history[1]!;
+  assert.equal(decisionEntry.event.status, "completed", "the event folds to its latest reply status");
+  assert.deepEqual(
+    decisionEntry.replies.map((reply) => reply.status),
+    ["acknowledged", "completed"],
+    "every reply is preserved in append order"
+  );
+  assert.equal(decisionEntry.replies[1]!.payload.receipt, "kept via dispose", "reply payloads survive so the agent's note stays visible");
 });
 
 test("appendEvent rejects a decision intent with an unknown decision before it enters the log", () => {

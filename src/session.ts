@@ -15,6 +15,7 @@ import type {
   UiEventType,
   UiReply,
   UiSession,
+  UiSessionHistoryEntry,
   UiSessionScope
 } from "./types.js";
 
@@ -282,6 +283,32 @@ export function readSessionEvents(home: string, sessionId: string): UiEvent[] {
     }
   }
   return order.map((id) => events.get(id)!);
+}
+
+// Read the full session history: every event paired, in creation order, with the agent replies
+// appended against it. Like readSessionEvents this folds each reply's status/updatedAt onto the
+// event, but it additionally keeps every reply (with its own payload) so the browser session
+// history can show the agent's note, receipt, or rejection reason - the visible-in-history half of
+// the NGX-538 decision-intent contract. The on-disk log stays append-only; this is a read-side view.
+export function readSessionHistory(home: string, sessionId: string): UiSessionHistoryEntry[] {
+  const entries = new Map<string, UiSessionHistoryEntry>();
+  const order: string[] = [];
+  for (const line of readLog(home, sessionId)) {
+    if (line.kind === "event") {
+      const { kind: _kind, ...event } = line;
+      entries.set(event.id, { event, replies: [] });
+      order.push(event.id);
+    } else {
+      const entry = entries.get(line.eventId);
+      if (entry) {
+        const { kind: _kind, ...reply } = line;
+        entry.event.status = reply.status;
+        entry.event.updatedAt = reply.createdAt;
+        entry.replies.push(reply);
+      }
+    }
+  }
+  return order.map((id) => entries.get(id)!);
 }
 
 // Compact actionable queue for agent consumption: events still awaiting an agent reply.

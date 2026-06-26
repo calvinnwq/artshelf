@@ -10,6 +10,7 @@ import type {
   DashboardSnapshot,
   DashboardTrashRow
 } from "../dashboard.js";
+import type { UiEvent, UiReply, UiSessionHistoryEntry } from "../types.js";
 
 // Read-only HTML rendering for the Artshelf UI v1 browser surface (NGX-535 dashboard, NGX-536
 // detail drawer, NGX-537 needs-context presentation). These are pure functions: they take the
@@ -91,6 +92,12 @@ dl.fields dd { margin: 0; word-break: break-word; }
 .intents .intent-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .intents button { font: inherit; padding: 8px 14px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #fff; border-radius: 6px; cursor: pointer; align-self: flex-start; }
 .intents button:hover { background: #245a96; }
+.history .timeline { list-style: none; margin: 0; padding: 0; }
+.history .event { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 12px 14px; margin: 0 0 10px; }
+.history .event-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.history .event .reason { margin: 8px 0 0; }
+.history .replies { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid #eceef1; }
+.history .replies li { padding: 4px 0; font-size: 13px; }
 .back { display: inline-block; margin: 16px 20px 0; }
 @media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } .intents button { align-self: stretch; } }
 `;
@@ -250,7 +257,7 @@ function receiptLane(key: string, title: string, rows: DashboardReceiptRow[]): s
   return laneSection(key, title, rows.length, inner);
 }
 
-export function renderDetailPage(detail: ArtifactDetail, token?: string): string {
+export function renderDetailPage(detail: ArtifactDetail, token?: string, history: UiSessionHistoryEntry[] = []): string {
   const inspect = detail.inspect;
   const reason = inspect.reason.trim() ? escapeHtml(inspect.reason) : `<span class="muted">(no reason recorded)</span>`;
   const source = detail.ledgerName ? `${escapeHtml(detail.ledgerName)} (${escapeHtml(detail.ledgerPath)})` : escapeHtml(detail.ledgerPath);
@@ -279,6 +286,7 @@ ${needsContextBadge(detail.needsContext)}
 <div><dt>provenance</dt><dd>${provenanceLabel(detail.provenance)}</dd></div>
 </dl>
 ${token ? intentForms(detail.recordId, detail.ledgerPath, token) : ""}
+${sessionHistorySection(history)}
 <section>
 <h2>Audit trail</h2>
 <ul class="audit">${detail.audit.map(auditItem).join("")}</ul>
@@ -356,6 +364,74 @@ function intentForms(recordId: string, ledgerPath: string, token: string): strin
 <button type="submit">Add comment</button>
 </form>
 </section>`;
+}
+
+// NGX-538 session activity history on the detail drawer. The browser is the human half of the agent
+// poll/reply loop, so the drawer surfaces this record's queued triage intents together with the
+// agent's replies (acknowledged/completed/rejected/...): the visible-in-history acceptance criterion.
+// Entries arrive already scoped to this record and in creation order; every dynamic value routes
+// through escapeHtml so record/agent-supplied text is rendered as text. Still scriptless and still no
+// file contents - it is a read of the durable session log, not an action.
+function sessionHistorySection(entries: UiSessionHistoryEntry[]): string {
+  if (entries.length === 0) {
+    return `<section class="history"><h2>Session activity</h2><p class="empty">No triage intents recorded for this record yet.</p></section>`;
+  }
+  const items = entries.map(historyItem).join("");
+  return `<section class="history"><h2>Session activity</h2><ul class="timeline">${items}</ul></section>`;
+}
+
+function historyItem(entry: UiSessionHistoryEntry): string {
+  const { event, replies } = entry;
+  const note = intentNote(event);
+  const noteHtml = note ? `<p class="reason">${escapeHtml(note)}</p>` : "";
+  const repliesHtml = replies.length > 0 ? `<ul class="replies">${replies.map(replyItem).join("")}</ul>` : "";
+  return `<li class="event">
+<div class="event-head"><strong>${escapeHtml(intentLabel(event))}</strong> <span class="status">${escapeHtml(event.status)}</span> <span class="muted">${escapeHtml(event.createdAt)}</span></div>
+${noteHtml}${repliesHtml}</li>`;
+}
+
+// Humanize a triage intent for the history line. decision_submitted carries the keep/trash/resolve/
+// defer choice in its payload, so it reads as "Decision: <choice>"; the rest map to a plain label.
+function intentLabel(event: UiEvent): string {
+  switch (event.type) {
+    case "inspect_requested":
+      return "Inspect requested";
+    case "dry_run_requested":
+      return "Dry-run requested";
+    case "comment_added":
+      return "Comment";
+    case "decision_submitted": {
+      const decision = typeof event.payload.decision === "string" ? event.payload.decision : "";
+      return decision ? `Decision: ${decision}` : "Decision";
+    }
+    default:
+      return event.type;
+  }
+}
+
+// The human's own note for an intent: a comment's text or a decision's optional reason. Other intent
+// types carry no free-text body of their own.
+function intentNote(event: UiEvent): string | null {
+  if (event.type === "comment_added" && typeof event.payload.text === "string") return event.payload.text;
+  if (event.type === "decision_submitted" && typeof event.payload.reason === "string") return event.payload.reason;
+  return null;
+}
+
+function replyItem(reply: UiReply): string {
+  const note = replyNote(reply.payload);
+  const detail = note ? ` &middot; ${escapeHtml(note)}` : "";
+  return `<li><span class="status">agent ${escapeHtml(reply.status)}</span> <span class="muted">${escapeHtml(reply.createdAt)}</span>${detail}</li>`;
+}
+
+// Surface the agent's free-text reply note from the first recognized payload field. Replies carry a
+// result/receipt/validation-failure/question/note; showing the first present one keeps the human in
+// the loop without coupling the browser to the agent's full reply schema.
+function replyNote(payload: Record<string, unknown>): string | null {
+  for (const key of ["note", "receipt", "result", "reason", "message"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
 }
 
 export function renderErrorPage(options: { status: number; title: string; message: string }): string {

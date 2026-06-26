@@ -427,6 +427,17 @@ export type UiReply = {
   payload: Record<string, unknown>;
 };
 
+// One event paired with the agent replies appended against it, in log order. This is the read
+// model the browser session/dashboard history renders (NGX-538: "agent replies update the event
+// projection and are visible in the session/dashboard history"). The event carries its folded
+// current status; each reply preserves its own payload so the agent's note, receipt, or rejection
+// reason stays visible to the human after reload, restart, or resume - unlike the compact
+// poll/status projection (readSessionEvents), which keeps only the latest status.
+export type UiSessionHistoryEntry = {
+  event: UiEvent;
+  replies: UiReply[];
+};
+
 // One exact target inside an approval snapshot. Cross-ledger action is always a bundle of
 // exact per-target actions, so every target carries its own ledger/registry/record/plan
 // context plus the human-facing label shown at approval time - never a global execute.
