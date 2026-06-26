@@ -14,7 +14,13 @@ declare class AbortController {
   abort(): void;
 }
 
-declare function fetch(url: string, init?: any): Promise<{ ok: boolean; json(): Promise<unknown> }>;
+declare function fetch(url: string, init?: any): Promise<{
+  ok: boolean;
+  status: number;
+  headers: { get(name: string): string | null };
+  json(): Promise<unknown>;
+  text(): Promise<string>;
+}>;
 declare function setTimeout(callback: () => void, ms: number): any;
 declare function clearTimeout(timeout: any): void;
 

@@ -120,10 +120,22 @@
             <h2>UI sessions</h2>
             <p>
               <code>artshelf ui</code> starts or resumes a durable browser review session for
-              the agent-mediated loop. It defaults to user-level multi-ledger review and
-              stores session state under <code>~/.artshelf/ui</code>; use
-              <code>--scope repo</code> or <code>--ledger &lt;path&gt;</code> when the review
-              needs a narrower target.
+              the agent-mediated loop. <code>artshelf ui dashboard --json</code> returns
+              the read-only multi-ledger review buckets, including needs-context, cleanup,
+              resolve, trash, purge candidates, registry/reconcile problems, and recent
+              receipts. <code>artshelf ui detail &lt;record-id&gt; --ledger &lt;path&gt; --json</code>
+              returns the read-only artifact detail drawer with path label, inspect-card
+              output, provenance, audit trail, existence facts, needs-context badge, and
+              last action. Both views are metadata-only and never preview file contents.
+              <code>artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--json]</code> hosts those same read-only
+              dashboard and detail views as a local browser page for a human reviewer; it
+              binds to loopback (127.0.0.1) only, recomputes live state per request, requires
+              the active UI session capability token printed in the serve URL, serves no script
+              and no file contents, supports <code>--json</code> for a compact launch packet,
+              and has no mutation path. The
+              session command defaults to user-level multi-ledger review and stores session
+              state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> or
+              <code>--ledger &lt;path&gt;</code> when the review needs a narrower target.
             </p>
             <p>
               The browser records decisions, the agent polls with
@@ -133,9 +145,10 @@
               There is no browser-direct mutation path.
             </p>
             <p>
-              Treat the session token printed by <code>artshelf ui</code> as a secret
-              same-machine browser-write capability; ending the session revokes future
-              browser writes while keeping the audit trail readable.
+              Treat the session token printed by <code>artshelf ui</code> and
+              <code>artshelf ui serve</code> as a secret same-machine browser capability;
+              ending the session revokes future browser writes and served dashboard access
+              while keeping the audit trail readable.
             </p>
           </section>
 

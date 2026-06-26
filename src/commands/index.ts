@@ -72,7 +72,7 @@ export async function runCommand(parsed: ParsedArgs): Promise<CommandRunResult> 
       status = handleResolve(parsed, normalizeLedgerPath(stringFlag(parsed, "ledger")), boolFlag(parsed, "json"));
       break;
     case "ui":
-      status = handleUi(parsed, boolFlag(parsed, "json"));
+      status = await handleUi(parsed, boolFlag(parsed, "json"));
       break;
     case "update":
       shouldCheckForUpdate = false;

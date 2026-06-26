@@ -176,19 +176,35 @@ artshelf doctor [--agent] [--json]</code></pre>
 
 
           <section class="cmd">
-            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag readonly">session-only</span></div>
+            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag readonly">read-only views</span></div>
             <pre><code><span class="c"># start or resume a durable review session</span>
 artshelf ui [--scope user|repo] [--ledger &lt;path&gt;] [--json]
+
+<span class="c"># read-only live review views</span>
+artshelf ui dashboard [--registry &lt;path&gt;] [--json]
+artshelf ui detail &lt;record-id&gt; [--ledger &lt;path&gt;] [--registry &lt;path&gt;] [--json]
+
+<span class="c"># serve those views as a local loopback browser page</span>
+artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--registry &lt;path&gt;] [--ledger &lt;path&gt;] [--json]
 
 <span class="c"># agent loop over browser-recorded events</span>
 artshelf ui poll &lt;session-id&gt; [--scope user|repo] [--json]
 artshelf ui reply &lt;session-id&gt; --event &lt;event-id&gt; --status &lt;status&gt; [--payload &lt;json&gt;] [--scope user|repo] [--json]
 artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
             <p>
-              <code>ui</code> is the agent-mediated browser review shell. It starts or resumes a
-              durable session, defaults to user-level multi-ledger review, and stores session
-              metadata, the browser capability token, an append-only event log, and approval
-              snapshots under <code>~/.artshelf/ui</code>. Use <code>--scope repo</code> for
+              <code>ui</code> is the agent-mediated browser review shell plus read-only
+              review data surface. <code>ui dashboard</code> recomputes a multi-ledger snapshot
+              with needs-review, needs-context, cleanup, resolve, trash, purge-candidates,
+              registry/reconcile, and recent-receipts buckets. <code>ui detail</code> shows one
+              record's metadata, path label, original reason, provenance, audit trail,
+              existence facts, inspect-card recommendation, needs-context badge, and last
+              action. Both views are read-only and never preview file contents. <code>ui serve</code> hosts those two
+              surfaces as a local browser page bound to loopback (<code>127.0.0.1</code>) only; it
+              recomputes live state on every request, requires the active UI session capability
+              token printed in the serve URL, serves no script and embeds no file contents,
+              accepts safe GET/HEAD reads, refuses mutating methods, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C.
+              The session command starts or resumes
+              durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
               to narrow the session target.
             </p>
@@ -199,14 +215,15 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               <code>in_progress</code>, <code>completed</code>, <code>rejected</code>,
               <code>stale</code>, <code>failed</code>, or <code>cancelled</code> status values,
               and <code>--payload</code> must be a JSON object when present.
-              <code>ui end</code> revokes future browser writes while keeping the session readable
-              for audit. There is no browser-direct cleanup, dispose, reconcile, registry-prune,
+              <code>ui end</code> revokes future browser writes and served dashboard/detail
+              access while keeping the session readable for audit. There is no browser-direct cleanup, dispose, reconcile, registry-prune,
               resolve, or purge path.
             </p>
             <p>
-              The session token printed by <code>artshelf ui</code> is a same-machine
-              browser-write capability. Treat it as secret and end the session to revoke
-              future browser writes.
+              The session token printed by <code>artshelf ui</code> and
+              <code>artshelf ui serve</code> is a same-machine browser capability. Treat it
+              as secret and end the session to revoke future browser writes and served
+              dashboard access.
             </p>
           </section>
 
@@ -349,8 +366,9 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               output stays clean.
             </p>
             <p>
-              <code>artshelf ui --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
-              and <code>ui end --json</code> emit compact session-loop packets.
+              <code>artshelf ui --json</code>, <code>ui dashboard --json</code>, <code>ui detail --json</code>,
+              <code>ui serve --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
+              and <code>ui end --json</code> emit compact UI packets.
               <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
               It names the relevant health, prune counts, dispose plan status, or record recommendation, classifications, blockers, approval targets where applicable, and the command
@@ -366,7 +384,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>(default)</td><td>human render: grouped counts or a record card, ✓/⚠ attention glyphs, and a short next action</td></tr>
               <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code></td></tr>
-              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data; compact single-line packets for the <code>artshelf ui</code> session loop</td></tr>
+              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data; compact single-line packets for the <code>artshelf ui</code> review views, serve launch packet, and session loop</td></tr>
             </table>
           </section>
 

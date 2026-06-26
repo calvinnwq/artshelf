@@ -8,9 +8,8 @@ import { appendEvent } from "../src/session.js";
 
 // End-to-end tests for the Artshelf UI v1 AXI command surface (NGX-532). The agent loop -
 // start/resume, poll, reply, end - is driven through the built CLI exactly as an agent would
-// run it, with browser-submitted events simulated through the in-process session API (the
-// browser dashboard server itself is a later slice). Each test uses an isolated ARTSHELF_UI_HOME
-// so resume matching never leaks across cases.
+// run it, with browser-submitted events simulated through the in-process session API. Each test
+// uses an isolated ARTSHELF_UI_HOME so resume matching never leaks across cases.
 
 const CLI = new URL("../src/cli.js", import.meta.url);
 

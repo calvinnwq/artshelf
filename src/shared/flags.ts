@@ -16,6 +16,7 @@ export const VALUE_FLAGS = new Set([
   "payload",
   "plan-id",
   "older-than",
+  "port",
   "registry",
   "reason",
   "retain-until",
