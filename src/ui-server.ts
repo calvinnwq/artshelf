@@ -161,8 +161,11 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
 function scopedDetailLedgerPath(options: UiServerOptions, requestedLedgerPath: string): string | null {
   if (requestedLedgerPath.length === 0) return null;
   const normalized = normalizeLedgerPath(requestedLedgerPath);
+  if (options.ledgerPath !== undefined) {
+    const scopedLedgerPath = normalizeLedgerPath(options.ledgerPath);
+    return normalized === scopedLedgerPath ? scopedLedgerPath : null;
+  }
   const allowed = new Set<string>();
-  if (options.ledgerPath !== undefined) allowed.add(normalizeLedgerPath(options.ledgerPath));
   for (const ledger of listRegisteredLedgers(options.registryPath)) allowed.add(ledger.path);
   return allowed.has(normalized) ? normalized : null;
 }
@@ -170,6 +173,7 @@ function scopedDetailLedgerPath(options: UiServerOptions, requestedLedgerPath: s
 function dashboardOptions(options: UiServerOptions): BuildDashboardOptions {
   const dashboard: BuildDashboardOptions = {};
   if (options.registryPath !== undefined) dashboard.registryPath = options.registryPath;
+  if (options.ledgerPath !== undefined) dashboard.ledgerPath = options.ledgerPath;
   return dashboard;
 }
 

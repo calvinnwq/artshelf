@@ -436,3 +436,34 @@ test("buckets aggregate across multiple registered ledgers and a bad ledger is i
     ["shf_a"]
   );
 });
+
+test("ledger-scoped dashboard excludes unrelated registered ledgers", () => {
+  const dir = fixture();
+  const primaryPath = realFile(dir, "primary.txt");
+  const outsidePath = realFile(dir, "outside.txt");
+  const primaryLedger = join(dir, "primary", "ledger.jsonl");
+  const outsideLedger = join(dir, "outside", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(primaryLedger, [
+    baseRecord({ id: "shf_primary", path: primaryPath, retention: { mode: "ttl", ttl: "1d" }, retainUntil: PAST_DUE, cleanup: "trash" })
+  ]);
+  writeLedgerFile(outsideLedger, [
+    baseRecord({ id: "shf_outside", path: outsidePath, retention: { mode: "ttl", ttl: "1d" }, retainUntil: PAST_DUE, cleanup: "trash" })
+  ]);
+  writeRegistry(registryPath, [
+    { name: "primary", path: primaryLedger },
+    { name: "outside", path: outsideLedger }
+  ]);
+
+  const snapshot = buildDashboard({ registryPath, ledgerPath: primaryLedger });
+
+  assert.deepEqual(
+    snapshot.ledgers.map((ledger) => ledger.name),
+    ["primary"]
+  );
+  assert.deepEqual(
+    snapshot.buckets.cleanup.map((row) => row.recordId),
+    ["shf_primary"]
+  );
+  assert.equal(snapshot.buckets.cleanup.some((row) => row.recordId === "shf_outside"), false);
+});

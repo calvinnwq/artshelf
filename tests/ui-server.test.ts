@@ -118,10 +118,10 @@ function createTestSession(): TestSession {
 // Start the read-only server on an ephemeral loopback port for one fixture, run the body, and
 // always close so no test leaks a listening socket.
 async function withServer(
-  options: { registryPath: string },
+  options: { registryPath: string; ledgerPath?: string },
   body: (handle: ServerHandle) => Promise<void>
 ): Promise<void> {
-  const handle = await startTestServer({ registryPath: options.registryPath });
+  const handle = await startTestServer(options);
   try {
     await body(handle);
   } finally {
@@ -129,15 +129,17 @@ async function withServer(
   }
 }
 
-async function startTestServer(options: { registryPath: string }): Promise<ServerHandle> {
+async function startTestServer(options: { registryPath: string; ledgerPath?: string }): Promise<ServerHandle> {
   const session = createTestSession();
   try {
-    const handle = await startUiServer({
+    const serverOptions = {
       port: 0,
       registryPath: options.registryPath,
       uiHome: session.home,
       sessionId: session.sessionId
-    });
+    };
+    if (options.ledgerPath !== undefined) Object.assign(serverOptions, { ledgerPath: options.ledgerPath });
+    const handle = await startUiServer(serverOptions);
     return {
       ...handle,
       token: session.token,
@@ -146,11 +148,13 @@ async function startTestServer(options: { registryPath: string }): Promise<Serve
     };
   } catch (error) {
     if (!isListenPermissionError(error)) throw error;
-    const server = createUiServer({
+    const serverOptions = {
       registryPath: options.registryPath,
       uiHome: session.home,
       sessionId: session.sessionId
-    });
+    };
+    if (options.ledgerPath !== undefined) Object.assign(serverOptions, { ledgerPath: options.ledgerPath });
+    const server = createUiServer(serverOptions);
     return {
       url: "http://127.0.0.1:0",
       host: "127.0.0.1",
@@ -369,6 +373,30 @@ test("detail requests reject ledgers outside the served dashboard scope", async 
     assert.match(html, /part of this served review scope/i);
     assert.doesNotMatch(html, /shf_outside/);
     assert.doesNotMatch(html, /outside ledger secret/);
+  });
+});
+
+test("ledger-scoped serve renders only the selected ledger and refuses other registered ledgers", async () => {
+  const dir = fixtureDir();
+  const primaryLedger = join(dir, "primary.jsonl");
+  const outsideLedger = join(dir, "outside.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(primaryLedger, [baseRecord({ id: "shf_primary", reason: "primary ledger review" })]);
+  writeLedgerFile(outsideLedger, [baseRecord({ id: "shf_outside", reason: "outside ledger secret" })]);
+  writeRegistry(registryPath, [
+    { name: "primary", path: primaryLedger },
+    { name: "outside", path: outsideLedger }
+  ]);
+
+  await withServer({ registryPath, ledgerPath: primaryLedger }, async (server) => {
+    const dashboard = await (await server.request("/")).text();
+    assert.match(dashboard, /shf_primary/);
+    assert.doesNotMatch(dashboard, /shf_outside/);
+    assert.doesNotMatch(dashboard, /outside ledger secret/);
+
+    const response = await server.request(`/detail/shf_outside?ledger=${encodeURIComponent(outsideLedger)}`);
+    assert.equal(response.status, 403);
+    assert.doesNotMatch(await response.text(), /outside ledger secret/);
   });
 });
 

@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
 import { buildInspectReport } from "./inspect.js";
 import type { InspectExistence, InspectRecommendation } from "./inspect.js";
-import { listTrashedRecords, previewTrashPurgePlan, readLedger, validateLedger } from "./ledger.js";
+import { listTrashedRecords, normalizeLedgerPath, previewTrashPurgePlan, readLedger, validateLedger } from "./ledger.js";
 import { classifyRegistryPruneFindings } from "./registry-prune.js";
 import { classifyReconcileFindings } from "./reconcile.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
@@ -145,6 +145,8 @@ export type DashboardSnapshot = {
 
 export type BuildDashboardOptions = {
   registryPath?: string;
+  // Optional single-ledger scope for a ledger-targeted UI session.
+  ledgerPath?: string;
   // How many of the most recent receipts to surface across all ledgers (default 10).
   recentReceiptsLimit?: number;
   // Age threshold for the purge-candidate lane; default "0d" treats every trashed record as a
@@ -169,6 +171,7 @@ const DEFAULT_PURGE_OLDER_THAN = "0d";
 
 export function buildDashboard(options: BuildDashboardOptions = {}): DashboardSnapshot {
   const registryPath = normalizeRegistryPath(options.registryPath);
+  const ledgerPath = options.ledgerPath === undefined ? null : normalizeLedgerPath(options.ledgerPath);
   const recentReceiptsLimit = options.recentReceiptsLimit ?? DEFAULT_RECENT_RECEIPTS;
   const purgeOlderThan = options.purgeOlderThan ?? DEFAULT_PURGE_OLDER_THAN;
   const at = now();
@@ -185,7 +188,10 @@ export function buildDashboard(options: BuildDashboardOptions = {}): DashboardSn
   };
   const ledgers: DashboardLedgerStatus[] = [];
 
-  for (const ledger of listRegisteredLedgers(registryPath)) {
+  const registeredLedgers = listRegisteredLedgers(registryPath);
+  const reviewLedgers = ledgerPath === null ? registeredLedgers : scopedReviewLedgers(registeredLedgers, ledgerPath);
+
+  for (const ledger of reviewLedgers) {
     const exists = existsSync(ledger.path);
     const validation = exists
       ? validateLedger(ledger.path)
@@ -225,6 +231,7 @@ export function buildDashboard(options: BuildDashboardOptions = {}): DashboardSn
   }
 
   for (const finding of classifyRegistryPruneFindings(registryPath)) {
+    if (ledgerPath !== null && finding.path !== ledgerPath) continue;
     buckets.registryReconcile.push({
       source: "registry",
       ledgerName: finding.name,
@@ -257,6 +264,12 @@ export function buildDashboard(options: BuildDashboardOptions = {}): DashboardSn
       "recent-receipts": buckets.recentReceipts.length
     }
   };
+}
+
+function scopedReviewLedgers(registeredLedgers: LedgerRegistryEntry[], ledgerPath: string): LedgerRegistryEntry[] {
+  const matching = registeredLedgers.filter((ledger) => ledger.path === ledgerPath);
+  if (matching.length > 0) return matching;
+  return [{ name: "selected", path: ledgerPath, scope: "other", createdAt: "", updatedAt: "" }];
 }
 
 // Route each record of one valid ledger into its review lane. Receipts go to the recent lane;
