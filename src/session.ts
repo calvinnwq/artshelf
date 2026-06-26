@@ -406,16 +406,37 @@ function validateEventInput(input: AppendEventInput): Required<AppendEventInput>
   };
 }
 
-// Per-intent payload/target validators run before the event reaches the durable log, enforcing
-// the NGX-538 rule that every decision intent carries exact target context and a well-formed body
-// - no vague global action events. Event types without an entry keep the permissive base
-// validation (plain-object target/payload only); record-scoped intents are tightened here as the
-// browser affordances for them land.
+// Per-intent payload/target validators run before the event reaches the durable log, enforcing the
+// NGX-538 rule that every triage intent names the exact record + ledger it concerns and carries a
+// well-formed body - no vague global action events. The record-scoped intents (inspect/comment/
+// decision) are tightened here; dry_run_requested stays on the permissive base validation until its
+// requested-action vocabulary is settled with the approval/execute slices (NGX-539/540), and the
+// session-level types (session_done/session_note_added/etc.) keep the base validation. Event types
+// without an entry accept any plain-object target/payload.
 const UI_EVENT_VALIDATORS: Partial<
   Record<UiEventType, (target: Record<string, unknown>, payload: Record<string, unknown>) => void>
 > = {
+  inspect_requested: validateInspectRequest,
+  comment_added: validateCommentIntent,
   decision_submitted: validateDecisionIntent
 };
+
+// An inspect intent asks the agent to surface the inspect card for one exact record; it carries no
+// body of its own, only the record + ledger it concerns, so a vague "inspect everything" request
+// cannot enter the log.
+function validateInspectRequest(target: Record<string, unknown>): void {
+  requireRecordTarget(target);
+}
+
+// A comment intent annotates one exact record and must carry the human's note: the record + ledger it
+// concerns plus a non-empty text body, so a blank or record-less comment never enters the audit trail.
+// A session-wide note is a separate (future) session_note_added event, not a target-less comment.
+function validateCommentIntent(target: Record<string, unknown>, payload: Record<string, unknown>): void {
+  requireRecordTarget(target);
+  if (!isNonEmptyString(payload.text)) {
+    throw new Error("Invalid Artshelf UI comment text; expected a non-empty string");
+  }
+}
 
 // A keep/trash/resolve/defer triage intent must name the exact record + ledger it concerns and
 // carry a recognized decision; the optional reason, when present, must be a non-empty string so a

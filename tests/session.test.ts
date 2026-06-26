@@ -72,6 +72,7 @@ function childAppendEvent(home: string, sessionId: string, text: string): Return
     try {
       const event = appendEvent(process.env.ARTSHELF_TEST_UI_HOME, process.env.ARTSHELF_TEST_SESSION_ID, {
         type: "comment_added",
+        target: { recordId: "shf_lock", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
         payload: { text: process.env.ARTSHELF_TEST_TEXT }
       });
       process.stdout.write(JSON.stringify({ ok: true, eventId: event.id }));
@@ -178,7 +179,11 @@ test("session storage uses owner-only directory and token file permissions", () 
   let bundleId: string;
   try {
     session = startUserSession(home);
-    eventId = appendEvent(home, session.id, { type: "comment_added", payload: { text: "private" } }).id;
+    eventId = appendEvent(home, session.id, {
+      type: "comment_added",
+      target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "private" }
+    }).id;
     assert.match(eventId, /^event_/);
     bundleId = writeApprovalSnapshot(home, session.id, {
       actionType: "trash-resolve",
@@ -325,6 +330,7 @@ test("appendEvent keeps browser-submitted events pending even when input supplie
 
   const event = appendEvent(home, session.id, {
     type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
     status: "completed",
     payload: { text: "do not hide this from poll" }
   });
@@ -340,6 +346,7 @@ test("appendEvent treats caller-supplied agent source as browser input", () => {
 
   const event = appendEvent(home, session.id, {
     type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
     source: "agent",
     status: "completed",
     payload: { text: "do not bypass browser normalization" }
@@ -356,7 +363,12 @@ test("appendEvent refuses browser writes once the session has ended", () => {
   endSession(home, session.id);
 
   assert.throws(
-    () => appendEvent(home, session.id, { type: "comment_added", payload: { text: "too late" } }),
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { text: "too late" }
+      }),
     /ended/i
   );
 });
@@ -370,6 +382,7 @@ test("appendEvent refuses caller-supplied agent source once the session has ende
     () =>
       appendEvent(home, session.id, {
         type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
         source: "agent",
         status: "completed",
         payload: { text: "do not bypass revocation" }
@@ -381,7 +394,11 @@ test("appendEvent refuses caller-supplied agent source once the session has ende
 test("pollPendingEvents returns no actionable browser events after the session ends", () => {
   const home = freshHome();
   const session = startUserSession(home);
-  appendEvent(home, session.id, { type: "comment_added", payload: { text: "review me" } });
+  appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "review me" }
+  });
 
   endSession(home, session.id);
 
@@ -540,6 +557,106 @@ test("appendEvent rejects a decision intent whose optional reason is present but
   assert.equal(pollPendingEvents(home, session.id).length, 0);
 });
 
+test("appendEvent records an inspect_requested intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "inspect_requested",
+    target: { recordId: "shf_inspect", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+  });
+
+  assert.equal(event.type, "inspect_requested");
+  assert.equal(event.status, "pending");
+  assert.equal(event.source, "browser");
+  assert.equal(event.target.recordId, "shf_inspect");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
+test("appendEvent rejects an inspect request missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "inspect_requested",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () => appendEvent(home, session.id, { type: "inspect_requested", target: { recordId: "shf_1" } }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent records a comment_added intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_comment", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "looks stale, likely safe to trash" }
+  });
+
+  assert.equal(event.type, "comment_added");
+  assert.equal(event.target.recordId, "shf_comment");
+  assert.equal(event.payload.text, "looks stale, likely safe to trash");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
+test("appendEvent rejects a comment missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { text: "looks stale" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1" },
+        payload: { text: "looks stale" }
+      }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects a comment whose text is missing or blank", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+      }),
+    /comment text/i
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { text: "   " }
+      }),
+    /comment text/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
 test("appendEvent serializes browser writes against session end", async () => {
   const home = freshHome();
   const session = startUserSession(home);
@@ -570,7 +687,11 @@ test("appendEvent serializes browser writes against session end", async () => {
 test("pollPendingEvents serializes pending queue reads against session end", async () => {
   const home = freshHome();
   const session = startUserSession(home);
-  appendEvent(home, session.id, { type: "comment_added", payload: { text: "review me before close" } });
+  appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "review me before close" }
+  });
   const sessionPath = join(home, "sessions", session.id, "session.json");
   const markerPath = join(home, "sessions", session.id, "poll-marker");
   let child: ReturnType<typeof spawn> | null = null;
@@ -624,7 +745,11 @@ test("replyToEvent rejects a reply that targets an unknown event", () => {
 test("replyToEvent rejects pending and unknown reply statuses at the storage boundary", () => {
   const home = freshHome();
   const session = startUserSession(home);
-  const event = appendEvent(home, session.id, { type: "comment_added", payload: { text: "reviewed" } });
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "reviewed" }
+  });
 
   assert.throws(
     () => replyToEvent(home, session.id, event.id, { status: "pending" as never }),
