@@ -430,7 +430,7 @@ It does not add a browser-direct mutation path.
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
 artshelf ui dashboard [--registry <path>] [--json]
 artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
-artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>]
+artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui end <session-id> [--scope user|repo] [--json]
@@ -445,8 +445,8 @@ Rules:
 - `ui dashboard` recomputes a multi-ledger snapshot from registered ledgers and surfaces needs-review, needs-context, cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts buckets without mutating anything.
 - `ui detail <record-id>` composes the path label, inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
-- `ui serve` hosts the `ui dashboard` and `ui detail` surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, and runs in the foreground until interrupted with Ctrl-C.
-- The served pages carry no script, embed no file contents, and expose no mutation path: the browser refuses non-GET requests, and bad or missing ledgers and records render as explicit non-crashing problem states rather than blank panels. It is the read-only display half of the UI; recording review decisions stays in the agent-mediated `ui` session loop.
+- `ui serve` hosts the `ui dashboard` and `ui detail` surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
+- The served pages carry no script, embed no file contents, and expose no mutation path: the server accepts safe GET/HEAD reads for pages and health checks, refuses mutating methods, and renders bad or missing ledgers and records as explicit non-crashing problem states rather than blank panels. It is the read-only display half of the UI; recording review decisions stays in the agent-mediated `ui` session loop.
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail access while keeping the session readable for audit.
@@ -1221,7 +1221,7 @@ for later human review.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`; the `artshelf ui` family uses compact
-  single-line JSON packets for the read-only dashboard/detail views and session loop.
+  single-line JSON packets for the read-only dashboard/detail views, serve launch packet, and session loop.
 - `review`, `status`, `doctor`, `ledgers prune --dry-run`, `dispose --dry-run`,
   and `get --inspect` also support `--agent`, a compact single-line JSON decision
   packet for agents that takes precedence over `--json`.

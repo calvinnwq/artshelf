@@ -10,9 +10,9 @@ import { readSession, validateBrowserToken } from "./session.js";
 
 // Read-only loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard,
 // NGX-536 detail drawer, NGX-537 needs-context presentation). It binds to 127.0.0.1 only and
-// answers GET requests by recomputing live state from the existing read-only domain cores and
-// rendering it as HTML. There is no mutation path: non-GET requests are refused, and the served
-// pages carry no script and embed no file contents. The browser is purely a display surface; the
+// answers safe GET/HEAD reads by recomputing live state from the existing read-only domain cores
+// and rendering it as HTML. There is no mutation path: mutating methods are refused, and the
+// served pages carry no script and embed no file contents. The browser is purely a display surface; the
 // agent-mediated session layer (the `ui` command) remains the only place review decisions are
 // recorded.
 

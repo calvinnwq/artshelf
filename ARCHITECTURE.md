@@ -51,18 +51,20 @@ src/
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
   session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
+  ui-server.ts        read-only loopback browser server for dashboard/detail pages
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger, cleanup, disposal, reconcile, registry, and UI contracts
   adapters/           npm/process/update infrastructure edges
-  renderers/          human, --json, and --agent output formatting helpers
+  renderers/          human, --json, --agent, and browser HTML output helpers
   config/             env, package metadata, defaults, and path normalization
   shared/             small cross-cutting CLI types, errors, flags, and help routing/text
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
 (`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `dashboard.ts`, `artifact-detail.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
-the existing core/domain modules for this closeout. A future issue may move them under `src/core/`,
+the existing core/domain modules for this closeout. `ui-server.ts` is a root support module for the
+read-only browser surface. A future issue may move these under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
 
 ### `commands/`
@@ -99,19 +101,22 @@ Each public command has a discoverable module named after the CLI surface:
 `ledgers.ts`, `doctor.ts`, `status.ts`, and `update.ts`. Marker modules that merely export a command name are refused;
 these files must contain real command-family implementation code.
 
-The `ui` command family (`artshelf ui`, `ui poll`, `ui reply`, `ui end`) is the
-agent-mediated AXI surface over `session.ts` (NGX-532): it starts or resumes a
-durable review session and runs the poll/reply/end agent loop with compact `--json`
-packets. It owns no browser-direct mutation path - the browser records decisions,
-the agent executes existing approval-gated commands and replies with receipts.
+The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
+`ui poll`, `ui reply`, `ui end`) is the agent-mediated AXI surface over
+`session.ts` plus the read-only review data surface over `dashboard.ts`,
+`artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
+sessions, serves token-protected loopback dashboard/detail pages, returns compact
+`--json` review snapshots, and runs the poll/reply/end agent loop. It owns no
+browser-direct mutation path - the browser records decisions, the agent executes
+existing approval-gated commands and replies with receipts.
 
 ### Domain files
 
-Root domain files hold deterministic Artshelf behavior. They should be callable
-from tests without spawning the CLI and without relying on process-global state
-except where legacy behavior already requires it.
+Root domain and support files hold deterministic Artshelf behavior or focused local runtime
+surfaces. They should be callable from tests without spawning the CLI and without relying on
+process-global state except where legacy behavior already requires it.
 
-Current domain ownership:
+Current root ownership:
 
 - `ledger.ts`: ledger record lifecycle and validation, due classification,
   cleanup and trash plan/receipt rules
@@ -140,6 +145,9 @@ Current domain ownership:
   immutable fingerprinted approval snapshots. This is the v1 handoff layer where the browser
   records decisions and the agent executes existing approval-gated paths, so it never runs a
   mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped optionally
+- `ui-server.ts`: token-protected loopback HTTP server for the read-only dashboard/detail browser
+  pages. It accepts safe browser reads only, recomputes live state per request, refuses mutation
+  methods, and never embeds file contents or scripts
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
@@ -168,8 +176,9 @@ easy to snapshot or assert against.
 Render modes:
 
 - human output: compact terminal text for people
-- `--json`: full machine/audit payloads
+- `--json`: full machine/audit payloads and compact UI packets
 - `--agent`: terse decision packets for agents
+- browser HTML: script-free dashboard/detail pages generated from read-only snapshots
 
 ### `config/`
 
@@ -191,6 +200,8 @@ cli -> commands -> domain files
 cli -> commands -> renderers
 cli -> commands -> adapters/config/shared
 commands -> adapters/config/renderers/shared
+commands -> ui-server
+ui-server -> domain files/renderers/session
 ledger/registry/time/types -> shared or narrower domain helpers
 renderers -> shared and type-only domain imports
 adapters -> config/shared
@@ -202,12 +213,14 @@ Rules:
 - `src/cli.ts` may import `commands/`, `config/`, and `shared/`; it must not
   import `ledger.ts`, `registry.ts`, `adapters/`, or `renderers/` directly.
 - Domain files (`ledger.ts`, `registry.ts`, `locks.ts`, `time.ts`, `types.ts`)
-  must not import `commands/`, `renderers/`, `adapters/`, or `cli.ts`.
+  must not import `commands/`, `renderers/`, `adapters/`, `ui-server.ts`, or `cli.ts`.
 - `renderers/` must not read or write ledgers, registries, or files. Runtime
   imports should stay renderer-local or shared; type-only domain imports are
   acceptable where they document report shapes.
-- `commands/` may import domain files, adapters, config, renderers, and shared
+- `commands/` may import domain files, adapters, config, renderers, `ui-server.ts`, and shared
   helpers.
+- `ui-server.ts` may import domain files, renderers, and session helpers, but it must not import
+  command modules, adapters, or `cli.ts`.
 - `adapters/` may import shared/config helpers, but should not import command
   modules, renderers, ledger, or registry domain modules.
 - Avoid import cycles. If a cycle appears, move the shared type or helper into

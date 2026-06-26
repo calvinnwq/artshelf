@@ -185,7 +185,7 @@ artshelf ui dashboard [--registry &lt;path&gt;] [--json]
 artshelf ui detail &lt;record-id&gt; [--ledger &lt;path&gt;] [--registry &lt;path&gt;] [--json]
 
 <span class="c"># serve those views as a local loopback browser page</span>
-artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--registry &lt;path&gt;] [--ledger &lt;path&gt;]
+artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--registry &lt;path&gt;] [--ledger &lt;path&gt;] [--json]
 
 <span class="c"># agent loop over browser-recorded events</span>
 artshelf ui poll &lt;session-id&gt; [--scope user|repo] [--json]
@@ -202,7 +202,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               surfaces as a local browser page bound to loopback (<code>127.0.0.1</code>) only; it
               recomputes live state on every request, requires the active UI session capability
               token printed in the serve URL, serves no script and embeds no file contents,
-              refuses non-GET requests, and runs in the foreground until you press Ctrl-C.
+              accepts safe GET/HEAD reads, refuses mutating methods, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C.
               The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
@@ -366,8 +366,9 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               output stays clean.
             </p>
             <p>
-              <code>artshelf ui --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
-              and <code>ui end --json</code> emit compact session-loop packets.
+              <code>artshelf ui --json</code>, <code>ui dashboard --json</code>, <code>ui detail --json</code>,
+              <code>ui serve --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
+              and <code>ui end --json</code> emit compact UI packets.
               <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
               It names the relevant health, prune counts, dispose plan status, or record recommendation, classifications, blockers, approval targets where applicable, and the command
@@ -383,7 +384,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>(default)</td><td>human render: grouped counts or a record card, ✓/⚠ attention glyphs, and a short next action</td></tr>
               <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code></td></tr>
-              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data; compact single-line packets for the <code>artshelf ui</code> session loop</td></tr>
+              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data; compact single-line packets for the <code>artshelf ui</code> review views, serve launch packet, and session loop</td></tr>
             </table>
           </section>
 

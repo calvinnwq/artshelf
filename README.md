@@ -153,7 +153,7 @@ artshelf doctor
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
 artshelf ui dashboard [--registry <path>] [--json]
 artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
-artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>]
+artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui end <session-id> [--scope user|repo] [--json]
@@ -177,7 +177,8 @@ or `artshelf help <command>` for focused details. Nested commands such as
 `artshelf ui poll --help` show only that subcommand. All core commands support
 `--json`; `artshelf ui --json` is a compact single-line session packet,
 `ui dashboard --json` and `ui detail --json` emit compact read-only review
-snapshots, and `ui poll`/`ui reply`/`ui end` use the same compact agent loop
+snapshots, `ui serve --json` prints a compact launch packet before the foreground
+server waits, and `ui poll`/`ui reply`/`ui end` use the same compact agent loop
 format. `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` also take `--agent` for a compact
 decision packet; `--ledger`, `--registry`, and `--all` are scope flags only on
@@ -237,7 +238,7 @@ The `artshelf ui` command family exposes the agent-mediated review loop plus rea
 Use `artshelf ui dashboard --json` for a multi-ledger snapshot with needs-review, needs-context, cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts buckets.
 Use `artshelf ui detail <record-id> --ledger <path> --json` for the artifact detail drawer: metadata, path label, original reason, provenance, audit trail, existence facts, inspect-card recommendation, needs-context badge, and last action.
 Both views are read-only and never preview file contents.
-Run `artshelf ui serve [--scope user|repo] [--port <port>]` to open those same dashboard and detail surfaces as a local browser page; it binds to loopback (127.0.0.1) only, recomputes live state on every request, ships no script and no file contents, requires the active UI session capability token printed in the serve URL, and runs in the foreground until you press Ctrl-C.
+Run `artshelf ui serve [--scope user|repo] [--port <port>] [--json]` to open those same dashboard and detail surfaces as a local browser page; it binds to loopback (127.0.0.1) only, recomputes live state on every request, ships no script and no file contents, requires the active UI session capability token printed in the serve URL, and runs in the foreground until you press Ctrl-C.
 The session command defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
 Set `ARTSHELF_UI_HOME` only for tests or controlled hosts that need to move that durable session home.
 The browser side records decisions into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.

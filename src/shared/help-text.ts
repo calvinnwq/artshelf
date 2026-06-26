@@ -31,7 +31,7 @@ Flags:
 Use "artshelf trash <command> --help" for more information about a command.
 `;
 
-export const UI_HELP = `Start and drive an agent-mediated Artshelf review session.
+export const UI_HELP = `Start sessions and read Artshelf UI review views.
 
 Usage:
   artshelf ui [command]
@@ -82,7 +82,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
     commands: [
       { name: "validate", summary: "Check ledger shape and report warnings" },
       { name: "review", summary: "Preview validate, due, and cleanup plans (read-only)" },
-      { name: "ui", summary: "Start or drive an agent-mediated browser review session" }
+      { name: "ui", summary: "Start review sessions and read UI review views" }
     ]
   },
   {
@@ -515,21 +515,22 @@ read-only and never reads or previews file contents.
 
   if (command === "ui serve") {
     return `Usage:
-  artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>]
+  artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
 
 Options:
   --scope <scope>          Locate or create the guarding UI session in user (default) or repo scope
   --port <port>            Loopback port to bind (default: an ephemeral free port)
   --registry <path>        Registry whose ledgers the dashboard aggregates
   --ledger <path>          Fallback ledger for detail drawers opened without a target
+  --json                   Emit a compact launch packet before waiting in the foreground
 
 Serve hosts the read-only review dashboard and artifact detail drawers as a local
 browser surface. It binds to loopback (127.0.0.1) only, never a wildcard interface,
 and recomputes live state on every request. Dashboard and detail pages require the
 active UI session capability token printed in the serve URL; ending that session
 revokes browser access. The pages carry no script, embed no file contents, and expose
-no mutation path - the browser only displays state. The process runs in the foreground;
-press Ctrl-C to stop it.
+no mutation path - the browser only displays state. Safe GET/HEAD reads are accepted;
+mutating methods are refused. The process runs in the foreground; press Ctrl-C to stop it.
 `;
   }
 
