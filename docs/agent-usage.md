@@ -89,11 +89,11 @@ requires `--inspect`.
 `artshelf ui dashboard --json` returns the read-only multi-ledger review buckets, including needs-context, cleanup, resolve, trash, purge candidates, registry/reconcile problems, and recent receipts.
 `artshelf ui detail <record-id> --ledger <path> --json` returns the read-only artifact detail drawer with path label, inspect-card output, provenance, audit trail, existence facts, needs-context badge, and last action.
 Both views are metadata-only and never preview file contents.
-`artshelf ui serve [--port <port>]` hosts those same read-only dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, serves no script and no file contents, and has no mutation path.
+`artshelf ui serve [--scope user|repo] [--port <port>]` hosts those same read-only dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, requires the active UI session capability token printed in the serve URL, serves no script and no file contents, and has no mutation path.
 The session command defaults to user-level, multi-ledger review and stores session state under `~/.artshelf/ui`; use `--scope repo` or `--ledger <path>` when the review needs a narrower target.
 The browser records decisions, the agent polls with `artshelf ui poll <session-id> --json`, runs existing approval-gated commands only after exact human approval, replies with `artshelf ui reply`, and closes with `artshelf ui end`.
 There is no browser-direct mutation path.
-Treat the session token printed by `artshelf ui` as a secret same-machine browser-write capability; ending the session revokes future browser writes while keeping the audit trail readable.
+Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard access while keeping the audit trail readable.
 
 ## Portable Skill
 

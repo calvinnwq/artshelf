@@ -221,26 +221,43 @@ function handleUiDetail(parsed: ParsedArgs, json: boolean): number {
 // contents. The process runs in the foreground until interrupted, so this is the one `ui`
 // subcommand that does not return immediately.
 async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number> {
-  const options: StartUiServerOptions = {};
   const portRaw = stringFlag(parsed, "port");
+  let port: number | undefined;
   if (portRaw !== undefined) {
-    const port = Number(portRaw);
-    if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    const parsedPort = Number(portRaw);
+    if (!Number.isInteger(parsedPort) || parsedPort < 0 || parsedPort > 65535) {
       throw new Error(`Invalid --port "${portRaw}"; expected an integer between 0 and 65535`);
     }
-    options.port = port;
+    port = parsedPort;
   }
   const registryPath = stringFlag(parsed, "registry");
-  if (registryPath !== undefined) options.registryPath = registryPath;
   const ledgerPath = stringFlag(parsed, "ledger");
+  const scope = resolveScope(stringFlag(parsed, "scope"));
+  const home = resolveUiHome({ scope, cwd: process.cwd() });
+  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null });
+  const options: StartUiServerOptions = { uiHome: home, sessionId: session.id };
+  if (port !== undefined) options.port = port;
+  if (registryPath !== undefined) options.registryPath = registryPath;
   if (ledgerPath !== undefined) options.ledgerPath = ledgerPath;
 
   const handle = await startUiServer(options);
+  const accessUrl = `${handle.url}/?token=${encodeURIComponent(session.token)}`;
   if (json) {
-    printCompactJson({ ok: true, command: "ui-serve", url: handle.url, host: handle.host, port: handle.port });
+    printCompactJson({
+      ok: true,
+      command: "ui-serve",
+      url: accessUrl,
+      baseUrl: handle.url,
+      host: handle.host,
+      port: handle.port,
+      session: publicSession(session),
+      token: session.token
+    });
   } else {
     process.stdout.write(`artshelf ui serve: read-only review dashboard on ${handle.url}\n`);
-    process.stdout.write(`open ${handle.url} in a browser on this machine; press Ctrl-C to stop.\n`);
+    process.stdout.write(`session: ${session.id}\n`);
+    process.stdout.write(`open ${accessUrl} in a browser on this machine; treat the token as secret.\n`);
+    process.stdout.write("press Ctrl-C to stop.\n");
   }
   // Keep the foreground process alive while the loopback server runs. SIGINT/SIGTERM terminate it;
   // nothing in this read-only surface needs a graceful flush.

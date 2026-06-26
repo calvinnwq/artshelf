@@ -4,6 +4,7 @@ import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions } from "./dashboard.js";
 import { buildDashboard } from "./dashboard.js";
 import { renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
+import { readSession, validateBrowserToken } from "./session.js";
 
 // Read-only loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard,
 // NGX-536 detail drawer, NGX-537 needs-context presentation). It binds to 127.0.0.1 only and
@@ -18,6 +19,9 @@ export type UiServerOptions = {
   registryPath?: string;
   // Fallback ledger for the detail drawer when a request omits an explicit `?ledger=` target.
   ledgerPath?: string;
+  // Existing UI session that supplies the active browser capability token for read access.
+  uiHome: string;
+  sessionId: string;
 };
 
 export type StartUiServerOptions = UiServerOptions & { port?: number };
@@ -47,7 +51,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 
 const DETAIL_PREFIX = "/detail/";
 
-export function createUiServer(options: UiServerOptions = {}): any {
+export function createUiServer(options: UiServerOptions): any {
   return createServer((request: any, response: any) => {
     try {
       route(options, request, response);
@@ -57,7 +61,7 @@ export function createUiServer(options: UiServerOptions = {}): any {
   });
 }
 
-export function startUiServer(options: StartUiServerOptions = {}): Promise<UiServerHandle> {
+export function startUiServer(options: StartUiServerOptions): Promise<UiServerHandle> {
   const server = createUiServer(options);
   return new Promise<UiServerHandle>((resolve, reject) => {
     const onError = (error: unknown): void => reject(error);
@@ -97,22 +101,32 @@ function route(options: UiServerOptions, request: any, response: any): void {
     return;
   }
 
+  const access = authorizeBrowserRead(options, request, query);
+  if (!access.ok) {
+    sendHtml(response, 401, renderErrorPage({
+      status: 401,
+      title: "Capability token required",
+      message: "Open this review surface from the artshelf ui serve link; dashboard and detail pages require the active UI session token."
+    }));
+    return;
+  }
+
   if (pathname === "/" || pathname === "/dashboard") {
-    sendHtml(response, 200, renderDashboardPage(buildDashboard(dashboardOptions(options))));
+    sendHtml(response, 200, renderDashboardPage(buildDashboard(dashboardOptions(options))), access.headers);
     return;
   }
 
   if (pathname.startsWith(DETAIL_PREFIX)) {
-    routeDetail(options, decodeURIComponent(pathname.slice(DETAIL_PREFIX.length)), query, response);
+    routeDetail(options, decodeURIComponent(pathname.slice(DETAIL_PREFIX.length)), query, response, access.headers);
     return;
   }
 
   sendHtml(response, 404, renderErrorPage({ status: 404, title: "Not found", message: `No review page at ${pathname}.` }));
 }
 
-function routeDetail(options: UiServerOptions, recordId: string, query: string, response: any): void {
+function routeDetail(options: UiServerOptions, recordId: string, query: string, response: any, headers: Record<string, string>): void {
   if (!recordId) {
-    sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message: "Missing record id." }));
+    sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message: "Missing record id." }), headers);
     return;
   }
   const detailOptions: BuildArtifactDetailOptions = { recordId };
@@ -121,14 +135,14 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
   if (options.registryPath !== undefined) detailOptions.registryPath = options.registryPath;
 
   try {
-    sendHtml(response, 200, renderDetailPage(buildArtifactDetail(detailOptions)));
+    sendHtml(response, 200, renderDetailPage(buildArtifactDetail(detailOptions)), headers);
   } catch (error) {
     const message = errorMessage(error);
     // A missing record is an expected, non-crashing state; anything else is a real server error.
     if (/not found/i.test(message)) {
-      sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message }));
+      sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message }), headers);
     } else {
-      sendHtml(response, 500, renderErrorPage({ status: 500, title: "Server error", message }));
+      sendHtml(response, 500, renderErrorPage({ status: 500, title: "Server error", message }), headers);
     }
   }
 }
@@ -154,8 +168,43 @@ function getQueryParam(query: string, key: string): string | null {
   return null;
 }
 
-function sendHtml(response: any, status: number, html: string): void {
-  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", ...SECURITY_HEADERS });
+type BrowserAccess = { ok: true; headers: Record<string, string> } | { ok: false };
+
+function authorizeBrowserRead(options: UiServerOptions, request: any, query: string): BrowserAccess {
+  const queryToken = getQueryParam(query, "token");
+  const cookieToken = getCookie(request?.headers?.cookie, authCookieName(options.sessionId));
+  const token = queryToken ?? cookieToken ?? "";
+  try {
+    const session = readSession(options.uiHome, options.sessionId);
+    if (!validateBrowserToken(session, token)) return { ok: false };
+  } catch {
+    return { ok: false };
+  }
+  const headers = queryToken
+    ? { "Set-Cookie": `${authCookieName(options.sessionId)}=${encodeURIComponent(queryToken)}; Path=/; HttpOnly; SameSite=Strict` }
+    : {};
+  return { ok: true, headers };
+}
+
+function getCookie(header: unknown, name: string): string | null {
+  if (typeof header !== "string") return null;
+  for (const part of header.split(";")) {
+    const trimmed = part.trim();
+    const eq = trimmed.indexOf("=");
+    const key = eq === -1 ? trimmed : trimmed.slice(0, eq);
+    if (key === name) {
+      return eq === -1 ? "" : decodeURIComponent(trimmed.slice(eq + 1));
+    }
+  }
+  return null;
+}
+
+function authCookieName(sessionId: string): string {
+  return `artshelf_ui_token_${sessionId}`;
+}
+
+function sendHtml(response: any, status: number, html: string, headers: Record<string, string> = {}): void {
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", ...SECURITY_HEADERS, ...headers });
   response.end(html);
 }
 

@@ -515,18 +515,21 @@ read-only and never reads or previews file contents.
 
   if (command === "ui serve") {
     return `Usage:
-  artshelf ui serve [--port <port>] [--registry <path>] [--ledger <path>]
+  artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>]
 
 Options:
+  --scope <scope>          Locate or create the guarding UI session in user (default) or repo scope
   --port <port>            Loopback port to bind (default: an ephemeral free port)
   --registry <path>        Registry whose ledgers the dashboard aggregates
   --ledger <path>          Fallback ledger for detail drawers opened without a target
 
 Serve hosts the read-only review dashboard and artifact detail drawers as a local
 browser surface. It binds to loopback (127.0.0.1) only, never a wildcard interface,
-and recomputes live state on every request. The pages carry no script, embed no file
-contents, and expose no mutation path - the browser only displays state. The process
-runs in the foreground; press Ctrl-C to stop it.
+and recomputes live state on every request. Dashboard and detail pages require the
+active UI session capability token printed in the serve URL; ending that session
+revokes browser access. The pages carry no script, embed no file contents, and expose
+no mutation path - the browser only displays state. The process runs in the foreground;
+press Ctrl-C to stop it.
 `;
   }
 

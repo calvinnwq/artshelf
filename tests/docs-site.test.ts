@@ -478,8 +478,9 @@ test("docs document the read-only ui serve browser dashboard launch command", ()
   // Its command signature and the loopback-only security boundary that keeps the
   // browser surface same-machine are documented where the server is described.
   for (const text of [readme, spec, reference]) {
-    assert.match(text, /ui serve \[--port/);
+    assert.match(text, /ui serve \[--scope user\|repo\] \[--port/);
     assert.match(text, /loopback/);
+    assert.match(text, /capability\s+token/);
   }
 });
 

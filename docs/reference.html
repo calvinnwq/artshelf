@@ -185,7 +185,7 @@ artshelf ui dashboard [--registry &lt;path&gt;] [--json]
 artshelf ui detail &lt;record-id&gt; [--ledger &lt;path&gt;] [--registry &lt;path&gt;] [--json]
 
 <span class="c"># serve those views as a local loopback browser page</span>
-artshelf ui serve [--port &lt;port&gt;] [--registry &lt;path&gt;] [--ledger &lt;path&gt;]
+artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--registry &lt;path&gt;] [--ledger &lt;path&gt;]
 
 <span class="c"># agent loop over browser-recorded events</span>
 artshelf ui poll &lt;session-id&gt; [--scope user|repo] [--json]
@@ -200,9 +200,10 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               existence facts, inspect-card recommendation, needs-context badge, and last
               action. Both views are read-only and never preview file contents. <code>ui serve</code> hosts those two
               surfaces as a local browser page bound to loopback (<code>127.0.0.1</code>) only; it
-              recomputes live state on every request, serves no script and embeds no file
-              contents, refuses non-GET requests, and runs in the foreground until you press
-              Ctrl-C. The session command starts or resumes
+              recomputes live state on every request, requires the active UI session capability
+              token printed in the serve URL, serves no script and embeds no file contents,
+              refuses non-GET requests, and runs in the foreground until you press Ctrl-C.
+              The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
               to narrow the session target.
@@ -214,14 +215,15 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               <code>in_progress</code>, <code>completed</code>, <code>rejected</code>,
               <code>stale</code>, <code>failed</code>, or <code>cancelled</code> status values,
               and <code>--payload</code> must be a JSON object when present.
-              <code>ui end</code> revokes future browser writes while keeping the session readable
-              for audit. There is no browser-direct cleanup, dispose, reconcile, registry-prune,
+              <code>ui end</code> revokes future browser writes and served dashboard/detail
+              access while keeping the session readable for audit. There is no browser-direct cleanup, dispose, reconcile, registry-prune,
               resolve, or purge path.
             </p>
             <p>
-              The session token printed by <code>artshelf ui</code> is a same-machine
-              browser-write capability. Treat it as secret and end the session to revoke
-              future browser writes.
+              The session token printed by <code>artshelf ui</code> and
+              <code>artshelf ui serve</code> is a same-machine browser capability. Treat it
+              as secret and end the session to revoke future browser writes and served
+              dashboard access.
             </p>
           </section>
 

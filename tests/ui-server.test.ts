@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
+import { endSession, startOrResumeSession } from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
 
 // Tests for the read-only loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
@@ -97,8 +98,22 @@ type ServerHandle = {
   host: string;
   port: number;
   close: () => Promise<void>;
-  request(path: string, init?: { method?: string }): Promise<TestResponse>;
+  request(path: string, init?: { method?: string; headers?: Record<string, string> }): Promise<TestResponse>;
+  requestRaw(path: string, init?: { method?: string; headers?: Record<string, string> }): Promise<TestResponse>;
+  token: string;
 };
+
+type TestSession = {
+  home: string;
+  sessionId: string;
+  token: string;
+};
+
+function createTestSession(): TestSession {
+  const home = join(fixtureDir(), "ui");
+  const session = startOrResumeSession({ home, scope: "user", ledgerPath: null });
+  return { home, sessionId: session.id, token: session.token };
+}
 
 // Start the read-only server on an ephemeral loopback port for one fixture, run the body, and
 // always close so no test leaks a listening socket.
@@ -115,35 +130,53 @@ async function withServer(
 }
 
 async function startTestServer(options: { registryPath: string }): Promise<ServerHandle> {
+  const session = createTestSession();
   try {
-    const handle = await startUiServer({ port: 0, registryPath: options.registryPath });
+    const handle = await startUiServer({
+      port: 0,
+      registryPath: options.registryPath,
+      uiHome: session.home,
+      sessionId: session.sessionId
+    });
     return {
       ...handle,
-      request: (path, init) => fetch(`${handle.url}${path}`, init)
+      token: session.token,
+      request: (path, init) => fetch(`${handle.url}${withToken(path, session.token)}`, init),
+      requestRaw: (path, init) => fetch(`${handle.url}${path}`, init)
     };
   } catch (error) {
     if (!isListenPermissionError(error)) throw error;
-    const server = createUiServer({ registryPath: options.registryPath });
+    const server = createUiServer({
+      registryPath: options.registryPath,
+      uiHome: session.home,
+      sessionId: session.sessionId
+    });
     return {
       url: "http://127.0.0.1:0",
       host: "127.0.0.1",
       port: 0,
       close: async () => undefined,
-      request: (path, init) => requestInProcess(server, path, init)
+      token: session.token,
+      request: (path, init) => requestInProcess(server, withToken(path, session.token), init),
+      requestRaw: (path, init) => requestInProcess(server, path, init)
     };
   }
+}
+
+function withToken(path: string, token: string): string {
+  return `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
 }
 
 function isListenPermissionError(error: unknown): boolean {
   return error instanceof Error && (error as Error & { code?: string }).code === "EPERM";
 }
 
-function requestInProcess(server: any, path: string, init: { method?: string } = {}): Promise<TestResponse> {
+function requestInProcess(server: any, path: string, init: { method?: string; headers?: Record<string, string> } = {}): Promise<TestResponse> {
   return new Promise<TestResponse>((resolve) => {
     let status = 200;
     const headers = new Map<string, string>();
     let body = "";
-    const request = { method: init.method ?? "GET", url: path };
+    const request = { method: init.method ?? "GET", url: path, headers: init.headers ?? {} };
     const response = {
       writeHead(nextStatus: number, nextHeaders: Record<string, string>) {
         status = nextStatus;
@@ -313,6 +346,67 @@ test("non-GET requests are rejected so there is no browser-direct mutation path"
     const response = await server.request("/", { method: "POST" });
     assert.equal(response.status, 405);
   });
+});
+
+test("dashboard and detail pages require the active UI session capability token", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_known" })]);
+
+  await withServer({ registryPath }, async (server) => {
+    const dashboardWithoutToken = await server.requestRaw("/");
+    assert.equal(dashboardWithoutToken.status, 401);
+    assert.doesNotMatch(await dashboardWithoutToken.text(), /shf_known/);
+
+    const dashboardWithBadToken = await server.requestRaw("/?token=wrong");
+    assert.equal(dashboardWithBadToken.status, 401);
+    assert.doesNotMatch(await dashboardWithBadToken.text(), /shf_known/);
+
+    const dashboardWithToken = await server.requestRaw(`/?token=${encodeURIComponent(server.token)}`);
+    assert.equal(dashboardWithToken.status, 200);
+    assert.match(await dashboardWithToken.text(), /shf_known/);
+
+    const detailWithoutToken = await server.requestRaw(`/detail/shf_known?ledger=${encodeURIComponent(ledgerPath)}`);
+    assert.equal(detailWithoutToken.status, 401);
+    assert.doesNotMatch(await detailWithoutToken.text(), /shf_known/);
+
+    const detailWithToken = await server.requestRaw(
+      `/detail/shf_known?ledger=${encodeURIComponent(ledgerPath)}&token=${encodeURIComponent(server.token)}`
+    );
+    assert.equal(detailWithToken.status, 200);
+    assert.match(await detailWithToken.text(), /shf_known/);
+  });
+});
+
+test("a valid serve URL sets a session cookie for dashboard detail links", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_known" })]);
+  const session = createTestSession();
+  const server = createUiServer({ registryPath, uiHome: session.home, sessionId: session.sessionId });
+
+  const dashboard = await requestInProcess(server, `/?token=${encodeURIComponent(session.token)}`);
+  assert.equal(dashboard.status, 200);
+  const cookie = dashboard.headers.get("set-cookie");
+  assert.match(cookie ?? "", /HttpOnly/);
+  assert.match(cookie ?? "", /SameSite=Strict/);
+
+  const detail = await requestInProcess(server, `/detail/shf_known?ledger=${encodeURIComponent(ledgerPath)}`, {
+    headers: { cookie: cookie ?? "" }
+  });
+  assert.equal(detail.status, 200);
+  assert.match(await detail.text(), /shf_known/);
+});
+
+test("ending the UI session revokes served browser page access", async () => {
+  const { registryPath } = singleLedger([baseRecord({ id: "shf_known" })]);
+  const session = createTestSession();
+  const server = createUiServer({ registryPath, uiHome: session.home, sessionId: session.sessionId });
+
+  const beforeEnd = await requestInProcess(server, `/?token=${encodeURIComponent(session.token)}`);
+  assert.equal(beforeEnd.status, 200);
+
+  endSession(session.home, session.sessionId);
+
+  const afterEnd = await requestInProcess(server, `/?token=${encodeURIComponent(session.token)}`);
+  assert.equal(afterEnd.status, 401);
+  assert.doesNotMatch(await afterEnd.text(), /shf_known/);
 });
 
 test("the server binds only to loopback", async () => {
