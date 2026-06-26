@@ -87,7 +87,7 @@ requires `--inspect`.
 
 `artshelf ui` starts or resumes a durable browser review session for the agent-mediated loop.
 `artshelf ui dashboard --json` returns the read-only multi-ledger review buckets, including needs-context, cleanup, resolve, trash, purge candidates, registry/reconcile problems, and recent receipts.
-`artshelf ui detail <record-id> --ledger <path> --json` returns the read-only artifact detail drawer with inspect-card output, provenance, audit trail, existence facts, needs-context badge, and last action.
+`artshelf ui detail <record-id> --ledger <path> --json` returns the read-only artifact detail drawer with path label, inspect-card output, provenance, audit trail, existence facts, needs-context badge, and last action.
 Both views are metadata-only and never preview file contents.
 `artshelf ui serve [--port <port>]` hosts those same read-only dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, serves no script and no file contents, and has no mutation path.
 The session command defaults to user-level, multi-ledger review and stores session state under `~/.artshelf/ui`; use `--scope repo` or `--ledger <path>` when the review needs a narrower target.

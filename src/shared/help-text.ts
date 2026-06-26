@@ -506,10 +506,10 @@ Options:
 
 Detail is the read-only artifact detail drawer a dashboard row opens into. It shows
 the contract's Minimum Human-Judgment Fields for one record: id, ledger/source,
-status, original reason, created age and review due reason, retention and cleanup
-policy, provenance, audit trail, existence facts, the get --inspect decision card,
-the needs-context badge, and the last action with its receipt. It is read-only and
-never reads or previews file contents.
+status, path label, original reason, created age and review due reason, retention
+and cleanup policy, provenance, audit trail, existence facts, the get --inspect
+decision card, the needs-context badge, and the last action with its receipt. It is
+read-only and never reads or previews file contents.
 `;
   }
 

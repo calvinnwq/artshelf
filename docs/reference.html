@@ -196,9 +196,9 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               review data surface. <code>ui dashboard</code> recomputes a multi-ledger snapshot
               with needs-review, needs-context, cleanup, resolve, trash, purge-candidates,
               registry/reconcile, and recent-receipts buckets. <code>ui detail</code> shows one
-              record's metadata, original reason, provenance, audit trail, existence facts,
-              inspect-card recommendation, needs-context badge, and last action. Both views are
-              read-only and never preview file contents. <code>ui serve</code> hosts those two
+              record's metadata, path label, original reason, provenance, audit trail,
+              existence facts, inspect-card recommendation, needs-context badge, and last
+              action. Both views are read-only and never preview file contents. <code>ui serve</code> hosts those two
               surfaces as a local browser page bound to loopback (<code>127.0.0.1</code>) only; it
               recomputes live state on every request, serves no script and embeds no file
               contents, refuses non-GET requests, and runs in the foreground until you press

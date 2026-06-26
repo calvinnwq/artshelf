@@ -14,8 +14,8 @@ import type { ArtshelfKind, ArtshelfRecord, ArtshelfStatus, CleanupAction, DueSt
 // composing the existing read-only domain surfaces (validate/due/inspect/trash/reconcile/
 // registry-prune). It never mutates a ledger, registry, plan, or file, and it never reads or
 // previews file contents - human judgment comes from metadata, original reason, provenance,
-// inspect recommendations, and receipts. The browser dashboard server is a later slice; this
-// module is the data core both the browser and the agent read.
+// inspect recommendations, and receipts. This module is the data core both the browser and the
+// agent read.
 
 // The eight dashboard lanes from the UI v1 contract. `needs-context` is the bucket for records
 // whose original reason or provenance is too weak to review normally (NGX-537): they are pulled

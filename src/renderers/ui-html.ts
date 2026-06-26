@@ -169,6 +169,7 @@ function artifactCard(row: DashboardArtifactRow): string {
 ${needsContextBadge(row.needsContext)}
 <dl class="fields">
 <div><dt>source</dt><dd>${escapeHtml(row.ledgerName)}</dd></div>
+<div><dt>record path</dt><dd>${escapeHtml(row.path)}</dd></div>
 <div><dt>age / due</dt><dd>${escapeHtml(row.age)}${due}</dd></div>
 <div><dt>retention</dt><dd>${retention}</dd></div>
 <div><dt>cleanup</dt><dd>${escapeHtml(row.cleanup)}</dd></div>
@@ -185,7 +186,8 @@ function needsContextBadge(needsContext: DashboardNeedsContext | null): string {
 
 function lastActionField(lastAction: DashboardLastAction | null): string {
   if (!lastAction) return "";
-  return `<div><dt>last action</dt><dd>${escapeHtml(lastAction.kind)} at ${escapeHtml(lastAction.at)}</dd></div>`;
+  const receipt = lastAction.receiptPath ? `; receipt ${lastAction.receiptPath}` : "";
+  return `<div><dt>last action</dt><dd>${escapeHtml(lastAction.kind)} at ${escapeHtml(lastAction.at)}${escapeHtml(receipt)}</dd></div>`;
 }
 
 function trashLane(key: string, title: string, rows: DashboardTrashRow[]): string {
@@ -259,6 +261,8 @@ export function renderDetailPage(detail: ArtifactDetail): string {
 ${needsContextBadge(detail.needsContext)}
 <dl class="fields">
 <div><dt>source</dt><dd>${source}</dd></div>
+<div><dt>record path</dt><dd>${escapeHtml(inspect.path)}</dd></div>
+<div><dt>subject path</dt><dd>${escapeHtml(inspect.subjectPath)}</dd></div>
 <div><dt>created / age</dt><dd>${escapeHtml(detail.createdAt)} (${escapeHtml(inspect.age)})</dd></div>
 <div><dt>review due reason</dt><dd>${detail.dueReason ? escapeHtml(detail.dueReason) : `<span class="muted">not due</span>`}</dd></div>
 <div><dt>retention</dt><dd>${retention}</dd></div>

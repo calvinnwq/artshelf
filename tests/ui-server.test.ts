@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
-import { startUiServer } from "../src/ui-server.js";
+import { createUiServer, startUiServer } from "../src/ui-server.js";
 
 // Tests for the read-only loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
 // dashboard, NGX-536's detail drawer, and NGX-537's needs-context presentation all named the
@@ -86,7 +86,19 @@ function singleLedger(records: Array<Record<string, unknown>>): { registryPath: 
   return { registryPath, ledgerPath, dir };
 }
 
-type ServerHandle = { url: string; host: string; port: number; close: () => Promise<void> };
+type TestResponse = {
+  status: number;
+  headers: { get(name: string): string | null };
+  text(): Promise<string>;
+};
+
+type ServerHandle = {
+  url: string;
+  host: string;
+  port: number;
+  close: () => Promise<void>;
+  request(path: string, init?: { method?: string }): Promise<TestResponse>;
+};
 
 // Start the read-only server on an ephemeral loopback port for one fixture, run the body, and
 // always close so no test leaks a listening socket.
@@ -94,12 +106,60 @@ async function withServer(
   options: { registryPath: string },
   body: (handle: ServerHandle) => Promise<void>
 ): Promise<void> {
-  const handle = await startUiServer({ port: 0, registryPath: options.registryPath });
+  const handle = await startTestServer({ registryPath: options.registryPath });
   try {
     await body(handle);
   } finally {
     await handle.close();
   }
+}
+
+async function startTestServer(options: { registryPath: string }): Promise<ServerHandle> {
+  try {
+    const handle = await startUiServer({ port: 0, registryPath: options.registryPath });
+    return {
+      ...handle,
+      request: (path, init) => fetch(`${handle.url}${path}`, init)
+    };
+  } catch (error) {
+    if (!isListenPermissionError(error)) throw error;
+    const server = createUiServer({ registryPath: options.registryPath });
+    return {
+      url: "http://127.0.0.1:0",
+      host: "127.0.0.1",
+      port: 0,
+      close: async () => undefined,
+      request: (path, init) => requestInProcess(server, path, init)
+    };
+  }
+}
+
+function isListenPermissionError(error: unknown): boolean {
+  return error instanceof Error && (error as Error & { code?: string }).code === "EPERM";
+}
+
+function requestInProcess(server: any, path: string, init: { method?: string } = {}): Promise<TestResponse> {
+  return new Promise<TestResponse>((resolve) => {
+    let status = 200;
+    const headers = new Map<string, string>();
+    let body = "";
+    const request = { method: init.method ?? "GET", url: path };
+    const response = {
+      writeHead(nextStatus: number, nextHeaders: Record<string, string>) {
+        status = nextStatus;
+        for (const [name, value] of Object.entries(nextHeaders)) headers.set(name.toLowerCase(), value);
+      },
+      end(value: string) {
+        body = value;
+        resolve({
+          status,
+          headers: { get: (name: string) => headers.get(name.toLowerCase()) ?? null },
+          text: async () => body
+        });
+      }
+    };
+    server.emit("request", request, response);
+  });
 }
 
 test("escapeHtml neutralizes the HTML metacharacters", () => {
@@ -121,8 +181,8 @@ test("GET / renders the eight buckets, ledger health, and a row that links to it
   writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const response = await fetch(`${url}/`);
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request("/");
     assert.equal(response.status, 200);
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     const html = await response.text();
@@ -136,6 +196,7 @@ test("GET / renders the eight buckets, ledger health, and a row that links to it
     // The cleanup row exposes minimum human-judgment fields and links to the NGX-536 drawer.
     assert.match(html, /shf_cleanup/);
     assert.match(html, /fixture artifact/);
+    assert.match(html, /scratch\.txt/, "dashboard row should show the recorded artifact path label");
     assert.match(html, /trash-safe/);
     assert.match(html, new RegExp(`/detail/shf_cleanup\\?ledger=`), "row should link to its detail drawer");
   });
@@ -150,8 +211,8 @@ test("GET / routes a weak-reason record into needs-context and out of the cleanu
   writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_weak", reason: "   " })]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const html = await (await fetch(`${url}/`)).text();
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request("/")).text();
     assert.match(html, /shf_weak/);
     assert.match(html, /add context/i, "needs-context display copy should be shown");
   });
@@ -164,20 +225,40 @@ test("GET /detail/<id> renders the minimum human-judgment fields with a back lin
   writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const response = await fetch(`${url}/detail/shf_cleanup?ledger=${encodeURIComponent(ledgerPath)}`);
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request(`/detail/shf_cleanup?ledger=${encodeURIComponent(ledgerPath)}`);
     assert.equal(response.status, 200);
     const html = await response.text();
 
     assert.match(html, /shf_cleanup/);
     assert.match(html, /primary/);
     assert.match(html, /fixture artifact/);
+    assert.match(html, /scratch\.txt/, "drawer should show the recorded path label");
     assert.match(html, /trash-safe/);
     assert.match(html, /due/i, "review due reason should be shown");
     assert.match(html, /created/i, "audit trail should include creation");
     assert.match(html, /href="\/"/, "drawer should link back to the dashboard");
     // No file contents: the artifact is a one-byte "x" file; it must never appear.
     assert.doesNotMatch(html, /\bcontents?\s*:\s*x\b/i);
+  });
+});
+
+test("GET / shows last action receipt metadata on review rows", async () => {
+  const { registryPath } = singleLedger([
+    baseRecord({
+      id: "shf_reviewed",
+      status: "review-required",
+      cleanedAt: "2026-06-10T00:00:00.000Z",
+      cleanupPlanId: "plan_a",
+      receiptPath: "/tmp/receipt.json",
+      cleanupReason: "flagged for manual review"
+    })
+  ]);
+
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request("/")).text();
+    assert.match(html, /last action/i);
+    assert.match(html, /cleanup at 2026-06-10T00:00:00\.000Z; receipt \/tmp\/receipt\.json/);
   });
 });
 
@@ -191,8 +272,8 @@ test("GET /detail/<id> shows the needs-context badge for insufficient provenance
     })
   ]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const html = await (await fetch(`${url}/detail/shf_external?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request(`/detail/shf_external?ledger=${encodeURIComponent(ledgerPath)}`)).text();
     assert.match(html, /provenance/i);
     assert.match(html, /add context/i);
   });
@@ -201,8 +282,8 @@ test("GET /detail/<id> shows the needs-context badge for insufficient provenance
 test("GET /detail/<unknown> returns a non-crashing 404 error state", async () => {
   const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_known" })]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const response = await fetch(`${url}/detail/shf_missing?ledger=${encodeURIComponent(ledgerPath)}`);
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request(`/detail/shf_missing?ledger=${encodeURIComponent(ledgerPath)}`);
     assert.equal(response.status, 404);
     const html = await response.text();
     assert.match(html, /not found/i);
@@ -216,8 +297,8 @@ test("GET / surfaces a bad/missing ledger as an explicit problem without crashin
   // Registered but the ledger file never exists: it must show as a problem, not a blank/500.
   writeRegistry(registryPath, [{ name: "ghost", path: join(dir, "missing-ledger.jsonl") }]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const response = await fetch(`${url}/`);
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request("/");
     assert.equal(response.status, 200);
     const html = await response.text();
     assert.match(html, /ghost/, "the unhealthy ledger should be named");
@@ -228,8 +309,8 @@ test("GET / surfaces a bad/missing ledger as an explicit problem without crashin
 test("non-GET requests are rejected so there is no browser-direct mutation path", async () => {
   const { registryPath } = singleLedger([baseRecord({})]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const response = await fetch(`${url}/`, { method: "POST" });
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request("/", { method: "POST" });
     assert.equal(response.status, 405);
   });
 });
@@ -249,14 +330,14 @@ test("the dashboard recomputes from live state on reload", async () => {
   writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const first = await (await fetch(`${url}/`)).text();
+  await withServer({ registryPath }, async (server) => {
+    const first = await (await server.request("/")).text();
     assert.doesNotMatch(first, /shf_second/);
 
     // Mutate the ledger underneath a running server, then reload: the new row must appear, proving
     // the page is recomputed per request rather than served from a stale in-memory snapshot.
     writeLedgerFile(ledgerPath, [dueCleanupRecord(dir), dueCleanupRecord(dir, { id: "shf_second" })]);
-    const second = await (await fetch(`${url}/`)).text();
+    const second = await (await server.request("/")).text();
     assert.match(second, /shf_second/);
   });
 });
@@ -268,8 +349,8 @@ test("responses are script-free, escape record text, and set a strict read-only 
   writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_xss", reason: "<script>alert(1)</script>" })]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const response = await fetch(`${url}/`);
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request("/");
     const csp = response.headers.get("content-security-policy") ?? "";
     assert.match(csp, /default-src 'none'/, "a strict CSP keeps the read-only page from loading anything external");
 
@@ -286,9 +367,9 @@ test("dashboard and drawer stay usable at desktop and narrow widths (NGX-535/536
   writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
-  await withServer({ registryPath }, async ({ url }) => {
-    const dashboard = await (await fetch(`${url}/`)).text();
-    const drawer = await (await fetch(`${url}/detail/shf_cleanup?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+  await withServer({ registryPath }, async (server) => {
+    const dashboard = await (await server.request("/")).text();
+    const drawer = await (await server.request(`/detail/shf_cleanup?ledger=${encodeURIComponent(ledgerPath)}`)).text();
 
     // Both NGX-535's dashboard and NGX-536's drawer name desktop-and-narrow usability as a
     // verification point. Each surface must declare a mobile-aware viewport and carry a narrow-width

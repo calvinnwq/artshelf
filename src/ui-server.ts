@@ -59,8 +59,11 @@ export function createUiServer(options: UiServerOptions = {}): any {
 
 export function startUiServer(options: StartUiServerOptions = {}): Promise<UiServerHandle> {
   const server = createUiServer(options);
-  return new Promise<UiServerHandle>((resolve) => {
+  return new Promise<UiServerHandle>((resolve, reject) => {
+    const onError = (error: unknown): void => reject(error);
+    server.once("error", onError);
     server.listen(options.port ?? 0, LOOPBACK_HOST, () => {
+      server.removeListener("error", onError);
       const port = server.address().port as number;
       resolve({
         server,
