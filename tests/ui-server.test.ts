@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
-import { endSession, startOrResumeSession } from "../src/session.js";
+import { endSession, pollPendingEvents, readSessionEvents, startOrResumeSession } from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
 
 // Tests for the read-only loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
@@ -93,13 +93,20 @@ type TestResponse = {
   text(): Promise<string>;
 };
 
+// GET reads only need a method/headers; the NGX-538 intent endpoint also needs a request body and
+// manual redirect handling so the 303 PRG response can be asserted rather than transparently followed.
+type RequestInit = { method?: string; headers?: Record<string, string>; body?: string; redirect?: string };
+
 type ServerHandle = {
   url: string;
   host: string;
   port: number;
   close: () => Promise<void>;
-  request(path: string, init?: { method?: string; headers?: Record<string, string> }): Promise<TestResponse>;
-  requestRaw(path: string, init?: { method?: string; headers?: Record<string, string> }): Promise<TestResponse>;
+  request(path: string, init?: RequestInit): Promise<TestResponse>;
+  requestRaw(path: string, init?: RequestInit): Promise<TestResponse>;
+  // The session the server is bound to, so intent-write tests can assert the durable event log directly.
+  home: string;
+  sessionId: string;
   token: string;
 };
 
@@ -142,6 +149,8 @@ async function startTestServer(options: { registryPath: string; ledgerPath?: str
     const handle = await startUiServer(serverOptions);
     return {
       ...handle,
+      home: session.home,
+      sessionId: session.sessionId,
       token: session.token,
       request: (path, init) => fetch(`${handle.url}${withToken(path, session.token)}`, init),
       requestRaw: (path, init) => fetch(`${handle.url}${path}`, init)
@@ -160,6 +169,8 @@ async function startTestServer(options: { registryPath: string; ledgerPath?: str
       host: "127.0.0.1",
       port: 0,
       close: async () => undefined,
+      home: session.home,
+      sessionId: session.sessionId,
       token: session.token,
       request: (path, init) => requestInProcess(server, withToken(path, session.token), init),
       requestRaw: (path, init) => requestInProcess(server, path, init)
@@ -179,12 +190,25 @@ function isListenPermissionError(error: unknown): boolean {
   return error instanceof Error && (error as Error & { code?: string }).code === "EPERM";
 }
 
-function requestInProcess(server: any, path: string, init: { method?: string; headers?: Record<string, string> } = {}): Promise<TestResponse> {
+function requestInProcess(server: any, path: string, init: RequestInit = {}): Promise<TestResponse> {
   return new Promise<TestResponse>((resolve) => {
     let status = 200;
     const headers = new Map<string, string>();
     let body = "";
-    const request = { method: init.method ?? "GET", url: path, headers: init.headers ?? {} };
+    // The intent endpoint reads the request body off the stream, so the synthetic request must
+    // replay a body to its data/end listeners after the handler has registered them.
+    const dataListeners: Array<(chunk: string) => void> = [];
+    const endListeners: Array<() => void> = [];
+    const request = {
+      method: init.method ?? "GET",
+      url: path,
+      headers: init.headers ?? {},
+      on(event: string, callback: (arg?: any) => void) {
+        if (event === "data") dataListeners.push(callback as (chunk: string) => void);
+        else if (event === "end") endListeners.push(callback as () => void);
+        return request;
+      }
+    };
     const response = {
       writeHead(nextStatus: number, nextHeaders: Record<string, string>) {
         status = nextStatus;
@@ -200,6 +224,30 @@ function requestInProcess(server: any, path: string, init: { method?: string; he
       }
     };
     server.emit("request", request, response);
+    if (init.body !== undefined) for (const listener of dataListeners) listener(init.body);
+    for (const listener of endListeners) listener();
+  });
+}
+
+function formBody(fields: Record<string, string>): string {
+  return Object.entries(fields)
+    .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+    .join("&");
+}
+
+// Submit a browser triage intent exactly as the rendered HTML form would: a urlencoded POST to
+// /intents carrying the capability token in the body. `noToken` drops it to exercise the write gate.
+function postIntent(
+  server: ServerHandle,
+  fields: Record<string, string>,
+  options: { noToken?: boolean } = {}
+): Promise<TestResponse> {
+  const body = formBody(options.noToken ? fields : { ...fields, token: server.token });
+  return server.requestRaw("/intents", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body,
+    redirect: "manual"
   });
 }
 
@@ -348,12 +396,16 @@ test("GET / surfaces a bad/missing ledger as an explicit problem without crashin
   });
 });
 
-test("non-GET requests are rejected so there is no browser-direct mutation path", async () => {
-  const { registryPath } = singleLedger([baseRecord({})]);
+test("read paths reject non-GET methods so the dashboard and detail surface stay read-only", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
 
+  // The dashboard and detail drawer answer reads only; the sole write path is the explicit,
+  // token-guarded /intents intent endpoint, never the read URLs.
   await withServer({ registryPath }, async (server) => {
-    const response = await server.request("/", { method: "POST" });
-    assert.equal(response.status, 405);
+    for (const path of ["/", "/dashboard", `/detail/shf_1?ledger=${encodeURIComponent(ledgerPath)}`]) {
+      const response = await server.request(path, { method: "POST" });
+      assert.equal(response.status, 405, `${path} must reject POST`);
+    }
   });
 });
 
@@ -543,5 +595,181 @@ test("dashboard and drawer stay usable at desktop and narrow widths (NGX-535/536
       );
       assert.match(html, /@media \(max-width: 560px\)/, `${surface} should adapt its layout at narrow widths`);
     }
+  });
+});
+
+// NGX-538: a human creates lightweight triage intents from the browser. The POST /intents endpoint
+// records each intent through the durable session event log (where it appears in `ui poll`) and
+// never executes anything itself. These exercise the write path end to end over real HTTP.
+
+test("POST /intents records a browser comment intent that lands as a pending poll event", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, {
+      type: "comment_added",
+      recordId: "shf_1",
+      ledgerPath,
+      text: "looks stale, please inspect"
+    });
+
+    assert.equal(response.status, 303, "a successful intent should redirect back to the record (PRG)");
+    const location = response.headers.get("location") ?? "";
+    assert.match(location, /\/detail\/shf_1\?/, "redirect should return to the record's detail drawer");
+    assert.match(location, new RegExp(`token=${server.token}`), "redirect should carry the capability token");
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 1, "the intent should be queued for the agent as a pending event");
+    const event = pending[0]!;
+    assert.equal(event.type, "comment_added");
+    assert.equal(event.source, "browser");
+    assert.equal(event.status, "pending");
+    assert.equal(event.target.recordId, "shf_1");
+    assert.equal(event.target.ledgerPath, ledgerPath);
+    assert.equal(event.payload.text, "looks stale, please inspect");
+  });
+});
+
+test("POST /intents records a keep/trash/resolve/defer decision intent with its reason", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, {
+      type: "decision_submitted",
+      recordId: "shf_1",
+      ledgerPath,
+      decision: "trash",
+      reason: "superseded by newer export"
+    });
+
+    assert.equal(response.status, 303);
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 1);
+    const event = pending[0]!;
+    assert.equal(event.type, "decision_submitted");
+    assert.equal(event.payload.decision, "trash");
+    assert.equal(event.payload.reason, "superseded by newer export");
+  });
+});
+
+test("POST /intents records inspect-request and dry-run-request intents", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    assert.equal((await postIntent(server, { type: "inspect_requested", recordId: "shf_1", ledgerPath })).status, 303);
+    assert.equal((await postIntent(server, { type: "dry_run_requested", recordId: "shf_1", ledgerPath })).status, 303);
+
+    const types = pollPendingEvents(server.home, server.sessionId)
+      .map((event) => event.type)
+      .sort();
+    assert.deepEqual(types, ["dry_run_requested", "inspect_requested"]);
+  });
+});
+
+test("POST /intents drops a blank decision reason so validation still accepts the intent", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, {
+      type: "decision_submitted",
+      recordId: "shf_1",
+      ledgerPath,
+      decision: "keep",
+      reason: "   "
+    });
+
+    assert.equal(response.status, 303);
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 1);
+    const event = pending[0]!;
+    assert.equal(event.payload.decision, "keep");
+    assert.equal("reason" in event.payload, false, "a blank reason must be dropped, never stored");
+  });
+});
+
+test("POST /intents rejects an intent with no record target and records nothing", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, { type: "comment_added", ledgerPath, text: "no record id" });
+
+    assert.equal(response.status, 400);
+    const html = await response.text();
+    assert.match(html, /recordId/, "the rejection should name the missing exact-target field");
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "an invalid intent must never enter the log");
+  });
+});
+
+test("POST /intents rejects a missing or invalid capability token and records nothing", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    const missing = await postIntent(server, { type: "inspect_requested", recordId: "shf_1", ledgerPath }, { noToken: true });
+    assert.equal(missing.status, 401, "a tokenless write must be refused");
+
+    const forged = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: formBody({ type: "inspect_requested", recordId: "shf_1", ledgerPath, token: "deadbeefdeadbeef" }),
+      redirect: "manual"
+    });
+    assert.equal(forged.status, 401, "a wrong token must be refused");
+
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0);
+  });
+});
+
+test("POST /intents refuses writes after the session has ended (token revoked)", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    endSession(server.home, server.sessionId);
+
+    const response = await postIntent(server, { type: "inspect_requested", recordId: "shf_1", ledgerPath });
+    assert.equal(response.status, 401, "ending a session must invalidate browser event writes");
+
+    const events = readSessionEvents(server.home, server.sessionId);
+    assert.equal(events.some((event) => event.type === "inspect_requested"), false, "no browser write may land after end");
+  });
+});
+
+test("POST /intents rejects a non-intent event type so the browser cannot forge agent or approval events", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    for (const type of ["session_done", "approval_bundle_submitted", "session_note_added"]) {
+      const response = await postIntent(server, { type, recordId: "shf_1", ledgerPath });
+      assert.equal(response.status, 400, `${type} must not be browser-creatable`);
+    }
+    assert.equal(readSessionEvents(server.home, server.sessionId).length, 0);
+  });
+});
+
+test("the served detail page exposes token-bound intent forms under a form-action 'self' policy", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [baseRecord({})]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request(`/detail/shf_1?ledger=${encodeURIComponent(ledgerPath)}`);
+    assert.equal(response.status, 200);
+
+    const csp = response.headers.get("content-security-policy") ?? "";
+    assert.match(csp, /default-src 'none'/, "the strict read-only base policy stays in force");
+    assert.match(csp, /form-action 'self'/, "intent forms must be allowed to post to the same origin");
+
+    const html = await response.text();
+    assert.match(html, /<form[^>]+method="post"[^>]+action="\/intents"/i, "intents post to the dedicated endpoint");
+    for (const type of ["inspect_requested", "comment_added", "decision_submitted", "dry_run_requested"]) {
+      assert.match(html, new RegExp(`name="type"[^>]*value="${type}"`), `the ${type} intent must be offered`);
+    }
+    for (const decision of ["keep", "trash", "resolve", "defer"]) {
+      assert.match(html, new RegExp(`name="decision"[^>]*value="${decision}"`), `the ${decision} decision must be offered`);
+    }
+    assert.match(html, /name="recordId"[^>]*value="shf_1"/, "forms carry the exact record target");
+    assert.match(html, new RegExp(`value="${server.token}"`), "forms carry the capability token as a hidden field");
+    assert.doesNotMatch(html, /<script/i, "intent affordances must not introduce executable script");
   });
 });

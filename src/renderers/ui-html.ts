@@ -85,8 +85,14 @@ dl.fields dd { margin: 0; word-break: break-word; }
 .audit { list-style: none; margin: 0; padding: 0; }
 .audit li { padding: 6px 0; border-bottom: 1px solid #eceef1; }
 .audit li:last-child { border-bottom: 0; }
+.intents .intent { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 12px 14px; margin: 0 0 10px; display: flex; flex-direction: column; gap: 8px; }
+.intents label { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: #6b7480; }
+.intents textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid #cfd4da; border-radius: 6px; resize: vertical; background: #fff; color: inherit; }
+.intents .intent-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.intents button { font: inherit; padding: 8px 14px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #fff; border-radius: 6px; cursor: pointer; align-self: flex-start; }
+.intents button:hover { background: #245a96; }
 .back { display: inline-block; margin: 16px 20px 0; }
-@media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } }
+@media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } .intents button { align-self: stretch; } }
 `;
 
 const READ_ONLY_NOTE = "Read-only review surface - no file contents, no mutations, no browser-direct actions.";
@@ -272,6 +278,7 @@ ${needsContextBadge(detail.needsContext)}
 <div><dt>next action</dt><dd>${escapeHtml(inspect.nextAction)}</dd></div>
 <div><dt>provenance</dt><dd>${provenanceLabel(detail.provenance)}</dd></div>
 </dl>
+${token ? intentForms(detail.recordId, detail.ledgerPath, token) : ""}
 <section>
 <h2>Audit trail</h2>
 <ul class="audit">${detail.audit.map(auditItem).join("")}</ul>
@@ -306,6 +313,49 @@ function lastActionSection(lastAction: DashboardLastAction | null): string {
   if (!lastAction) return "";
   const receipt = lastAction.receiptPath ? ` &middot; receipt ${escapeHtml(lastAction.receiptPath)}` : "";
   return `<section><h2>Last action</h2><p>${escapeHtml(lastAction.kind)} at ${escapeHtml(lastAction.at)}${receipt}</p></section>`;
+}
+
+// NGX-538 human triage intent affordances on the detail drawer. Each intent is a scriptless HTML form
+// posting back to the server's /intents endpoint under the page's capability token. The browser only
+// records the intent for the agent's poll queue - it executes nothing and mutates no ledger, file,
+// trash, or plan. Every form carries the exact record + ledger target as hidden fields so each queued
+// event names an unambiguous target. The four decision buttons share one form; the clicked button's
+// value is the keep/trash/resolve/defer decision. Rendered only when a capability token is present, so
+// a tokenless render stays read-only.
+function intentForms(recordId: string, ledgerPath: string, token: string): string {
+  const targetFields =
+    `<input type="hidden" name="recordId" value="${escapeHtml(recordId)}">` +
+    `<input type="hidden" name="ledgerPath" value="${escapeHtml(ledgerPath)}">` +
+    `<input type="hidden" name="token" value="${escapeHtml(token)}">`;
+  return `<section class="intents">
+<h2>Record a triage intent</h2>
+<p class="muted">Intents are queued for the agent to act on. The browser records the decision; it executes nothing and changes no ledger, file, or trash.</p>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="inspect_requested">${targetFields}
+<button type="submit">Request inspect card</button>
+</form>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="dry_run_requested">${targetFields}
+<button type="submit">Request dry-run plan</button>
+</form>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="decision_submitted">${targetFields}
+<label for="decision-reason">Decision reason (optional)</label>
+<textarea id="decision-reason" name="reason" rows="2" placeholder="why keep, trash, resolve, or defer this record"></textarea>
+<div class="intent-actions">
+<button type="submit" name="decision" value="keep">Keep</button>
+<button type="submit" name="decision" value="trash">Trash candidate</button>
+<button type="submit" name="decision" value="resolve">Resolve candidate</button>
+<button type="submit" name="decision" value="defer">Defer / snooze</button>
+</div>
+</form>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="comment_added">${targetFields}
+<label for="comment-text">Comment</label>
+<textarea id="comment-text" name="text" rows="2" required placeholder="note for the agent and the audit trail"></textarea>
+<button type="submit">Add comment</button>
+</form>
+</section>`;
 }
 
 export function renderErrorPage(options: { status: number; title: string; message: string }): string {
