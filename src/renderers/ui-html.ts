@@ -104,7 +104,7 @@ const LANE_ORDER: DashboardBucketKey[] = [
   "recent-receipts"
 ];
 
-export function renderDashboardPage(snapshot: DashboardSnapshot): string {
+export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string): string {
   const okLedgers = snapshot.ledgers.filter((ledger) => ledger.ok).length;
   const chips = LANE_ORDER.map(
     (key) => `<li class="chip"><span class="chip-k">${key}</span><span class="chip-v">${snapshot.counts[key]}</span></li>`
@@ -118,10 +118,10 @@ export function renderDashboardPage(snapshot: DashboardSnapshot): string {
 <main>
 <ul class="chips">${chips}</ul>
 ${ledgerHealthSection(snapshot.ledgers)}
-${artifactLane("needs-review", "Needs review", snapshot.buckets.needsReview)}
-${artifactLane("needs-context", "Needs context", snapshot.buckets.needsContext)}
-${artifactLane("cleanup", "Cleanup candidates", snapshot.buckets.cleanup)}
-${artifactLane("resolve", "Resolve candidates", snapshot.buckets.resolve)}
+${artifactLane("needs-review", "Needs review", snapshot.buckets.needsReview, token)}
+${artifactLane("needs-context", "Needs context", snapshot.buckets.needsContext, token)}
+${artifactLane("cleanup", "Cleanup candidates", snapshot.buckets.cleanup, token)}
+${artifactLane("resolve", "Resolve candidates", snapshot.buckets.resolve, token)}
 ${trashLane("trash", "Trash", snapshot.buckets.trash)}
 ${trashLane("purge-candidates", "Purge candidates", snapshot.buckets.purgeCandidates)}
 ${problemLane("registry-reconcile", "Registry / reconcile problems", snapshot.buckets.registryReconcile)}
@@ -151,13 +151,13 @@ function laneSection(key: string, title: string, count: number, inner: string): 
   return `<section>${heading}${content}</section>`;
 }
 
-function artifactLane(key: string, title: string, rows: DashboardArtifactRow[]): string {
-  const inner = rows.map(artifactCard).join("");
+function artifactLane(key: string, title: string, rows: DashboardArtifactRow[], token?: string): string {
+  const inner = rows.map((row) => artifactCard(row, token)).join("");
   return laneSection(key, title, rows.length, inner);
 }
 
-function artifactCard(row: DashboardArtifactRow): string {
-  const href = `/detail/${encodeURIComponent(row.recordId)}?ledger=${encodeURIComponent(row.ledgerPath)}`;
+function artifactCard(row: DashboardArtifactRow, token?: string): string {
+  const href = detailHref(row.recordId, row.ledgerPath, token);
   const reason = row.reason.trim() ? escapeHtml(row.reason) : `<span class="muted">(no reason recorded)</span>`;
   const due = row.dueState ? ` &middot; ${escapeHtml(row.dueState)}` : "";
   const retention = row.retainUntil
@@ -244,7 +244,7 @@ function receiptLane(key: string, title: string, rows: DashboardReceiptRow[]): s
   return laneSection(key, title, rows.length, inner);
 }
 
-export function renderDetailPage(detail: ArtifactDetail): string {
+export function renderDetailPage(detail: ArtifactDetail, token?: string): string {
   const inspect = detail.inspect;
   const reason = inspect.reason.trim() ? escapeHtml(inspect.reason) : `<span class="muted">(no reason recorded)</span>`;
   const source = detail.ledgerName ? `${escapeHtml(detail.ledgerName)} (${escapeHtml(detail.ledgerPath)})` : escapeHtml(detail.ledgerPath);
@@ -252,7 +252,7 @@ export function renderDetailPage(detail: ArtifactDetail): string {
     ? `${escapeHtml(inspect.retention.mode)} until ${escapeHtml(inspect.retainUntil)}`
     : escapeHtml(inspect.retention.mode);
 
-  const body = `<a class="back" href="/">&larr; dashboard</a>
+  const body = `<a class="back" href="${dashboardHref(token)}">&larr; dashboard</a>
 <main>
 <header>
 <h1><span class="muted">${escapeHtml(detail.recordId)}</span> <span class="status">${escapeHtml(inspect.status)}</span></h1>
@@ -315,4 +315,14 @@ export function renderErrorPage(options: { status: number; title: string; messag
 <p><a href="/">&larr; back to the dashboard</a></p>
 </main>`;
   return page(`Artshelf ${options.status}`, body);
+}
+
+function detailHref(recordId: string, ledgerPath: string, token?: string): string {
+  const params = [`ledger=${encodeURIComponent(ledgerPath)}`];
+  if (token) params.push(`token=${encodeURIComponent(token)}`);
+  return `/detail/${encodeURIComponent(recordId)}?${params.join("&")}`;
+}
+
+function dashboardHref(token?: string): string {
+  return token ? `/?token=${encodeURIComponent(token)}` : "/";
 }

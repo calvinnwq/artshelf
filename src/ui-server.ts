@@ -114,21 +114,21 @@ function route(options: UiServerOptions, request: any, response: any): void {
   }
 
   if (pathname === "/" || pathname === "/dashboard") {
-    sendHtml(response, 200, renderDashboardPage(buildDashboard(dashboardOptions(options))), access.headers);
+    sendHtml(response, 200, renderDashboardPage(buildDashboard(dashboardOptions(options)), access.token));
     return;
   }
 
   if (pathname.startsWith(DETAIL_PREFIX)) {
-    routeDetail(options, decodeURIComponent(pathname.slice(DETAIL_PREFIX.length)), query, response, access.headers);
+    routeDetail(options, decodeURIComponent(pathname.slice(DETAIL_PREFIX.length)), query, response, access.token);
     return;
   }
 
   sendHtml(response, 404, renderErrorPage({ status: 404, title: "Not found", message: `No review page at ${pathname}.` }));
 }
 
-function routeDetail(options: UiServerOptions, recordId: string, query: string, response: any, headers: Record<string, string>): void {
+function routeDetail(options: UiServerOptions, recordId: string, query: string, response: any, token: string): void {
   if (!recordId) {
-    sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message: "Missing record id." }), headers);
+    sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message: "Missing record id." }));
     return;
   }
   const detailOptions: BuildArtifactDetailOptions = { recordId };
@@ -139,21 +139,21 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
       status: 403,
       title: "Ledger not in scope",
       message: "Detail requests must target a ledger that is part of this served review scope."
-    }), headers);
+    }));
     return;
   }
   detailOptions.ledgerPath = ledgerPath;
   if (options.registryPath !== undefined) detailOptions.registryPath = options.registryPath;
 
   try {
-    sendHtml(response, 200, renderDetailPage(buildArtifactDetail(detailOptions)), headers);
+    sendHtml(response, 200, renderDetailPage(buildArtifactDetail(detailOptions), token));
   } catch (error) {
     const message = errorMessage(error);
     // A missing record is an expected, non-crashing state; anything else is a real server error.
     if (/not found/i.test(message)) {
-      sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message }), headers);
+      sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message }));
     } else {
-      sendHtml(response, 500, renderErrorPage({ status: 500, title: "Server error", message }), headers);
+      sendHtml(response, 500, renderErrorPage({ status: 500, title: "Server error", message }));
     }
   }
 }
@@ -188,39 +188,18 @@ function getQueryParam(query: string, key: string): string | null {
   return null;
 }
 
-type BrowserAccess = { ok: true; headers: Record<string, string> } | { ok: false };
+type BrowserAccess = { ok: true; token: string } | { ok: false };
 
-function authorizeBrowserRead(options: UiServerOptions, request: any, query: string): BrowserAccess {
+function authorizeBrowserRead(options: UiServerOptions, _request: any, query: string): BrowserAccess {
   const queryToken = getQueryParam(query, "token");
-  const cookieToken = getCookie(request?.headers?.cookie, authCookieName(options.sessionId));
-  const token = queryToken ?? cookieToken ?? "";
+  const token = queryToken ?? "";
   try {
     const session = readSession(options.uiHome, options.sessionId);
     if (!validateBrowserToken(session, token)) return { ok: false };
   } catch {
     return { ok: false };
   }
-  const headers = queryToken
-    ? { "Set-Cookie": `${authCookieName(options.sessionId)}=${encodeURIComponent(queryToken)}; Path=/; HttpOnly; SameSite=Strict` }
-    : {};
-  return { ok: true, headers };
-}
-
-function getCookie(header: unknown, name: string): string | null {
-  if (typeof header !== "string") return null;
-  for (const part of header.split(";")) {
-    const trimmed = part.trim();
-    const eq = trimmed.indexOf("=");
-    const key = eq === -1 ? trimmed : trimmed.slice(0, eq);
-    if (key === name) {
-      return eq === -1 ? "" : decodeURIComponent(trimmed.slice(eq + 1));
-    }
-  }
-  return null;
-}
-
-function authCookieName(sessionId: string): string {
-  return `artshelf_ui_token_${sessionId}`;
+  return { ok: true, token };
 }
 
 function sendHtml(response: any, status: number, html: string, headers: Record<string, string> = {}): void {

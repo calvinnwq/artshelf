@@ -167,6 +167,10 @@ function withToken(path: string, token: string): string {
   return `${path}${path.includes("?") ? "&" : "?"}token=${encodeURIComponent(token)}`;
 }
 
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 function isListenPermissionError(error: unknown): boolean {
   return error instanceof Error && (error as Error & { code?: string }).code === "EPERM";
 }
@@ -232,6 +236,7 @@ test("GET / renders the eight buckets, ledger health, and a row that links to it
     assert.match(html, /scratch\.txt/, "dashboard row should show the recorded artifact path label");
     assert.match(html, /trash-safe/);
     assert.match(html, new RegExp(`/detail/shf_cleanup\\?ledger=`), "row should link to its detail drawer");
+    assert.match(html, new RegExp(`token=${server.token}`), "served dashboard links should carry the explicit URL capability");
   });
 });
 
@@ -270,7 +275,7 @@ test("GET /detail/<id> renders the minimum human-judgment fields with a back lin
     assert.match(html, /trash-safe/);
     assert.match(html, /due/i, "review due reason should be shown");
     assert.match(html, /created/i, "audit trail should include creation");
-    assert.match(html, /href="\/"/, "drawer should link back to the dashboard");
+    assert.match(html, new RegExp(`href="/\\?token=${server.token}"`), "drawer should link back to the authorized dashboard URL");
     // No file contents: the artifact is a one-byte "x" file; it must never appear.
     assert.doesNotMatch(html, /\bcontents?\s*:\s*x\b/i);
   });
@@ -395,22 +400,37 @@ test("dashboard and detail pages require the active UI session capability token"
   });
 });
 
-test("a valid serve URL sets a session cookie for dashboard detail links", async () => {
+test("served browser navigation keeps the token in same-app links without setting a localhost-wide cookie", async () => {
   const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_known" })]);
   const session = createTestSession();
   const server = createUiServer({ registryPath, uiHome: session.home, sessionId: session.sessionId });
 
   const dashboard = await requestInProcess(server, `/?token=${encodeURIComponent(session.token)}`);
   assert.equal(dashboard.status, 200);
-  const cookie = dashboard.headers.get("set-cookie");
-  assert.match(cookie ?? "", /HttpOnly/);
-  assert.match(cookie ?? "", /SameSite=Strict/);
+  assert.equal(dashboard.headers.get("set-cookie"), null);
+  const dashboardHtml = await dashboard.text();
+  assert.match(dashboardHtml, new RegExp(`/detail/shf_known\\?ledger=${escapeRegExp(encodeURIComponent(ledgerPath))}&token=${session.token}`));
 
-  const detail = await requestInProcess(server, `/detail/shf_known?ledger=${encodeURIComponent(ledgerPath)}`, {
-    headers: { cookie: cookie ?? "" }
-  });
+  const detail = await requestInProcess(
+    server,
+    `/detail/shf_known?ledger=${encodeURIComponent(ledgerPath)}&token=${encodeURIComponent(session.token)}`
+  );
   assert.equal(detail.status, 200);
-  assert.match(await detail.text(), /shf_known/);
+  const detailHtml = await detail.text();
+  assert.match(detailHtml, /shf_known/);
+  assert.match(detailHtml, new RegExp(`href="/\\?token=${session.token}"`));
+});
+
+test("cookie-only access is rejected so the token cannot leak to unrelated localhost services", async () => {
+  const { registryPath } = singleLedger([baseRecord({ id: "shf_known" })]);
+  const session = createTestSession();
+  const server = createUiServer({ registryPath, uiHome: session.home, sessionId: session.sessionId });
+
+  const response = await requestInProcess(server, "/", {
+    headers: { cookie: `artshelf_ui_token_${session.sessionId}=${session.token}` }
+  });
+  assert.equal(response.status, 401);
+  assert.doesNotMatch(await response.text(), /shf_known/);
 });
 
 test("ending the UI session revokes served browser page access", async () => {
