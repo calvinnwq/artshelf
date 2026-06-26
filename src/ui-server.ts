@@ -3,7 +3,9 @@ import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions } from "./dashboard.js";
 import { buildDashboard } from "./dashboard.js";
+import { normalizeLedgerPath } from "./ledger.js";
 import { renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
+import { listRegisteredLedgers } from "./registry.js";
 import { readSession, validateBrowserToken } from "./session.js";
 
 // Read-only loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard,
@@ -130,8 +132,17 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
     return;
   }
   const detailOptions: BuildArtifactDetailOptions = { recordId };
-  const ledgerPath = getQueryParam(query, "ledger") ?? options.ledgerPath;
-  if (ledgerPath !== undefined) detailOptions.ledgerPath = ledgerPath;
+  const requestedLedgerPath = getQueryParam(query, "ledger") ?? options.ledgerPath;
+  const ledgerPath = requestedLedgerPath === undefined ? null : scopedDetailLedgerPath(options, requestedLedgerPath);
+  if (ledgerPath === null) {
+    sendHtml(response, 403, renderErrorPage({
+      status: 403,
+      title: "Ledger not in scope",
+      message: "Detail requests must target a ledger that is part of this served review scope."
+    }), headers);
+    return;
+  }
+  detailOptions.ledgerPath = ledgerPath;
   if (options.registryPath !== undefined) detailOptions.registryPath = options.registryPath;
 
   try {
@@ -145,6 +156,15 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
       sendHtml(response, 500, renderErrorPage({ status: 500, title: "Server error", message }), headers);
     }
   }
+}
+
+function scopedDetailLedgerPath(options: UiServerOptions, requestedLedgerPath: string): string | null {
+  if (requestedLedgerPath.length === 0) return null;
+  const normalized = normalizeLedgerPath(requestedLedgerPath);
+  const allowed = new Set<string>();
+  if (options.ledgerPath !== undefined) allowed.add(normalizeLedgerPath(options.ledgerPath));
+  for (const ledger of listRegisteredLedgers(options.registryPath)) allowed.add(ledger.path);
+  return allowed.has(normalized) ? normalized : null;
 }
 
 function dashboardOptions(options: UiServerOptions): BuildDashboardOptions {

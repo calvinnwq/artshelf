@@ -348,6 +348,25 @@ test("non-GET requests are rejected so there is no browser-direct mutation path"
   });
 });
 
+test("detail requests reject ledgers outside the served dashboard scope", async () => {
+  const dir = fixtureDir();
+  const primaryLedger = join(dir, "primary.jsonl");
+  const outsideLedger = join(dir, "outside.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(primaryLedger, [baseRecord({ id: "shf_primary" })]);
+  writeLedgerFile(outsideLedger, [baseRecord({ id: "shf_outside", reason: "outside ledger secret" })]);
+  writeRegistry(registryPath, [{ name: "primary", path: primaryLedger }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request(`/detail/shf_outside?ledger=${encodeURIComponent(outsideLedger)}`);
+    assert.equal(response.status, 403);
+    const html = await response.text();
+    assert.match(html, /part of this served review scope/i);
+    assert.doesNotMatch(html, /shf_outside/);
+    assert.doesNotMatch(html, /outside ledger secret/);
+  });
+});
+
 test("dashboard and detail pages require the active UI session capability token", async () => {
   const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_known" })]);
 
