@@ -432,7 +432,14 @@ function seedApprovedBundle(home: string, sessionId: string, targets: UiApproval
   appendEvent(home, sessionId, {
     type: "approval_bundle_submitted",
     target: { bundleId: snapshot.id },
-    payload: { bundleId: snapshot.id, actionType: snapshot.actionType, fingerprint: snapshot.fingerprint }
+    payload: {
+      bundleId: snapshot.id,
+      actionType: snapshot.actionType,
+      fingerprint: snapshot.fingerprint,
+      selectedTargetIds: snapshot.selectedTargetIds,
+      selectedCount: snapshot.selectedTargetIds.length,
+      targetCount: snapshot.targets.length
+    }
   });
   return snapshot;
 }

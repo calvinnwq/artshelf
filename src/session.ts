@@ -63,6 +63,7 @@ export type AppendEventInput = {
 export type ReplyInput = {
   status: UiReplyStatus;
   payload?: Record<string, unknown>;
+  expectedStatus?: UiEventStatus;
 };
 
 export type ApprovalSnapshotInput = {
@@ -338,23 +339,34 @@ export function replyToEvent(
   if (!isUiReplyStatus(input.status)) {
     throw new Error(`Invalid Artshelf UI reply status "${input.status}"; expected one of: ${UI_REPLY_STATUSES.join(", ")}`);
   }
-  readSession(home, sessionId);
-  const target = readSessionEvents(home, sessionId).find((event) => event.id === eventId);
-  if (!target) throw new Error(`Artshelf UI event not found: ${eventId}`);
-
   const createdAt = toIso(now());
-  const reply: UiReply = {
-    id: makeId("reply"),
-    sessionId,
-    eventId,
-    status: input.status,
-    createdAt,
-    payload: input.payload ?? {}
-  };
-  appendLogLine(home, sessionId, { kind: "reply", ...reply });
+  let result: { event: UiEvent; reply: UiReply } | null = null;
+  const path = eventsFile(home, sessionId);
+  withUiStorageLock(home, path, () => {
+    readSession(home, sessionId);
+    const target = readSessionEvents(home, sessionId).find((event) => event.id === eventId);
+    if (!target) throw new Error(`Artshelf UI event not found: ${eventId}`);
+    if (input.expectedStatus !== undefined && target.status !== input.expectedStatus) {
+      throw new Error(`Artshelf UI event ${eventId} is ${target.status}; expected ${input.expectedStatus}`);
+    }
+
+    const reply: UiReply = {
+      id: makeId("reply"),
+      sessionId,
+      eventId,
+      status: input.status,
+      createdAt,
+      payload: input.payload ?? {}
+    };
+    ensureOwnerOnlyDirectoryTree(home, dirname(path));
+    const previous = existsSync(path) ? readFileSync(path, "utf8") : "";
+    const separator = previous && !previous.endsWith("\n") ? "\n" : "";
+    atomicWriteFileSync(path, `${previous}${separator}${JSON.stringify({ kind: "reply", ...reply })}\n`);
+    const event = readSessionEvents(home, sessionId).find((entry) => entry.id === eventId)!;
+    result = { event, reply };
+  });
   touchSession(home, sessionId, createdAt);
-  const event = readSessionEvents(home, sessionId).find((entry) => entry.id === eventId)!;
-  return { event, reply };
+  return result!;
 }
 
 export function readReplies(home: string, sessionId: string): UiReply[] {

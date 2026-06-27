@@ -471,6 +471,7 @@ function tally(receipts: UiBundleTargetReceipt[]): Record<UiBundleTargetOutcome,
 // gate skipped them all; "partial" for any mix (some executed, plus skipped/failed/needs-review).
 function aggregateStatus(counts: Record<UiBundleTargetOutcome, number>): UiBundleExecutionResult["status"] {
   const total = counts.executed + counts.skipped_stale + counts.failed + counts.needs_manual_review;
+  if (total === 0) return "refused";
   if (counts.executed === total) return "executed";
   if (counts.executed === 0 && counts.failed === 0 && counts.needs_manual_review === 0) return "refused";
   return "partial";
@@ -511,6 +512,7 @@ export function executeApprovedBundle(
   // must reply receipts to it, so if it is missing we refuse the whole operation rather than mutate
   // live state and then have nowhere to record the result.
   const event = findApprovalBundleEvent(home, session.id, bundleId);
+  validateApprovalEventWitness(event, snapshot);
 
   // Re-read live state and run the revalidate -> execute -> verify loop. The pure core decides which
   // targets are still exactly what the human approved and produces one receipt per selected target.
@@ -521,7 +523,8 @@ export function executeApprovedBundle(
   // submitted event, so every approved target ends with a visible, durable result in the UI session.
   const { event: repliedEvent, reply } = replyToEvent(home, session.id, event.id, {
     status: bundleReplyStatus(execution.status),
-    payload: bundleReplyPayload(execution)
+    payload: bundleReplyPayload(execution),
+    expectedStatus: "pending"
   });
   return { execution, event: repliedEvent, reply };
 }
@@ -541,6 +544,29 @@ function findApprovalBundleEvent(home: string, sessionId: string, bundleId: stri
     throw new Error(`Artshelf UI bundle ${bundleId} approval_bundle_submitted event is ${event.status}; ui execute requires a pending event`);
   }
   return event;
+}
+
+function validateApprovalEventWitness(event: UiEvent, snapshot: UiApprovalSnapshot): void {
+  const payload = event.payload;
+  if (payload.bundleId !== snapshot.id) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} approval event payload does not match the loaded bundle id`);
+  }
+  if (payload.fingerprint !== snapshot.fingerprint) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} approval event fingerprint does not match the loaded bundle`);
+  }
+  if (payload.actionType !== snapshot.actionType) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} approval event actionType does not match the loaded bundle`);
+  }
+  if (!sameStringArray(payload.selectedTargetIds, snapshot.selectedTargetIds)) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} approval event selection does not match the loaded bundle`);
+  }
+  if (payload.selectedCount !== snapshot.selectedTargetIds.length || payload.targetCount !== snapshot.targets.length) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} approval event counts do not match the loaded bundle`);
+  }
+}
+
+function sameStringArray(value: unknown, expected: string[]): boolean {
+  return Array.isArray(value) && value.length === expected.length && value.every((entry, index) => entry === expected[index]);
 }
 
 // Roll the aggregate execution state up to the single session reply status that advances the event.

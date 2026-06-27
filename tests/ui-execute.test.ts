@@ -3,7 +3,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
+import { approvalSnapshotFingerprint, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import { executeApprovalBundle } from "../src/ui-execute.js";
 import type { UiApprovalSnapshot, UiApprovalTarget } from "../src/types.js";
 
@@ -197,6 +197,23 @@ test("executeApprovalBundle refuses when bundle action differs from selected tar
   assert.deepEqual(calls, []);
   assert.equal(result.status, "refused");
   assert.match(result.receipts[0]!.detail, /does not match selected target/i);
+});
+
+test("executeApprovalBundle refuses a malformed bundle whose selection resolves to no targets", () => {
+  const home = freshHome();
+  const { snapshot } = bundleSelecting(home, ["shf_a"]);
+  const malformed: UiApprovalSnapshot = { ...snapshot, selectedTargetIds: ["shf_missing"], fingerprint: approvalSnapshotFingerprint([], {}) };
+
+  const calls: string[] = [];
+  const result = executeApprovalBundle(malformed, { targets: sampleTargets(), reviewed: {} }, (target) => {
+    calls.push(target.targetId);
+    return { outcome: "executed", detail: "should not execute" };
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.status, "refused");
+  assert.equal(result.receipts.length, 0);
+  assert.deepEqual(result.counts, { executed: 0, skipped_stale: 0, failed: 0, needs_manual_review: 0 });
 });
 
 test("executeApprovalBundle isolates a failing target so a partial run shows both the failure and the success", () => {

@@ -80,9 +80,20 @@ function sessionWithBundle(
   appendEvent(home, session.id, {
     type: "approval_bundle_submitted",
     target: { bundleId: snapshot.id },
-    payload: { bundleId: snapshot.id, actionType: snapshot.actionType, fingerprint: snapshot.fingerprint }
+    payload: approvalEventPayload(snapshot)
   });
   return { sessionId: session.id, snapshot };
+}
+
+function approvalEventPayload(snapshot: UiApprovalSnapshot): Record<string, unknown> {
+  return {
+    bundleId: snapshot.id,
+    actionType: snapshot.actionType,
+    fingerprint: snapshot.fingerprint,
+    selectedTargetIds: snapshot.selectedTargetIds,
+    selectedCount: snapshot.selectedTargetIds.length,
+    targetCount: snapshot.targets.length
+  };
 }
 
 function receiptsOf(payload: Record<string, unknown>): Array<{ targetId: string; outcome: string }> {
@@ -217,6 +228,58 @@ test("executeApprovedBundle refuses non-pending approval bundle events before ex
   assert.equal(after?.replies.length, 1);
 });
 
+test("executeApprovedBundle refuses when the approval event witness does not match the loaded bundle", () => {
+  const home = freshHome();
+  const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
+  const session = startOrResumeSession({ home, scope: "user" });
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: [target("shf_a", ledger, "/subjects/a")],
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+  appendEvent(home, session.id, {
+    type: "approval_bundle_submitted",
+    target: { bundleId: snapshot.id },
+    payload: { ...approvalEventPayload(snapshot), fingerprint: "0".repeat(64) }
+  });
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, session.id, snapshot.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /fingerprint/i
+  );
+  assert.equal(executions, 0);
+  const submitted = readSessionHistory(home, session.id).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(submitted?.event.status, "pending");
+  assert.equal(submitted?.replies.length, 0);
+});
+
+test("executeApprovedBundle does not append a completion reply when the event stops being pending", () => {
+  const home = freshHome();
+  const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
+  const { sessionId, snapshot } = sessionWithBundle(home, [target("shf_a", ledger, "/subjects/a")], ["shf_a"]);
+  const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  if (!submitted) throw new Error("expected approval_bundle_submitted event");
+
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, sessionId, snapshot.id, () => {
+        replyToEvent(home, sessionId, submitted.event.id, { status: "cancelled", payload: { reason: "competing executor" } });
+        return { outcome: "executed", detail: "x" };
+      }),
+    /expected pending/i
+  );
+  const after = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(after?.event.status, "cancelled");
+  assert.equal(after?.replies.length, 1);
+  assert.equal(after?.replies[0]?.status, "cancelled");
+});
+
 test("executeApprovedBundle replies failed when a target execution fails", () => {
   const home = freshHome();
   const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
@@ -250,9 +313,9 @@ test("executeApprovedBundle replies to the matching bundle's event, not another 
   const session = startOrResumeSession({ home, scope: "user" });
   // Two distinct approved bundles, each with its own submitted event.
   const snapA = writeApprovalSnapshot(home, session.id, { actionType: "trash-resolve", targets: [target("shf_a", ledger, "/subjects/a")], selectedTargetIds: ["shf_a"], reviewed: {} });
-  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapA.id }, payload: { bundleId: snapA.id } });
+  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapA.id }, payload: approvalEventPayload(snapA) });
   const snapB = writeApprovalSnapshot(home, session.id, { actionType: "trash-resolve", targets: [target("shf_b", ledger, "/subjects/b")], selectedTargetIds: ["shf_b"], reviewed: {} });
-  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapB.id }, payload: { bundleId: snapB.id } });
+  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapB.id }, payload: approvalEventPayload(snapB) });
 
   const outcome = executeApprovedBundle(home, session.id, snapA.id, () => ({ outcome: "executed", detail: "ok" }));
 
