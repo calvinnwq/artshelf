@@ -272,12 +272,13 @@ test("executeApprovedBundle does not append a completion reply when the event st
         replyToEvent(home, sessionId, submitted.event.id, { status: "cancelled", payload: { reason: "competing executor" } });
         return { outcome: "executed", detail: "x" };
       }),
-    /expected pending/i
+    /expected in_progress/i
   );
   const after = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
   assert.equal(after?.event.status, "cancelled");
-  assert.equal(after?.replies.length, 1);
-  assert.equal(after?.replies[0]?.status, "cancelled");
+  assert.equal(after?.replies.length, 2);
+  assert.equal(after?.replies[0]?.status, "in_progress");
+  assert.equal(after?.replies[1]?.status, "cancelled");
 });
 
 test("executeApprovedBundle replies failed when a target execution fails", () => {
@@ -302,9 +303,10 @@ test("executeApprovedBundle appends the receipt reply to the durable session his
   const entry = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
   assert.ok(entry, "approval_bundle_submitted event is present in history");
   assert.equal(entry!.event.status, "completed");
-  assert.equal(entry!.replies.length, 1);
-  assert.equal(entry!.replies[0]?.status, "completed");
-  assert.deepEqual(receiptsOf(entry!.replies[0]!.payload).map((r) => r.targetId), ["shf_a"]);
+  assert.equal(entry!.replies.length, 2);
+  assert.equal(entry!.replies[0]?.status, "in_progress");
+  assert.equal(entry!.replies[1]?.status, "completed");
+  assert.deepEqual(receiptsOf(entry!.replies[1]!.payload).map((r) => r.targetId), ["shf_a"]);
 });
 
 test("executeApprovedBundle replies to the matching bundle's event, not another bundle's", () => {

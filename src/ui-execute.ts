@@ -513,6 +513,11 @@ export function executeApprovedBundle(
   // live state and then have nowhere to record the result.
   const event = findApprovalBundleEvent(home, session.id, bundleId);
   validateApprovalEventWitness(event, snapshot);
+  replyToEvent(home, session.id, event.id, {
+    status: "in_progress",
+    payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint },
+    expectedStatus: "pending"
+  });
 
   // Re-read live state and run the revalidate -> execute -> verify loop. The pure core decides which
   // targets are still exactly what the human approved and produces one receipt per selected target.
@@ -524,7 +529,7 @@ export function executeApprovedBundle(
   const { event: repliedEvent, reply } = replyToEvent(home, session.id, event.id, {
     status: bundleReplyStatus(execution.status),
     payload: bundleReplyPayload(execution),
-    expectedStatus: "pending"
+    expectedStatus: "in_progress"
   });
   return { execution, event: repliedEvent, reply };
 }

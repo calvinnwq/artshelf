@@ -1146,15 +1146,16 @@ test("browser approves a bundle, the agent executes it, and the receipt lands in
     assert.equal(existsSync(subject), false, "the approved target's subject moved to trash");
     assert.equal(existsSync(trashTarget), true, "the trashed subject is recoverable at its trash path");
 
-    // Hop 3 - UI receipt update: the bundle's session event is now completed with a per-target receipt
-    // the review surface reads back from the durable session history, so the approved target ends with
-    // a visible, audit-ready result and nothing is hidden.
+    // Hop 3 - UI receipt update: the bundle's session event is claimed in-progress before mutation,
+    // then completed with a per-target receipt the review surface reads back from the durable session
+    // history, so the approved target ends with a visible, audit-ready result and nothing is hidden.
     const entry = readSessionHistory(server.home, server.sessionId).find((h) => h.event.type === "approval_bundle_submitted");
     assert.ok(entry, "the approved bundle's event is in the session history the UI renders");
     assert.equal(entry!.event.status, "completed");
-    assert.equal(entry!.replies.length, 1);
-    assert.equal(entry!.replies[0]?.status, "completed");
-    const receipts = entry!.replies[0]!.payload.receipts as Array<{ targetId: string; outcome: string }>;
+    assert.equal(entry!.replies.length, 2);
+    assert.equal(entry!.replies[0]?.status, "in_progress");
+    assert.equal(entry!.replies[1]?.status, "completed");
+    const receipts = entry!.replies[1]!.payload.receipts as Array<{ targetId: string; outcome: string }>;
     assert.deepEqual(receipts.map((r) => r.targetId), ["shf_backup"]);
     assert.deepEqual(receipts.map((r) => r.outcome), ["executed"]);
   });
