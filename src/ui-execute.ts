@@ -299,8 +299,8 @@ function isNonEmptyString(value: unknown): value is string {
 // the live ledger row (matched by record id - the targetId is the record id) straight from disk and
 // reflects the SPEC drift signals so a drifted target never executes:
 //   - record gone, or its ledger unreadable/absent: omitted, so revalidation marks it missing.
-//   - status already terminal (trashed/resolved): the approved disposition is moot, so the target is
-//     dropped from the live actionable pool and marked missing.
+//   - status already terminal (trashed/resolved): the target is dropped unless it is already stamped
+//     with the approved dispose plan, which lets an in-progress resume replay verification.
 //   - subject remapped (the live row's path no longer matches the reviewed recordPath): echoed with
 //     the live path so exactly one field diverges and revalidation marks it changed.
 //   - otherwise present and active: echoed verbatim so it revalidates as unchanged.
@@ -328,12 +328,16 @@ function reReadLiveTarget(
 ): UiApprovalTarget | null {
   const record = liveRecordById(target.ledgerPath, target.targetId, ledgerCache);
   if (record === undefined) return null; // subject gone, or the ledger could not be re-read
-  if (isTerminalStatus(record.status)) return null; // already disposed: the approved action is moot
+  if (isTerminalStatus(record.status) && !recordMatchesApprovedDispose(target, record)) return null;
   // A remapped subject is present but changed: echo the live path so revalidation flags it changed.
   if (isNonEmptyString(target.recordPath) && record.path !== target.recordPath) {
     return { ...target, recordPath: record.path };
   }
   return target;
+}
+
+function recordMatchesApprovedDispose(target: UiApprovalTarget, record: ArtshelfRecord): boolean {
+  return isNonEmptyString(target.planId) && record.disposePlanId === target.planId && record.disposeAction === target.actionType;
 }
 
 // Index a ledger by record id once per ledger path, treating an unreadable or absent ledger as empty

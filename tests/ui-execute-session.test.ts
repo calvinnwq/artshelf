@@ -12,7 +12,7 @@ import { createDisposePlan } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 import { appendEvent, endSession, readSessionHistory, replyToEvent, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalSnapshot, UiApprovalTarget } from "../src/types.js";
-import { executeApprovedBundle } from "../src/ui-execute.js";
+import { disposeBackedTargetExecutor, executeApprovedBundle } from "../src/ui-execute.js";
 
 // NGX-540 session-level execute orchestration. executeApprovedBundle is the agent's full handling of
 // one approved bundle: it loads the immutable snapshot, re-reads live state, runs the revalidate ->
@@ -51,6 +51,16 @@ function ledgerWith(records: Array<Record<string, unknown>>): string {
   const ledger = join(repo, ".artshelf", "ledger.jsonl");
   writeLedgerFile(ledger, records);
   return ledger;
+}
+
+function repoWithSubject(recordId: string): { ledger: string; subject: string } {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-session-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, `${recordId}.tar`);
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [record(recordId, subject)]);
+  return { ledger, subject };
 }
 
 function target(targetId: string, ledgerPath: string, recordPath: string, over: Partial<UiApprovalTarget> = {}): UiApprovalTarget {
@@ -333,6 +343,32 @@ test("executeApprovedBundle resumes a matching in_progress approval bundle event
 
   assert.equal(outcome.execution.status, "executed");
   assert.equal(outcome.reply.status, "completed");
+  const after = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(after?.event.status, "completed");
+  assert.deepEqual(after?.replies.map((reply) => reply.status), ["in_progress", "completed"]);
+});
+
+test("executeApprovedBundle resumes in_progress execution after a terminal target was already disposed", () => {
+  const home = freshHome();
+  const { ledger, subject } = repoWithSubject("shf_a");
+  const plan = createDisposePlan(ledger, { id: "shf_a", action: "trash-resolve", reason: "reviewed" });
+  const approvedTarget = target("shf_a", ledger, subject, { planId: plan.planId });
+  const { sessionId, snapshot } = sessionWithBundle(home, [approvedTarget], ["shf_a"]);
+  const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  if (!submitted) throw new Error("expected approval_bundle_submitted event");
+  replyToEvent(home, sessionId, submitted.event.id, {
+    status: "in_progress",
+    payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint },
+    expectedStatus: "pending"
+  });
+  assert.equal(disposeBackedTargetExecutor(approvedTarget).outcome, "executed");
+  assert.equal(readLedger(ledger).find((entry) => entry.id === "shf_a")?.status, "trashed");
+
+  const outcome = executeApprovedBundle(home, sessionId, snapshot.id);
+
+  assert.equal(outcome.execution.status, "executed");
+  assert.equal(outcome.reply.status, "completed");
+  assert.equal(receiptsOf(outcome.reply.payload)[0]?.outcome, "executed");
   const after = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
   assert.equal(after?.event.status, "completed");
   assert.deepEqual(after?.replies.map((reply) => reply.status), ["in_progress", "completed"]);
