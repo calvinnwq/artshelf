@@ -176,7 +176,7 @@ artshelf doctor [--agent] [--json]</code></pre>
 
 
           <section class="cmd">
-            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag readonly">review loop</span></div>
+            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag approval">review loop</span></div>
             <pre><code><span class="c"># start or resume a durable review session</span>
 artshelf ui [--scope user|repo] [--ledger &lt;path&gt;] [--json]
 
@@ -219,8 +219,8 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               to narrow the session target.
             </p>
             <p>
-              The browser records exact-target triage intents and approval bundle submissions; the agent polls pending events, runs existing
-              approval-gated commands after human approval, and replies with receipts or notes.
+              The browser records exact-target triage intents and approval bundle submissions; the agent polls pending events, uses
+              <code>ui execute</code> for approved bundles or runs existing approval-gated commands after human approval, and replies with receipts or notes.
               <code>ui reply</code> accepts <code>acknowledged</code>,
               <code>in_progress</code>, <code>completed</code>, <code>rejected</code>,
               <code>stale</code>, <code>failed</code>, or <code>cancelled</code> status values,

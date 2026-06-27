@@ -93,7 +93,7 @@ artshelf find --all --owner &lt;agent-or-runtime&gt; --json</code></pre>
               <li><strong>Read-only.</strong> Validate, status, due, review, doctor, and trash list are fine.</li>
               <li><strong>Quiet by default.</strong> Send nothing when the review is clean unless a summary was requested.</li>
               <li><strong>No network mode.</strong> Set <code>ARTSHELF_NO_UPDATE_CHECK=1</code> when jobs must avoid npm update checks and cache writes.</li>
-              <li><strong>Never schedule execution.</strong> Scheduled jobs must not run cleanup execute, dispose execute, or trash purge execute.</li>
+              <li><strong>Never schedule execution.</strong> Scheduled jobs must not run cleanup execute, dispose execute, trash purge execute, or approved bundle execute.</li>
             </ul>
             <pre><code><span class="c"># ledger health, current ledger or all registered ledgers</span>
 artshelf validate --json

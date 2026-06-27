@@ -147,7 +147,8 @@
             </p>
             <p>
               The browser records exact-target triage intents, the agent polls with
-              <code>artshelf ui poll &lt;session-id&gt; --json</code>, runs existing
+              <code>artshelf ui poll &lt;session-id&gt; --json</code>, uses
+              <code>artshelf ui execute</code> for approved bundles or runs existing
               approval-gated commands only after exact human approval, replies with
               <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
               The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly. <code>artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles. It never executes a bundle.

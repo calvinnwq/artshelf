@@ -31,7 +31,7 @@ Flags:
 Use "artshelf trash <command> --help" for more information about a command.
 `;
 
-export const UI_HELP = `Start sessions and read Artshelf UI review views.
+export const UI_HELP = `Start sessions, read views, and execute approved bundles.
 
 Usage:
   artshelf ui [command]
@@ -51,7 +51,7 @@ Flags:
   -h, --help   help for ui
 
 The browser records exact-target triage intents and approval bundle submissions;
-the agent polls them, executes existing approval-gated paths, and replies with
+the agent polls them, uses ui execute for approved bundles, and replies with
 receipts. The dashboard, detail, and bundle surfaces never read file contents.
 The browser captures handoff events only; it never executes or mutates ledgers,
 files, trash, or plans directly.
@@ -85,7 +85,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
     commands: [
       { name: "validate", summary: "Check ledger shape and report warnings" },
       { name: "review", summary: "Preview validate, due, and cleanup plans (read-only)" },
-      { name: "ui", summary: "Start review sessions and read UI review views" }
+      { name: "ui", summary: "Start sessions, read views, and execute approved bundles" }
     ]
   },
   {

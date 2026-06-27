@@ -33,7 +33,7 @@ the mechanics behind those moves.
 - Include reason, TTL or manual-review, cleanup mode, owner, and labels.
 - Report the Artshelf id anywhere restart or cleanup context matters.
 - Use read-only and dry-run commands freely; execute cleanup, dispose, trash
-  purge, or resolve only after exact human approval.
+  purge, approved bundles, or resolve only after exact human approval.
 - Do not call work done while known eligible artifacts are neither registered
   nor explicitly skipped.
 
@@ -141,7 +141,6 @@ For old-trash review, dry-run purge only for an explicit ledger:
 ```bash
 artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
-
 Do not scan arbitrary filesystem locations for ledgers unless the user opted
 into that discovery scope. Scheduled jobs may review registry-prune plans but
 must not execute them. Never schedule cleanup, dispose, registry-prune, purge, or approved bundle execution:
@@ -151,6 +150,7 @@ artshelf cleanup --execute --plan-id <id>
 artshelf dispose --execute --plan-id <id>
 artshelf ledgers prune --execute --plan-id <id>
 artshelf trash purge --execute --plan-id <id>
+artshelf ui execute <session-id> <bundle-id>
 ```
 
 ## Review

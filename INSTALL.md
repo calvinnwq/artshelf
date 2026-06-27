@@ -105,7 +105,8 @@ artshelf review --all --json
 
 and reports what needs attention. Scheduled jobs are review and report only:
 never schedule `artshelf cleanup --execute`, `artshelf ledgers prune --execute`,
-`artshelf dispose --execute`, or `artshelf trash purge --execute`.
+`artshelf dispose --execute`, `artshelf trash purge --execute`, or
+`artshelf ui execute`.
 
 ## 5. Verify and report
 

@@ -83,7 +83,7 @@ Follow the instructions in https://github.com/calvinnwq/artshelf/blob/main/INSTA
 It will install the CLI, copy the portable skill (with its bundled review-report
 renderer), register any existing project ledgers, and — only with your approval —
 schedule a **read-only** daily review. Scheduled jobs review and report only;
-cleanup, dispose, and purge execution always come back to you. See [INSTALL.md](INSTALL.md)
+cleanup, dispose, purge, and approved bundle execution always come back to you. See [INSTALL.md](INSTALL.md)
 for the full steps.
 
 ## How it works
@@ -248,7 +248,7 @@ With the active token, its scriptless form lets a reviewer keep or deselect rows
 On the served page the dashboard stays display-only, while the detail drawer adds scriptless forms that capture lightweight human triage intents - inspect, comment, keep/trash/resolve/defer, and dry-run request - as pending session events for the agent to act on after approval.
 The session command defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
 Set `ARTSHELF_UI_HOME` only for tests or controlled hosts that need to move that durable session home.
-The browser side records exact-target triage intents and approval bundle submissions into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
+The browser side records exact-target triage intents and approval bundle submissions into the session log; agents poll with `artshelf ui poll <session-id> --json`, use `artshelf ui execute` for approved bundles or run existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
 `artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution, and with no bundle id it lists the session's approved bundles.
 It only reads approval records - never executes a bundle or mutates ledgers, files, trash, or plans.
 `artshelf ui execute <session-id> <bundle-id> --json` is the agent's mutating path and the one `ui` subcommand that changes live state: it loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths and replies per-target receipts plus the aggregate result to the session.

@@ -422,7 +422,7 @@ next action, and a verify command); `--agent` takes precedence over `--json`.
 ### `artshelf ui`
 
 Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views plus approval-bundle workbench views for live review state.
-The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, the agent polls those events, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
+The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, the agent polls those events, `ui execute` runs approved bundles through existing approval-gated paths, and the agent replies with receipts.
 The dashboard/detail subcommands are read-only data surfaces over existing ledger, registry, trash, and inspect state.
 The browser captures human triage intents and approval bundle submissions as session events but never mutates ledgers, files, trash, or plans directly.
 
@@ -1086,8 +1086,9 @@ Agents should call `artshelf put` immediately after creating:
 - copied files kept for rollback
 
 Agents should not run `artshelf cleanup --execute`,
-`artshelf dispose --execute`, or `artshelf trash purge --execute` without
-explicit approval naming the ledger path and reviewed plan id.
+`artshelf dispose --execute`, `artshelf trash purge --execute`, or
+`artshelf ui execute` without explicit approval naming the ledger path and
+reviewed plan id or approved bundle id.
 
 Agents may run `artshelf find` and `artshelf get` before `put` to avoid duplicate
 registrations. `find`/`get` are read-only ledger queries; they must not be used
@@ -1154,9 +1155,9 @@ compact per-record approval packet, so it does not require wrapping in this
 review-report schema.
 
 Scheduled jobs must never run `artshelf cleanup --execute`,
-`artshelf ledgers prune --execute`, `artshelf dispose --execute`, or
-`artshelf trash purge --execute`; they may only dry-run and report plans
-for later human review.
+`artshelf ledgers prune --execute`, `artshelf dispose --execute`,
+`artshelf trash purge --execute`, or `artshelf ui execute`; they may only
+dry-run and report plans for later human review.
 
 ## Dogfood Scenarios
 
