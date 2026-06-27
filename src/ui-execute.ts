@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import { executeDisposePlan, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import {
+  approvalSnapshotFingerprint,
   readApprovalSnapshot,
   readSession,
   readSessionEvents,
@@ -349,6 +350,7 @@ export function executeApprovalBundle(
   const selected = selectedApprovalTargets(snapshot);
   const missing = new Set(revalidation.missingTargetIds);
   const changed = new Set(revalidation.changedTargetIds);
+  const snapshotFingerprintMatches = approvalSnapshotFingerprint(selected, snapshot.reviewed) === snapshot.fingerprint;
 
   // Refuse the entire bundle - executing nothing - when the *shared* basis the human approved
   // against can no longer be trusted: a reviewed fact drifted, or the persisted fingerprint no
@@ -356,7 +358,10 @@ export function executeApprovalBundle(
   // are ambiguity at the bundle level, and the v1 safety posture is refusal on ambiguity. Per-target
   // drift (a single missing or changed target) does not poison the others: those are skipped while
   // the still-exact targets execute, so a partial run stays honest.
-  const bundleRefused = revalidation.reviewedKeysDrifted.length > 0 || hasUnexplainedFingerprintMismatch(revalidation);
+  const bundleRefused =
+    revalidation.reviewedKeysDrifted.length > 0 ||
+    !snapshotFingerprintMatches ||
+    hasUnexplainedFingerprintMismatch(revalidation);
 
   const receipts: UiBundleTargetReceipt[] = selected.map((target) => {
     if (bundleRefused) {
@@ -504,6 +509,9 @@ function findApprovalBundleEvent(home: string, sessionId: string, bundleId: stri
   );
   if (!event) {
     throw new Error(`Artshelf UI bundle ${bundleId} has no approval_bundle_submitted event to reply to`);
+  }
+  if (event.status !== "pending") {
+    throw new Error(`Artshelf UI bundle ${bundleId} approval_bundle_submitted event is ${event.status}; ui execute requires a pending event`);
   }
   return event;
 }

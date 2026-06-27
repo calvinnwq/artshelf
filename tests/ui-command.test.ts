@@ -528,6 +528,16 @@ test("artshelf ui execute rejects a missing bundle id", () => {
   assert.match(result.stderr, /missing bundle id/i);
 });
 
+test("artshelf ui execute rejects --all before loading a bundle", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+
+  const result = ui(home, ["ui", "execute", "--all", session.id, "bundle_20260101_000000_deadbeef", "--json"]);
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /ui execute --all/i);
+});
+
 test("artshelf ui execute fails fast when the bundle has no approval_bundle_submitted event", () => {
   const home = freshHome();
   const session = startSession(home).session;

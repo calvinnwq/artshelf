@@ -148,6 +148,25 @@ test("executeApprovalBundle refuses a bundle whose stored fingerprint does not m
   assert.equal(result.receipts[0]!.outcome, "skipped_stale");
 });
 
+test("executeApprovalBundle refuses a tampered fingerprint even when live drift exists", () => {
+  const home = freshHome();
+  const { snapshot } = bundleSelecting(home, ["shf_a", "shf_b"], { total: 2 });
+  const tampered: UiApprovalSnapshot = { ...snapshot, fingerprint: "0".repeat(64) };
+
+  const calls: string[] = [];
+  const result = executeApprovalBundle(tampered, { targets: [sampleTargets()[0]!], reviewed: { total: 2 } }, (target) => {
+    calls.push(target.targetId);
+    return { outcome: "executed", detail: "should not execute" };
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.status, "refused");
+  assert.deepEqual(result.receipts.map((receipt) => `${receipt.targetId}:${receipt.outcome}`), [
+    "shf_a:skipped_stale",
+    "shf_b:skipped_stale"
+  ]);
+});
+
 test("executeApprovalBundle isolates a failing target so a partial run shows both the failure and the success", () => {
   const home = freshHome();
   const { snapshot } = bundleSelecting(home, ["shf_a", "shf_b"], { total: 2 });

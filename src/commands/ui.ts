@@ -18,7 +18,7 @@ import {
   UI_REPLY_STATUSES
 } from "../session.js";
 import type { ParsedArgs } from "../shared/cli-types.js";
-import { requiredStringFlag, stringFlag } from "../shared/flags.js";
+import { boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { UI_HELP } from "../shared/help-text.js";
 import type { UiApprovalSnapshot, UiApprovalTarget, UiEvent, UiSession, UiSessionScope } from "../types.js";
 import { executeApprovedBundle } from "../ui-execute.js";
@@ -252,6 +252,9 @@ function targetSubject(target: UiApprovalTarget): string {
 // partial or refused run exits non-zero so the agent loop notices, while every target's receipt is
 // still recorded in the session so no outcome is hidden.
 function handleUiExecute(parsed: ParsedArgs, json: boolean): number {
+  if (boolFlag(parsed, "all")) {
+    throw new Error("ui execute --all is not supported; execute one approved bundle id");
+  }
   const sessionId = requireSessionId(parsed);
   const home = resolveHome(parsed);
   const bundleId = parsed.positionals[2];

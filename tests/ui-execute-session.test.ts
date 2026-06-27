@@ -10,7 +10,7 @@ process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
 import { createDisposePlan } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
-import { appendEvent, endSession, readSessionHistory, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
+import { appendEvent, endSession, readSessionHistory, replyToEvent, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalSnapshot, UiApprovalTarget } from "../src/types.js";
 import { executeApprovedBundle } from "../src/ui-execute.js";
 
@@ -192,6 +192,29 @@ test("executeApprovedBundle refuses ended sessions before resolving the bundle e
   const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
   assert.equal(submitted?.event.status, "pending");
   assert.equal(submitted?.replies.length, 0);
+});
+
+test("executeApprovedBundle refuses non-pending approval bundle events before executing targets", () => {
+  const home = freshHome();
+  const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
+  const { sessionId, snapshot } = sessionWithBundle(home, [target("shf_a", ledger, "/subjects/a")], ["shf_a"]);
+  const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  if (!submitted) throw new Error("expected approval_bundle_submitted event");
+  replyToEvent(home, sessionId, submitted.event.id, { status: "cancelled", payload: { reason: "human cancelled" } });
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, sessionId, snapshot.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /pending|cancelled/i
+  );
+  assert.equal(executions, 0);
+  const after = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(after?.event.status, "cancelled");
+  assert.equal(after?.replies.length, 1);
 });
 
 test("executeApprovedBundle replies failed when a target execution fails", () => {
