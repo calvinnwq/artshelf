@@ -190,6 +190,11 @@ artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--registry &lt;path
 <span class="c"># agent loop over browser-recorded intents</span>
 artshelf ui poll &lt;session-id&gt; [--scope user|repo] [--json]
 artshelf ui reply &lt;session-id&gt; --event &lt;event-id&gt; --status &lt;status&gt; [--payload &lt;json&gt;] [--scope user|repo] [--json]
+
+<span class="c"># read persisted approval bundles for revalidation before execution</span>
+artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] [--scope user|repo] [--json]
+
+<span class="c"># close the session</span>
 artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
             <p>
               <code>ui</code> is the agent-mediated browser review shell plus read-only
@@ -204,7 +209,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               token printed in the serve URL, serves no script and embeds no file contents,
               accepts safe GET/HEAD reads plus a token-bound POST that records human triage intents
               (inspect, comment, keep/trash/resolve/defer, dry-run request) as pending session events,
-              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C.
+              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C. The served pages also expose <code>GET /bundle/&lt;bundle-id&gt;</code>: a read-only approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets versus the merely reviewed rows plus the exact action, with no re-approval form, because an approval snapshot is immutable.
               The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
@@ -220,6 +225,17 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               <code>ui end</code> revokes future browser writes and served dashboard/detail
               access while keeping the session readable for audit. There is no browser-direct cleanup, dispose, reconcile, registry-prune,
               resolve, or purge path.
+            </p>
+            <p>
+              <code>ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read
+              surface over persisted approval bundles. With a bundle id it loads one immutable
+              reviewed snapshot plus its resolved deliberate selection - the agent-facing JSON used
+              to revalidate live ledger, registry, record, and plan state before any exact-target
+              execution. With no bundle id it lists the session's approved bundles as a compact
+              discovery summary. It only reads approval records - it never executes a bundle or
+              mutates ledgers, files, trash, or plans - and it is a deliberate-approval surface, so
+              an approval record is never itself an execution and no vague approve-all can be
+              persisted.
             </p>
             <p>
               The session token printed by <code>artshelf ui</code> and
@@ -370,7 +386,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
             <p>
               <code>artshelf ui --json</code>, <code>ui dashboard --json</code>, <code>ui detail --json</code>,
               <code>ui serve --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
-              and <code>ui end --json</code> emit compact UI packets.
+              <code>ui bundle --json</code>, and <code>ui end --json</code> emit compact UI packets.
               <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
               It names the relevant health, prune counts, dispose plan status, or record recommendation, classifications, blockers, approval targets where applicable, and the command

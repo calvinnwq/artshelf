@@ -145,7 +145,7 @@
               <code>artshelf ui poll &lt;session-id&gt; --json</code>, runs existing
               approval-gated commands only after exact human approval, replies with
               <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
-              The browser captures triage intents only and never mutates ledgers, files, trash, or plans directly.
+              The browser captures triage intents only and never mutates ledgers, files, trash, or plans directly. <code>artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles. It never executes a bundle, and the served <code>GET /bundle/&lt;bundle-id&gt;</code> page reopens one persisted bundle as a read-only workbench (selected vs reviewed rows and the exact action; never a re-approval form, because an approval snapshot is immutable).
             </p>
             <p>
               Treat the session token printed by <code>artshelf ui</code> and

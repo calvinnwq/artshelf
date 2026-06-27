@@ -94,6 +94,7 @@ The dashboard stays display-only, while the detail drawer adds scriptless forms 
 The session command defaults to user-level, multi-ledger review and stores session state under `~/.artshelf/ui`; use `--scope repo` or `--ledger <path>` when the review needs a narrower target.
 The browser records exact-target triage intents, the agent polls with `artshelf ui poll <session-id> --json`, runs existing approval-gated commands only after exact human approval, replies with `artshelf ui reply`, and closes with `artshelf ui end`.
 The browser captures triage intents only and never mutates ledgers, files, trash, or plans directly.
+`artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles. It never executes a bundle, and the served `GET /bundle/<bundle-id>` page reopens one persisted bundle as a read-only workbench (selected vs reviewed rows and the exact action; never a re-approval form, because an approval snapshot is immutable).
 Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard access while keeping the audit trail readable.
 
 ## Portable Skill
