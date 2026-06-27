@@ -677,6 +677,7 @@ function approvalRegistryPath(session: UiSession, event: UiEvent): string | null
     }
     return defaultRegistryPath;
   }
+  if (session.scope === "user") return normalizeRegistryPath();
   return null;
 }
 

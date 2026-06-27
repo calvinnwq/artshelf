@@ -108,12 +108,16 @@ function sessionWithBundle(
   scope: "user" | "repo" = "user",
   ledgerPath: string | null = null
 ): { sessionId: string; snapshot: UiApprovalSnapshot } {
-  const session = startOrResumeSession({ home, scope, ledgerPath });
+  const registryPath = scope === "user" && ledgerPath === null ? join(mkdtempSync(join(tmpdir(), "artshelf-exec-session-registry-")), "ledgers.json") : null;
+  if (registryPath !== null) {
+    writeRegistryFile(registryPath, Array.from(new Set(targets.map((entry) => entry.ledgerPath))));
+  }
+  const session = startOrResumeSession({ home, scope, ledgerPath, registryPath });
   const snapshot = writeApprovalSnapshot(home, session.id, { actionType: "trash-resolve", targets, selectedTargetIds, reviewed });
   appendEvent(home, session.id, {
     type: "approval_bundle_submitted",
     target: { bundleId: snapshot.id },
-    payload: approvalEventPayload(snapshot)
+    payload: registryPath === null ? approvalEventPayload(snapshot) : { ...approvalEventPayload(snapshot), registryPath }
   });
   return { sessionId: session.id, snapshot };
 }
@@ -430,6 +434,50 @@ test("executeApprovedBundle refuses event registry overrides for a default-regis
   }
 });
 
+test("executeApprovedBundle refuses missing event registry payloads outside the default registry scope", () => {
+  const home = freshHome();
+  const scopedLedger = ledgerWith([record("shf_scope", "/subjects/scoped")]);
+  const outsideLedger = ledgerWith([record("shf_outside", "/subjects/outside")]);
+  const allowedRegistry = join(mkdtempSync(join(tmpdir(), "artshelf-exec-default-registry-")), "ledgers.json");
+  writeRegistryFile(allowedRegistry, [scopedLedger]);
+  const originalRegistry = process.env.ARTSHELF_REGISTRY;
+  process.env.ARTSHELF_REGISTRY = allowedRegistry;
+  try {
+    const session = startOrResumeSession({ home, scope: "user" });
+    const snapshot = writeApprovalSnapshot(home, session.id, {
+      actionType: "trash-resolve",
+      targets: [target("shf_outside", outsideLedger, "/subjects/outside")],
+      selectedTargetIds: ["shf_outside"],
+      reviewed: {}
+    });
+    appendEvent(home, session.id, {
+      type: "approval_bundle_submitted",
+      target: { bundleId: snapshot.id },
+      payload: approvalEventPayload(snapshot)
+    });
+
+    let executions = 0;
+    assert.throws(
+      () =>
+        executeApprovedBundle(home, session.id, snapshot.id, () => {
+          executions += 1;
+          return { outcome: "executed", detail: "x" };
+        }),
+      /outside.*registry scope/i
+    );
+    assert.equal(executions, 0);
+    const submitted = readSessionHistory(home, session.id).find((h) => h.event.type === "approval_bundle_submitted");
+    assert.equal(submitted?.event.status, "pending");
+    assert.equal(submitted?.replies.length, 0);
+  } finally {
+    if (originalRegistry === undefined) {
+      delete process.env.ARTSHELF_REGISTRY;
+    } else {
+      process.env.ARTSHELF_REGISTRY = originalRegistry;
+    }
+  }
+});
+
 test("executeApprovedBundle accepts repo-scoped sessions stored in a custom UI home", () => {
   const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-custom-home-repo-"));
   mkdirSync(join(repo, ".git"), { recursive: true });
@@ -555,12 +603,14 @@ test("executeApprovedBundle appends the receipt reply to the durable session his
 test("executeApprovedBundle replies to the matching bundle's event, not another bundle's", () => {
   const home = freshHome();
   const ledger = ledgerWith([record("shf_a", "/subjects/a"), record("shf_b", "/subjects/b")]);
-  const session = startOrResumeSession({ home, scope: "user" });
+  const registryPath = join(mkdtempSync(join(tmpdir(), "artshelf-exec-session-registry-")), "ledgers.json");
+  writeRegistryFile(registryPath, [ledger]);
+  const session = startOrResumeSession({ home, scope: "user", registryPath });
   // Two distinct approved bundles, each with its own submitted event.
   const snapA = writeApprovalSnapshot(home, session.id, { actionType: "trash-resolve", targets: [target("shf_a", ledger, "/subjects/a")], selectedTargetIds: ["shf_a"], reviewed: {} });
-  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapA.id }, payload: approvalEventPayload(snapA) });
+  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapA.id }, payload: { ...approvalEventPayload(snapA), registryPath } });
   const snapB = writeApprovalSnapshot(home, session.id, { actionType: "trash-resolve", targets: [target("shf_b", ledger, "/subjects/b")], selectedTargetIds: ["shf_b"], reviewed: {} });
-  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapB.id }, payload: approvalEventPayload(snapB) });
+  appendEvent(home, session.id, { type: "approval_bundle_submitted", target: { bundleId: snapB.id }, payload: { ...approvalEventPayload(snapB), registryPath } });
 
   const outcome = executeApprovedBundle(home, session.id, snapA.id, () => ({ outcome: "executed", detail: "ok" }));
 
