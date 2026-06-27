@@ -539,3 +539,47 @@ export type UiApprovalWorkbenchView = {
   selectedCount: number;
   totalCount: number;
 };
+
+// === Artshelf UI approved-bundle execution (NGX-540) ===
+
+// The outcome recorded for one selected approval target after the agent's execute + post-execute
+// verification loop. The four states are exhaustive and never collapse into one another, so a
+// partial run can always show exactly what happened to every approved target:
+//   executed            - the approval-gated command ran and live-state verification confirmed the
+//                         expected result (the agent verified live state, not just the exit code).
+//   skipped_stale       - pre-execution revalidation found the target, or the shared reviewed basis,
+//                         had drifted from what the human approved; nothing was executed for it.
+//   failed              - execution was attempted but errored, or post-execution live state did not
+//                         reflect the expected change.
+//   needs_manual_review - the target cannot be safely auto-applied (the underlying CLI path refused
+//                         it, or the verified result is ambiguous) and a human must decide.
+export type UiBundleTargetOutcome = "executed" | "skipped_stale" | "failed" | "needs_manual_review";
+
+// One per-target receipt the executor records and replies to the UI session with (NGX-540). It
+// carries the exact approved target identity and action, the outcome, a human-readable detail line
+// for audit/follow-up, and optional structured evidence (e.g. the dispose receipt path and the
+// verified live facts), so every approved target receives a visible, auditable result.
+export type UiBundleTargetReceipt = {
+  targetId: string;
+  label: string;
+  actionType: string;
+  ledgerPath: string;
+  outcome: UiBundleTargetOutcome;
+  detail: string;
+  evidence: Record<string, unknown> | null;
+};
+
+// Aggregate outcome of executing an approved bundle (NGX-540). It pairs the gating revalidation
+// verdict with one receipt per selected target (in selection order) and a per-outcome tally, so a
+// partial run never hides a skipped/failed/needs-review target behind the successes. `status` is the
+// rolled-up state: "executed" only when every selected target executed, "refused" when nothing was
+// executed because the whole bundle was refused (stale reviewed basis or a fingerprint that no
+// longer matches its own targets), and "partial" otherwise.
+export type UiBundleExecutionResult = {
+  bundleId: string;
+  sessionId: string;
+  revalidation: UiApprovalRevalidation;
+  receipts: UiBundleTargetReceipt[];
+  counts: Record<UiBundleTargetOutcome, number>;
+  status: "executed" | "partial" | "refused";
+};
