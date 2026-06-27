@@ -73,9 +73,11 @@ function sessionWithBundle(
   home: string,
   targets: UiApprovalTarget[],
   selectedTargetIds: string[],
-  reviewed: Record<string, unknown> = {}
+  reviewed: Record<string, unknown> = {},
+  scope: "user" | "repo" = "user",
+  ledgerPath: string | null = null
 ): { sessionId: string; snapshot: UiApprovalSnapshot } {
-  const session = startOrResumeSession({ home, scope: "user" });
+  const session = startOrResumeSession({ home, scope, ledgerPath });
   const snapshot = writeApprovalSnapshot(home, session.id, { actionType: "trash-resolve", targets, selectedTargetIds, reviewed });
   appendEvent(home, session.id, {
     type: "approval_bundle_submitted",
@@ -257,6 +259,83 @@ test("executeApprovedBundle refuses when the approval event witness does not mat
   const submitted = readSessionHistory(home, session.id).find((h) => h.event.type === "approval_bundle_submitted");
   assert.equal(submitted?.event.status, "pending");
   assert.equal(submitted?.replies.length, 0);
+});
+
+test("executeApprovedBundle refuses selected targets outside a ledger-scoped session before claiming the event", () => {
+  const home = freshHome();
+  const scopedLedger = ledgerWith([record("shf_scope", "/subjects/scoped")]);
+  const outsideLedger = ledgerWith([record("shf_outside", "/subjects/outside")]);
+  const { sessionId, snapshot } = sessionWithBundle(
+    home,
+    [target("shf_outside", outsideLedger, "/subjects/outside")],
+    ["shf_outside"],
+    {},
+    "user",
+    scopedLedger
+  );
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, sessionId, snapshot.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /outside.*session scope/i
+  );
+  assert.equal(executions, 0);
+  const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(submitted?.event.status, "pending");
+  assert.equal(submitted?.replies.length, 0);
+});
+
+test("executeApprovedBundle refuses selected targets outside a repo-scoped session before claiming the event", () => {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-session-repo-scope-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const home = join(repo, ".artshelf", "ui");
+  const outsideLedger = ledgerWith([record("shf_outside", "/subjects/outside")]);
+  const { sessionId, snapshot } = sessionWithBundle(
+    home,
+    [target("shf_outside", outsideLedger, "/subjects/outside")],
+    ["shf_outside"],
+    {},
+    "repo"
+  );
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, sessionId, snapshot.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /outside.*session scope/i
+  );
+  assert.equal(executions, 0);
+  const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(submitted?.event.status, "pending");
+  assert.equal(submitted?.replies.length, 0);
+});
+
+test("executeApprovedBundle resumes a matching in_progress approval bundle event", () => {
+  const home = freshHome();
+  const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
+  const { sessionId, snapshot } = sessionWithBundle(home, [target("shf_a", ledger, "/subjects/a")], ["shf_a"]);
+  const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  if (!submitted) throw new Error("expected approval_bundle_submitted event");
+  replyToEvent(home, sessionId, submitted.event.id, {
+    status: "in_progress",
+    payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint },
+    expectedStatus: "pending"
+  });
+
+  const outcome = executeApprovedBundle(home, sessionId, snapshot.id, () => ({ outcome: "executed", detail: "ok" }));
+
+  assert.equal(outcome.execution.status, "executed");
+  assert.equal(outcome.reply.status, "completed");
+  const after = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(after?.event.status, "completed");
+  assert.deepEqual(after?.replies.map((reply) => reply.status), ["in_progress", "completed"]);
 });
 
 test("executeApprovedBundle does not append a completion reply when the event stops being pending", () => {

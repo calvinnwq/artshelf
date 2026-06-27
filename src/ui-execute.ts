@@ -1,11 +1,13 @@
 import { existsSync } from "node:fs";
+import { basename, dirname, relative, resolve } from "node:path";
 import { executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
+import { resolveRepoRoot } from "./provenance.js";
 import {
   approvalSnapshotFingerprint,
   readApprovalSnapshot,
   readSession,
-  readSessionEvents,
+  readSessionHistory,
   replyToEvent,
   revalidateApprovalSnapshot,
   selectedApprovalTargets
@@ -25,7 +27,8 @@ import type {
   UiBundleTargetReceipt,
   UiEvent,
   UiReply,
-  UiReplyStatus
+  UiReplyStatus,
+  UiSession
 } from "./types.js";
 
 // Agent-side execution of an approved approval bundle with a per-target post-execute verification
@@ -511,13 +514,17 @@ export function executeApprovedBundle(
   // Resolve the bundle's own approval_bundle_submitted event BEFORE executing anything: the agent
   // must reply receipts to it, so if it is missing we refuse the whole operation rather than mutate
   // live state and then have nowhere to record the result.
-  const event = findApprovalBundleEvent(home, session.id, bundleId);
-  validateApprovalEventWitness(event, snapshot);
-  replyToEvent(home, session.id, event.id, {
-    status: "in_progress",
-    payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint },
-    expectedStatus: "pending"
-  });
+  const claim = findApprovalBundleEvent(home, session.id, bundleId);
+  validateApprovalEventWitness(claim.event, snapshot);
+  validateApprovalEventClaim(claim, snapshot);
+  validateApprovalSnapshotScope(home, session, snapshot);
+  if (claim.status === "pending") {
+    replyToEvent(home, session.id, claim.event.id, {
+      status: "in_progress",
+      payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint },
+      expectedStatus: "pending"
+    });
+  }
 
   // Re-read live state and run the revalidate -> execute -> verify loop. The pure core decides which
   // targets are still exactly what the human approved and produces one receipt per selected target.
@@ -526,7 +533,7 @@ export function executeApprovedBundle(
 
   // Write the per-target receipts and aggregate state back to the session by advancing the bundle's
   // submitted event, so every approved target ends with a visible, durable result in the UI session.
-  const { event: repliedEvent, reply } = replyToEvent(home, session.id, event.id, {
+  const { event: repliedEvent, reply } = replyToEvent(home, session.id, claim.event.id, {
     status: bundleReplyStatus(execution.status),
     payload: bundleReplyPayload(execution),
     expectedStatus: "in_progress"
@@ -534,21 +541,35 @@ export function executeApprovedBundle(
   return { execution, event: repliedEvent, reply };
 }
 
+type ApprovalBundleEventClaim =
+  | { status: "pending"; event: UiEvent }
+  | { status: "in_progress"; event: UiEvent; reply: UiReply };
+
 // Find the approval_bundle_submitted event that introduced this bundle - its target carries the
 // bundleId, per the loopback server's write path. Refuse when absent: a bundle the agent can execute
 // always has a submitted event to reply receipts against, so a missing one is an integrity problem,
 // not a silent no-op.
-function findApprovalBundleEvent(home: string, sessionId: string, bundleId: string): UiEvent {
-  const event = readSessionEvents(home, sessionId).find(
-    (entry) => entry.type === "approval_bundle_submitted" && entry.target.bundleId === bundleId
+function findApprovalBundleEvent(home: string, sessionId: string, bundleId: string): ApprovalBundleEventClaim {
+  const history = readSessionHistory(home, sessionId).find(
+    (entry) => entry.event.type === "approval_bundle_submitted" && entry.event.target.bundleId === bundleId
   );
-  if (!event) {
+  if (!history) {
     throw new Error(`Artshelf UI bundle ${bundleId} has no approval_bundle_submitted event to reply to`);
   }
+  const event = history.event;
   if (event.status !== "pending") {
-    throw new Error(`Artshelf UI bundle ${bundleId} approval_bundle_submitted event is ${event.status}; ui execute requires a pending event`);
+    if (event.status === "in_progress") {
+      const reply = history.replies.at(-1);
+      if (!reply || reply.status !== "in_progress") {
+        throw new Error(`Artshelf UI bundle ${bundleId} approval_bundle_submitted event has no matching in_progress claim`);
+      }
+      return { status: "in_progress", event, reply };
+    }
+    throw new Error(
+      `Artshelf UI bundle ${bundleId} approval_bundle_submitted event is ${event.status}; ui execute requires a pending or in_progress event`
+    );
   }
-  return event;
+  return { status: "pending", event };
 }
 
 function validateApprovalEventWitness(event: UiEvent, snapshot: UiApprovalSnapshot): void {
@@ -568,6 +589,69 @@ function validateApprovalEventWitness(event: UiEvent, snapshot: UiApprovalSnapsh
   if (payload.selectedCount !== snapshot.selectedTargetIds.length || payload.targetCount !== snapshot.targets.length) {
     throw new Error(`Artshelf UI bundle ${snapshot.id} approval event counts do not match the loaded bundle`);
   }
+}
+
+function validateApprovalEventClaim(claim: ApprovalBundleEventClaim, snapshot: UiApprovalSnapshot): void {
+  if (claim.status === "pending") return;
+  const payload = claim.reply.payload;
+  if (payload.bundleId !== snapshot.id) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} in_progress claim does not match the loaded bundle id`);
+  }
+  if (payload.fingerprint !== snapshot.fingerprint) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} in_progress claim fingerprint does not match the loaded bundle`);
+  }
+}
+
+function validateApprovalSnapshotScope(home: string, session: UiSession, snapshot: UiApprovalSnapshot): void {
+  const selected = selectedApprovalTargets(snapshot);
+  if (session.ledgerPath) {
+    const allowedLedger = resolve(session.ledgerPath);
+    for (const target of selected) {
+      if (resolve(target.ledgerPath) !== allowedLedger) {
+        throw new Error(
+          `Artshelf UI bundle ${snapshot.id} target ${target.targetId} is outside the session scope: expected ledger ${allowedLedger}, found ${resolve(target.ledgerPath)}`
+        );
+      }
+    }
+    return;
+  }
+
+  if (session.scope !== "repo") return;
+  const sessionRepoRoot = repoRootFromUiHome(home);
+  if (sessionRepoRoot === null) {
+    throw new Error(`Artshelf UI session ${session.id} repo scope cannot be resolved from UI home ${resolve(home)}`);
+  }
+  for (const target of selected) {
+    const targetRepoRoot = resolveRepoRoot(target.ledgerPath);
+    if (targetRepoRoot === null || !samePath(targetRepoRoot, sessionRepoRoot)) {
+      throw new Error(
+        `Artshelf UI bundle ${snapshot.id} target ${target.targetId} is outside the session scope: expected repo ${sessionRepoRoot}, found ${targetRepoRoot ?? "unresolved"}`
+      );
+    }
+  }
+}
+
+function repoRootFromUiHome(home: string): string | null {
+  const absolute = resolve(home);
+  const artshelfDir = dirname(absolute);
+  if (basename(absolute) === "ui" && (basename(artshelfDir) === ".artshelf" || basename(artshelfDir) === ".shelf")) {
+    return dirname(artshelfDir);
+  }
+  return findGitRoot(absolute);
+}
+
+function findGitRoot(start: string): string | null {
+  let current = resolve(start);
+  while (true) {
+    if (existsSync(`${current}/.git`)) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+function samePath(left: string, right: string): boolean {
+  return relative(resolve(left), resolve(right)) === "";
 }
 
 function sameStringArray(value: unknown, expected: string[]): boolean {
