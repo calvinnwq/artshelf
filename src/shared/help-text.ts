@@ -534,8 +534,8 @@ that session revokes browser access. The pages carry no script and embed no file
 contents. The dashboard only displays state; the detail drawer captures human
 triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) and
 the bundle workbench captures revised approval selections as pending session
-events through token-bound POSTs, but never mutates ledgers, files, trash, or
-plans directly. The process runs in the foreground; press Ctrl-C to stop it.
+events through token-bound POSTs, but never mutates ledgers, files, trash, or plans
+directly. The process runs in the foreground; press Ctrl-C to stop it.
 `;
   }
 
