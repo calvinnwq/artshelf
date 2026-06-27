@@ -108,7 +108,7 @@ export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleT
 
   // Verify live state, not the command's word alone (NGX-540): re-read the ledger + filesystem and
   // confirm they reflect the executed action's promised end-state.
-  const verified = verifyDisposeLive(target.ledgerPath, execution);
+  const verified = verifyDisposeLive(target.ledgerPath, execution, binding.entry);
   const evidence = { ...disposeEvidence(execution), live: verified.live };
   if (!verified.ok) {
     return { outcome: "failed", detail: `failed: live state did not reflect the executed ${result.action}: ${verified.detail}`, evidence };
@@ -219,6 +219,7 @@ function disposeEvidence(execution: DisposeExecution): Record<string, unknown> {
 // of whatever the dispose command reported.
 type LiveDisposeFacts = {
   recordStatus: ArtshelfStatus | "absent";
+  recordPath: string | null;
   subjectPresent: boolean | null;
   targetPresent: boolean | null;
   retainUntil: string | null;
@@ -233,7 +234,7 @@ type LiveVerification = { ok: boolean; detail: string; live: LiveDisposeFacts };
 // the live row (proof this execution mutated it, surviving idempotent reruns), plus the
 // action-specific status and filesystem end-state. A mismatch means the command's reported success
 // cannot be trusted, so the target is failed rather than executed.
-function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): LiveVerification {
+function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution, entry: DisposePlanEntry): LiveVerification {
   const result = execution.result;
   let record: ArtshelfRecord | undefined;
   try {
@@ -247,6 +248,7 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): Liv
   const targetPresent = result.targetPath ? existsSync(result.targetPath) : null;
   const live: LiveDisposeFacts = {
     recordStatus: record.status,
+    recordPath: record.path,
     subjectPresent,
     targetPresent,
     retainUntil: record.retainUntil ?? null,
@@ -259,6 +261,9 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): Liv
   }
   if (record.disposeAction !== result.action) {
     return liveFail(`live row dispose action is ${record.disposeAction ?? "none"}, expected ${result.action}`, live);
+  }
+  if (record.path !== entry.path || record.path !== entry.subjectPath) {
+    return liveFail(`live row path is ${record.path}, expected ${entry.subjectPath}`, live);
   }
 
   if (result.action === "trash-resolve") {
@@ -275,7 +280,7 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): Liv
     return liveOk("row resolved without moving the subject", live);
   }
   if (result.action === "snooze") {
-    if (isTerminalStatus(record.status)) return liveFail(`live status is terminal (${record.status}); snooze must keep the row active`, live);
+    if (record.status !== entry.status) return liveFail(`live status is ${record.status}, expected ${entry.status}`, live);
     if (record.retainUntil !== result.retainUntil) return liveFail(`live retainUntil is ${record.retainUntil ?? "unset"}, expected ${result.retainUntil}`, live);
     if (subjectPresent !== result.verification.subjectPresent) {
       return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
@@ -283,7 +288,7 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): Liv
     return liveOk(`retention horizon extended to ${result.retainUntil}`, live);
   }
   // keep
-  if (isTerminalStatus(record.status)) return liveFail(`live status is terminal (${record.status}); keep must leave the row active`, live);
+  if (record.status !== entry.status) return liveFail(`live status is ${record.status}, expected ${entry.status}`, live);
   if (subjectPresent !== result.verification.subjectPresent) {
     return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
   }
@@ -299,7 +304,7 @@ function liveFail(detail: string, live: LiveDisposeFacts): LiveVerification {
 }
 
 function absentLive(): LiveDisposeFacts {
-  return { recordStatus: "absent", subjectPresent: null, targetPresent: null, retainUntil: null, disposePlanId: null, disposeAction: null };
+  return { recordStatus: "absent", recordPath: null, subjectPresent: null, targetPresent: null, retainUntil: null, disposePlanId: null, disposeAction: null };
 }
 
 function isTerminalStatus(status: ArtshelfStatus): boolean {

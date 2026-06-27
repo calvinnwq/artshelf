@@ -195,6 +195,44 @@ test("disposeBackedTargetExecutor executes a reviewed keep plan and verifies the
   assert.equal(record?.status, "active");
 });
 
+test("disposeBackedTargetExecutor fails a completed keep replay when the live row path drifted", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const otherSubject = join(dirname(subject), "other.tar");
+  writeFileSync(otherSubject, "other payload");
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "keep", reason: "still needed" });
+  const target = approvalTarget(ledger, subject, plan.planId, "keep");
+
+  assert.equal(disposeBackedTargetExecutor(target).outcome, "executed");
+  writeLedgerFile(
+    ledger,
+    readLedger(ledger).map((record) => (record.id === "shf_backup" ? { ...record, path: otherSubject } : record))
+  );
+  const execution = disposeBackedTargetExecutor(target);
+
+  assert.equal(execution.outcome, "failed");
+  assert.match(execution.detail, /path/i);
+  const live = evidenceOf(execution).live as Record<string, unknown>;
+  assert.equal(live.recordPath, otherSubject);
+});
+
+test("disposeBackedTargetExecutor fails a completed snooze replay when the live row status drifted", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "snooze", ttl: "7d" });
+  const target = approvalTarget(ledger, subject, plan.planId, "snooze");
+
+  assert.equal(disposeBackedTargetExecutor(target).outcome, "executed");
+  writeLedgerFile(
+    ledger,
+    readLedger(ledger).map((record) => (record.id === "shf_backup" ? { ...record, status: "review-required" } : record))
+  );
+  const execution = disposeBackedTargetExecutor(target);
+
+  assert.equal(execution.outcome, "failed");
+  assert.match(execution.detail, /status/i);
+  const live = evidenceOf(execution).live as Record<string, unknown>;
+  assert.equal(live.recordStatus, "review-required");
+});
+
 test("disposeBackedTargetExecutor refuses a target with no reviewed dispose plan id as needs_manual_review", () => {
   const { ledger, subject } = presentBackupFixture();
   const execution = disposeBackedTargetExecutor(approvalTarget(ledger, subject, null, "trash-resolve"));
