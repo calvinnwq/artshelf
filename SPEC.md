@@ -422,7 +422,7 @@ next action, and a verify command); `--agent` takes precedence over `--json`.
 ### `artshelf ui`
 
 Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views for live review state.
-The command family is the AXI-style shell for the human review UI contract: the browser records decisions in the session log, the agent polls those decisions, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
+The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents in the session log, the agent polls those intents, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
 The dashboard/detail subcommands are read-only data surfaces over existing ledger, registry, trash, and inspect state.
 The browser captures human triage intents as session events but never mutates ledgers, files, trash, or plans directly.
 
@@ -794,7 +794,7 @@ sessions/<session-id>/bundles/<bundle-id>.json
 
 `session.json` stores versioned metadata, the scope, lifecycle status, timestamps, optional ledger path, and the same-machine browser capability token.
 The token authorizes browser event writes only while the session is active; ending the session revokes writes without deleting audit history.
-`events.jsonl` is append-only and stores browser events plus agent replies as separate log lines, with read-side projection folding replies into the current event status.
+`events.jsonl` is append-only and stores exact-target browser triage intents plus agent replies as separate log lines, with read-side projections folding replies into the current event status and preserving reply payloads for record history.
 Approval snapshots under `bundles/` are immutable JSON documents with exact per-target ledger or registry context and a deterministic fingerprint over the selected targets and reviewed facts.
 A later executor can use that fingerprint to detect drift or tampering before running an approval-gated command.
 

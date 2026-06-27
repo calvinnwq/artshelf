@@ -332,8 +332,8 @@ export type UiSessionScope = "user" | "repo";
 export type UiSessionStatus = "active" | "ended";
 
 // Durable session metadata persisted at `<ui-home>/sessions/<id>/session.json`. The
-// session is the handoff layer of the v1 contract: the browser records decisions and the
-// agent executes, so this row never holds executable authority itself - only the
+// session is the handoff layer of the v1 contract: the browser records exact-target triage
+// intents and the agent executes, so this row never holds executable authority itself - only the
 // capability token that authorizes browser event writes while the session is active.
 // The token is an unguessable, same-machine capability secret (capability protection,
 // not full account authentication), so it is stored alongside the user-owned session

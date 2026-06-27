@@ -48,10 +48,10 @@ Available Commands:
 Flags:
   -h, --help   help for ui
 
-The browser records review decisions; the agent polls them, executes existing
-approval-gated paths, and replies with receipts. The dashboard and detail
-surfaces never read file contents. The browser captures human triage intents
-only; it never executes or mutates ledgers, files, trash, or plans directly.
+The browser records exact-target triage intents; the agent polls them, executes
+existing approval-gated paths, and replies with receipts. The dashboard and
+detail surfaces never read file contents. The browser captures human triage
+intents only; it never executes or mutates ledgers, files, trash, or plans directly.
 Defaults to user-level, multi-ledger review.
 
 Use "artshelf ui <command> --help" for more information about a command.

@@ -24,7 +24,7 @@ import type {
 // that executes existing approval-gated CLI paths. It is the only authority on session
 // metadata, the capability token, the append-only event log, and approval snapshots; it
 // never executes a mutating workflow itself, preserving the v1 boundary that the browser
-// records decisions and the agent executes.
+// records exact-target triage intents and the agent executes.
 //
 // On-disk layout under the resolved UI home:
 //

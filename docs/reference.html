@@ -176,7 +176,7 @@ artshelf doctor [--agent] [--json]</code></pre>
 
 
           <section class="cmd">
-            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag readonly">read-only views</span></div>
+            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag readonly">review loop</span></div>
             <pre><code><span class="c"># start or resume a durable review session</span>
 artshelf ui [--scope user|repo] [--ledger &lt;path&gt;] [--json]
 
@@ -184,16 +184,16 @@ artshelf ui [--scope user|repo] [--ledger &lt;path&gt;] [--json]
 artshelf ui dashboard [--registry &lt;path&gt;] [--json]
 artshelf ui detail &lt;record-id&gt; [--ledger &lt;path&gt;] [--registry &lt;path&gt;] [--json]
 
-<span class="c"># serve those views as a local loopback browser page</span>
+<span class="c"># serve those views and intent forms as a local loopback browser page</span>
 artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--registry &lt;path&gt;] [--ledger &lt;path&gt;] [--json]
 
-<span class="c"># agent loop over browser-recorded events</span>
+<span class="c"># agent loop over browser-recorded intents</span>
 artshelf ui poll &lt;session-id&gt; [--scope user|repo] [--json]
 artshelf ui reply &lt;session-id&gt; --event &lt;event-id&gt; --status &lt;status&gt; [--payload &lt;json&gt;] [--scope user|repo] [--json]
 artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
             <p>
               <code>ui</code> is the agent-mediated browser review shell plus read-only
-              review data surface. <code>ui dashboard</code> recomputes a multi-ledger snapshot
+              review data surface and token-bound intent capture. <code>ui dashboard</code> recomputes a multi-ledger snapshot
               with needs-review, needs-context, cleanup, resolve, trash, purge-candidates,
               registry/reconcile, and recent-receipts buckets. <code>ui detail</code> shows one
               record's metadata, path label, original reason, provenance, audit trail,
@@ -204,14 +204,14 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               token printed in the serve URL, serves no script and embeds no file contents,
               accepts safe GET/HEAD reads plus a token-bound POST that records human triage intents
               (inspect, comment, keep/trash/resolve/defer, dry-run request) as pending session events,
-              never mutates ledgers or files directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C.
+              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C.
               The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
               to narrow the session target.
             </p>
             <p>
-              The browser records decisions; the agent polls pending events, runs existing
+              The browser records exact-target triage intents; the agent polls pending events, runs existing
               approval-gated commands after human approval, and replies with receipts or notes.
               <code>ui reply</code> accepts <code>acknowledged</code>,
               <code>in_progress</code>, <code>completed</code>, <code>rejected</code>,
@@ -451,7 +451,8 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               or <code>&lt;repo&gt;/.artshelf/ui</code> for repo scope, with
               <code>sessions/&lt;session-id&gt;/session.json</code>,
               <code>events.jsonl</code>, and immutable approval bundles under
-              <code>bundles/</code>. Automatic update checks cache their last npm result at
+              <code>bundles/</code>. The event log stores exact-target browser triage intents
+              plus agent replies, preserving reply payloads for record history. Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed
               results.

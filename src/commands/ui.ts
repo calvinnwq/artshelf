@@ -23,10 +23,10 @@ import { startUiServer } from "../ui-server.js";
 
 // AXI-style command surface for the Artshelf UI v1 review session (NGX-532). This is the agent's
 // side of the v1 boundary: `ui` starts or resumes a durable review session, and the poll/reply/end
-// loop lets the agent drain browser-recorded decisions and write back receipts. `dashboard` and
+// loop lets the agent drain browser-recorded triage intents and write back receipts. `dashboard` and
 // `detail` are the read-only review surfaces (NGX-535/536/537): they recompute live multi-ledger
 // state and the single-record detail drawer from existing read-only domain cores. The browser
-// records decisions through the durable session layer; this command never executes a mutating
+// records triage intents through the durable session layer; this command never executes a mutating
 // workflow and never reads or previews file contents. The browser's only write path is capturing
 // human triage intents (NGX-538) as pending session events; it never mutates ledgers, files,
 // trash, or plans directly.

@@ -339,7 +339,7 @@ function intentForms(recordId: string, ledgerPath: string, token: string): strin
     `<input type="hidden" name="token" value="${escapeHtml(token)}">`;
   return `<section class="intents">
 <h2>Record a triage intent</h2>
-<p class="muted">Intents are queued for the agent to act on. The browser records the decision; it executes nothing and changes no ledger, file, trash, or plan.</p>
+<p class="muted">Intents are queued for the agent to act on. The browser records the intent; it executes nothing and changes no ledger, file, trash, or plan.</p>
 <form method="post" action="/intents" class="intent">
 <input type="hidden" name="type" value="inspect_requested">${targetFields}
 <button type="submit">Request inspect card</button>
