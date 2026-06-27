@@ -50,6 +50,21 @@ function presentBackupFixture(): { ledger: string; subject: string } {
   return { ledger, subject };
 }
 
+function twoBackupFixture(): { ledger: string; approvedSubject: string; otherSubject: string } {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-exec-dispose-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const approvedSubject = join(repo, "approved.tar");
+  const otherSubject = join(repo, "other.tar");
+  writeFileSync(approvedSubject, "approved payload");
+  writeFileSync(otherSubject, "other payload");
+  writeLedgerFile(ledger, [
+    baseRecord({ id: "shf_backup", path: approvedSubject, status: "active" }),
+    baseRecord({ id: "shf_other", path: otherSubject, status: "active" })
+  ]);
+  return { ledger, approvedSubject, otherSubject };
+}
+
 function approvalTarget(
   ledger: string,
   subject: string,
@@ -136,6 +151,46 @@ test("disposeBackedTargetExecutor refuses a target with no reviewed dispose plan
 
   assert.equal(execution.outcome, "needs_manual_review");
   // Nothing executed: the record and file are untouched.
+  assert.equal(recordById(ledger, "shf_backup")?.status, "active");
+  assert.equal(existsSync(subject), true);
+});
+
+test("disposeBackedTargetExecutor refuses a plan bound to a different approved record before executing", () => {
+  const { ledger, approvedSubject, otherSubject } = twoBackupFixture();
+  const otherPlan = createDisposePlan(ledger, { id: "shf_other", action: "trash-resolve", reason: "reviewed" });
+
+  const execution = disposeBackedTargetExecutor(approvalTarget(ledger, approvedSubject, otherPlan.planId, "trash-resolve"));
+
+  assert.equal(execution.outcome, "needs_manual_review");
+  assert.match(execution.detail, /mismatch/i);
+  assert.equal(recordById(ledger, "shf_backup")?.status, "active");
+  assert.equal(recordById(ledger, "shf_other")?.status, "active");
+  assert.equal(existsSync(approvedSubject), true);
+  assert.equal(existsSync(otherSubject), true);
+});
+
+test("disposeBackedTargetExecutor refuses a plan whose action differs from the approved target", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "keep", reason: "still needed" });
+
+  const execution = disposeBackedTargetExecutor(approvalTarget(ledger, subject, plan.planId, "trash-resolve"));
+
+  assert.equal(execution.outcome, "needs_manual_review");
+  assert.match(execution.detail, /mismatch/i);
+  const record = recordById(ledger, "shf_backup");
+  assert.equal(record?.status, "active");
+  assert.equal(record?.disposePlanId, undefined);
+  assert.equal(record?.disposeAction, undefined);
+});
+
+test("disposeBackedTargetExecutor refuses unsupported approved actions before executing", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+
+  const execution = disposeBackedTargetExecutor(approvalTarget(ledger, subject, plan.planId, "purge"));
+
+  assert.equal(execution.outcome, "needs_manual_review");
+  assert.match(execution.detail, /unsupported/i);
   assert.equal(recordById(ledger, "shf_backup")?.status, "active");
   assert.equal(existsSync(subject), true);
 });

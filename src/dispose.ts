@@ -136,12 +136,7 @@ export function createDisposePlan(ledgerPath: string, request: DisposeRequest): 
 // A receipt is written before (intent) and after (verified outcome) the mutation so an
 // executed disposition stays auditable, and is registered as an artshelf-owned artifact.
 export function executeDisposePlan(ledgerPath: string, planId: string): DisposeExecution {
-  if (!planId) throw new Error("dispose --execute requires --plan-id");
-
-  const planPath = disposePlanPath(ledgerPath, planId);
-  if (!existsSync(planPath)) throw new Error(`Dispose plan not found: ${planId}`);
-  const plan = JSON.parse(readFileSync(planPath, "utf8")) as DisposePlan;
-  const entry = assertDisposePlanExecutable(plan, planId, ledgerPath);
+  const entry = readDisposePlanEntry(ledgerPath, planId);
 
   const receiptPath = disposeReceiptPath(ledgerPath, planId);
   return withPathLock(ledgerPath, () => {
@@ -191,6 +186,14 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
     registerDisposeReceipt(ledgerPath, receiptPath, planId);
     return { planId, receiptPath, executedAt, result: outcome.result };
   }, "Artshelf ledger");
+}
+
+export function readDisposePlanEntry(ledgerPath: string, planId: string): DisposePlanEntry {
+  if (!planId) throw new Error("dispose --execute requires --plan-id");
+  const planPath = disposePlanPath(ledgerPath, planId);
+  if (!existsSync(planPath)) throw new Error(`Dispose plan not found: ${planId}`);
+  const plan = JSON.parse(readFileSync(planPath, "utf8")) as DisposePlan;
+  return assertDisposePlanExecutable(plan, planId, ledgerPath);
 }
 
 type DisposeAudit = { planId: string; receiptPath: string; executedAt: string };

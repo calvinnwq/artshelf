@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { executeDisposePlan } from "./dispose.js";
+import { executeDisposePlan, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import {
   readApprovalSnapshot,
@@ -12,7 +12,9 @@ import {
 import type {
   ArtshelfRecord,
   ArtshelfStatus,
+  DisposeAction,
   DisposeExecution,
+  DisposePlanEntry,
   UiApprovalLiveFacts,
   UiApprovalRevalidation,
   UiApprovalSnapshot,
@@ -74,6 +76,9 @@ export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleT
     };
   }
 
+  const validation = validateApprovedDisposeTarget(target);
+  if (validation !== null) return validation;
+
   let execution: DisposeExecution;
   try {
     execution = executeDisposePlan(target.ledgerPath, target.planId);
@@ -104,6 +109,70 @@ export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleT
     return { outcome: "failed", detail: `failed: live state did not reflect the executed ${result.action}: ${verified.detail}`, evidence };
   }
   return { outcome: "executed", detail: `executed ${result.action}: ${verified.detail}`, evidence };
+}
+
+const APPROVED_DISPOSE_ACTIONS: ReadonlySet<string> = new Set<DisposeAction>(["trash-resolve", "resolve-only", "snooze", "keep"]);
+
+function validateApprovedDisposeTarget(target: UiApprovalTarget): UiBundleTargetExecution | null {
+  const action = approvedDisposeAction(target.actionType);
+  if (action === null) {
+    return {
+      outcome: "needs_manual_review",
+      detail: `needs_manual_review: unsupported approved dispose action ${target.actionType}; re-review the target`,
+      evidence: targetBindingEvidence(target)
+    };
+  }
+  if (!isNonEmptyString(target.recordPath)) {
+    return {
+      outcome: "needs_manual_review",
+      detail: "needs_manual_review: approved dispose target has no record path to bind against the reviewed plan; re-review the target",
+      evidence: targetBindingEvidence(target)
+    };
+  }
+
+  let entry: DisposePlanEntry;
+  try {
+    entry = readDisposePlanEntry(target.ledgerPath, target.planId as string);
+  } catch (error) {
+    return {
+      outcome: "failed",
+      detail: `failed: dispose plan validation errored: ${(error as Error).message}`,
+      evidence: targetBindingEvidence(target)
+    };
+  }
+
+  if (entry.id !== target.targetId) {
+    return targetPlanMismatch(target, entry, `plan targets ${entry.id}, approved ${target.targetId}`);
+  }
+  if (entry.subjectPath !== target.recordPath || entry.path !== target.recordPath) {
+    return targetPlanMismatch(target, entry, `plan path ${entry.subjectPath}, approved ${target.recordPath}`);
+  }
+  if (entry.action !== action) {
+    return targetPlanMismatch(target, entry, `plan action ${entry.action}, approved ${action}`);
+  }
+  return null;
+}
+
+function approvedDisposeAction(value: string): DisposeAction | null {
+  return APPROVED_DISPOSE_ACTIONS.has(value) ? (value as DisposeAction) : null;
+}
+
+function targetPlanMismatch(target: UiApprovalTarget, entry: DisposePlanEntry, reason: string): UiBundleTargetExecution {
+  return {
+    outcome: "needs_manual_review",
+    detail: `needs_manual_review: approved target and reviewed dispose plan mismatch (${reason}); re-run the dry-run and re-approve`,
+    evidence: { ...targetBindingEvidence(target), planTargetId: entry.id, planRecordPath: entry.subjectPath, planAction: entry.action }
+  };
+}
+
+function targetBindingEvidence(target: UiApprovalTarget): Record<string, unknown> {
+  return {
+    ledgerPath: target.ledgerPath,
+    targetId: target.targetId,
+    recordPath: target.recordPath,
+    planId: target.planId,
+    actionType: target.actionType
+  };
 }
 
 // Audit-facing evidence for one dispose execution: the receipt, when it ran, the action, and the
@@ -401,6 +470,9 @@ export function executeApprovedBundle(
   // Validate the session exists and load the immutable reviewed bundle. readSession throws on a
   // missing session; readApprovalSnapshot throws on a missing or malformed bundle id.
   const session = readSession(home, sessionId);
+  if (session.status !== "active") {
+    throw new Error(`Artshelf UI session ${session.id} has ended; ui execute requires an active session`);
+  }
   const snapshot = readApprovalSnapshot(home, session.id, bundleId);
 
   // Resolve the bundle's own approval_bundle_submitted event BEFORE executing anything: the agent

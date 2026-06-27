@@ -10,7 +10,7 @@ process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
 import { createDisposePlan } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
-import { appendEvent, readSessionHistory, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
+import { appendEvent, endSession, readSessionHistory, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalSnapshot, UiApprovalTarget } from "../src/types.js";
 import { executeApprovedBundle } from "../src/ui-execute.js";
 
@@ -171,6 +171,27 @@ test("executeApprovedBundle refuses a bundle with no approval_bundle_submitted e
   );
   // Fail-fast: the missing event refuses the operation before any target is executed (no mutation).
   assert.equal(executions, 0);
+});
+
+test("executeApprovedBundle refuses ended sessions before resolving the bundle event or executing targets", () => {
+  const home = freshHome();
+  const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
+  const { sessionId, snapshot } = sessionWithBundle(home, [target("shf_a", ledger, "/subjects/a")], ["shf_a"]);
+  endSession(home, sessionId);
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, sessionId, snapshot.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /ended|active/i
+  );
+  assert.equal(executions, 0);
+  const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(submitted?.event.status, "pending");
+  assert.equal(submitted?.replies.length, 0);
 });
 
 test("executeApprovedBundle replies failed when a target execution fails", () => {
