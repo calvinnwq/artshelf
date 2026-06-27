@@ -115,7 +115,15 @@ export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleT
   return { outcome: "executed", detail: `executed ${result.action}: ${verified.detail}`, evidence };
 }
 
-const APPROVED_DISPOSE_ACTIONS: ReadonlySet<string> = new Set<DisposeAction>(["trash-resolve", "resolve-only", "snooze", "keep"]);
+const APPROVED_DISPOSE_ACTIONS: ReadonlyMap<string, DisposeAction> = new Map([
+  ["trash-resolve", "trash-resolve"],
+  ["trash", "trash-resolve"],
+  ["resolve-only", "resolve-only"],
+  ["resolve", "resolve-only"],
+  ["snooze", "snooze"],
+  ["defer", "snooze"],
+  ["keep", "keep"]
+]);
 
 type DisposeTargetBinding =
   | { ok: true; entry: DisposePlanEntry; action: DisposeAction }
@@ -171,7 +179,7 @@ function bindApprovedDisposeTarget(target: UiApprovalTarget): DisposeTargetBindi
 }
 
 function approvedDisposeAction(value: string): DisposeAction | null {
-  return APPROVED_DISPOSE_ACTIONS.has(value) ? (value as DisposeAction) : null;
+  return APPROVED_DISPOSE_ACTIONS.get(value) ?? null;
 }
 
 function targetPlanMismatch(target: UiApprovalTarget, entry: DisposePlanEntry, reason: string): UiBundleTargetExecution {
@@ -234,7 +242,7 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): Liv
   }
   if (!record) return liveFail(`record ${result.id} is no longer in the live ledger`, absentLive());
 
-  const subjectPresent = result.previousPath ? existsSync(result.previousPath) : null;
+  const subjectPresent = result.previousPath ? existsSync(result.previousPath) : existsSync(record.path);
   const targetPresent = result.targetPath ? existsSync(result.targetPath) : null;
   const live: LiveDisposeFacts = {
     recordStatus: record.status,
@@ -260,15 +268,24 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): Liv
   }
   if (result.action === "resolve-only") {
     if (record.status !== "resolved") return liveFail(`live status is ${record.status}, expected resolved`, live);
+    if (subjectPresent !== result.verification.subjectPresent) {
+      return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
+    }
     return liveOk("row resolved without moving the subject", live);
   }
   if (result.action === "snooze") {
     if (isTerminalStatus(record.status)) return liveFail(`live status is terminal (${record.status}); snooze must keep the row active`, live);
     if (record.retainUntil !== result.retainUntil) return liveFail(`live retainUntil is ${record.retainUntil ?? "unset"}, expected ${result.retainUntil}`, live);
+    if (subjectPresent !== result.verification.subjectPresent) {
+      return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
+    }
     return liveOk(`retention horizon extended to ${result.retainUntil}`, live);
   }
   // keep
   if (isTerminalStatus(record.status)) return liveFail(`live status is terminal (${record.status}); keep must leave the row active`, live);
+  if (subjectPresent !== result.verification.subjectPresent) {
+    return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
+  }
   return liveOk("row marked reviewed-and-kept", live);
 }
 
@@ -337,7 +354,8 @@ function reReadLiveTarget(
 }
 
 function recordMatchesApprovedDispose(target: UiApprovalTarget, record: ArtshelfRecord): boolean {
-  return isNonEmptyString(target.planId) && record.disposePlanId === target.planId && record.disposeAction === target.actionType;
+  const action = approvedDisposeAction(target.actionType);
+  return action !== null && isNonEmptyString(target.planId) && record.disposePlanId === target.planId && record.disposeAction === action;
 }
 
 // Index a ledger by record id once per ledger path, treating an unreadable or absent ledger as empty
@@ -414,7 +432,7 @@ function bundleActionRefusal(snapshot: UiApprovalSnapshot, selected: UiApprovalT
   if (action === null) {
     return `approval bundle refused: unsupported bundle action ${snapshot.actionType}; re-review`;
   }
-  const mismatch = selected.find((target) => target.actionType !== action);
+  const mismatch = selected.find((target) => approvedDisposeAction(target.actionType) !== action);
   if (mismatch) {
     return `approval bundle refused: bundle action ${action} does not match selected target ${mismatch.targetId} action ${mismatch.actionType}; re-review`;
   }

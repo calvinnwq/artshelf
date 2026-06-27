@@ -122,6 +122,20 @@ test("disposeBackedTargetExecutor executes a reviewed resolve-only plan without 
   assert.equal(recordById(ledger, "shf_backup")?.status, "resolved");
 });
 
+test("disposeBackedTargetExecutor fails a resolved receipt when the live subject disappeared", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "no longer needed" });
+  const target = approvalTarget(ledger, subject, plan.planId, "resolve-only");
+
+  assert.equal(disposeBackedTargetExecutor(target).outcome, "executed");
+  rmSync(subject);
+  const execution = disposeBackedTargetExecutor(target);
+
+  assert.equal(execution.outcome, "failed");
+  const live = evidenceOf(execution).live as Record<string, unknown>;
+  assert.equal(live.subjectPresent, false);
+});
+
 test("disposeBackedTargetExecutor executes a reviewed snooze plan and verifies the extended retention", () => {
   const { ledger, subject } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "snooze", ttl: "7d" });
@@ -181,6 +195,16 @@ test("disposeBackedTargetExecutor refuses a plan whose action differs from the a
   assert.equal(record?.status, "active");
   assert.equal(record?.disposePlanId, undefined);
   assert.equal(record?.disposeAction, undefined);
+});
+
+test("disposeBackedTargetExecutor accepts browser intent aliases for reviewed dispose plans", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const execution = disposeBackedTargetExecutor(approvalTarget(ledger, subject, plan.planId, "trash"));
+
+  assert.equal(execution.outcome, "executed");
+  assert.equal(recordById(ledger, "shf_backup")?.status, "trashed");
+  assert.equal(existsSync(subject), false);
 });
 
 test("executeDisposePlanEntry executes the already-validated entry even if the plan artifact changes", () => {

@@ -199,6 +199,30 @@ test("executeApprovalBundle refuses when bundle action differs from selected tar
   assert.match(result.receipts[0]!.detail, /does not match selected target/i);
 });
 
+test("executeApprovalBundle accepts browser intent aliases for selected target actions", () => {
+  const home = freshHome();
+  const { snapshot } = bundleSelecting(home, ["shf_a"]);
+  const browserSnapshot: UiApprovalSnapshot = {
+    ...snapshot,
+    targets: snapshot.targets.map((target) => (target.targetId === "shf_a" ? { ...target, actionType: "trash" } : target)),
+    fingerprint: approvalSnapshotFingerprint([{ ...sampleTargets()[0]!, actionType: "trash" }], {})
+  };
+
+  const calls: string[] = [];
+  const result = executeApprovalBundle(
+    browserSnapshot,
+    { targets: [{ ...sampleTargets()[0]!, actionType: "trash" }], reviewed: {} },
+    (target) => {
+      calls.push(target.targetId);
+      return { outcome: "executed", detail: "ok" };
+    }
+  );
+
+  assert.deepEqual(calls, ["shf_a"]);
+  assert.equal(result.status, "executed");
+  assert.equal(result.receipts[0]!.outcome, "executed");
+});
+
 test("executeApprovalBundle refuses a malformed bundle whose selection resolves to no targets", () => {
   const home = freshHome();
   const { snapshot } = bundleSelecting(home, ["shf_a"]);
