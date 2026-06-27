@@ -796,7 +796,8 @@ sessions/<session-id>/bundles/<bundle-id>.json
 The token authorizes browser event writes only while the session is active; ending the session revokes writes without deleting audit history.
 `events.jsonl` is append-only and stores exact-target browser triage intents plus agent replies as separate log lines, with read-side projections folding replies into the current event status and preserving reply payloads for record history.
 Approval snapshots under `bundles/` are immutable JSON documents that persist the full reviewed candidate pool, the deliberate selection (a non-empty, duplicate-free subset of those targets, never a vague approve-all), exact per-target ledger or registry context for every selected target, and a deterministic fingerprint over the selected targets and reviewed facts.
-A later executor can use that fingerprint to detect drift or tampering before running an approval-gated command.
+Before running any approval-gated command, an executor revalidates the bundle against live ledger, registry, record, and plan facts, comparing the persisted fingerprint and the selected per-target context with what live state now reports.
+The bundle is fresh only when every selected target is still present and unchanged and no reviewed fact drifted; any missing target, changed target, or drifted reviewed fact marks it stale so the agent refuses execution and the human re-reviews, while drift in an unselected candidate row is ignored because only the approved subset gates execution.
 
 The storage layer must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions.
 Those remain existing explicit CLI paths that require the same reviewed plan ids and approval wording as the non-UI flow.

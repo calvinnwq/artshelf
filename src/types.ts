@@ -477,3 +477,32 @@ export type UiApprovalSnapshot = {
   // Deterministic fingerprint over the *selected* targets + `reviewed`.
   fingerprint: string;
 };
+
+// Live facts an agent re-reads from current ledger/registry/record/plan state before executing
+// an approved bundle (NGX-539): the still-present exact targets (matched to the bundle by
+// `targetId`) and the reviewed facts re-derived from live state. revalidateApprovalSnapshot()
+// compares these against the immutable reviewed snapshot, so a drifted or tampered bundle is
+// caught before any exact target is executed - the agent never trusts a stale approval.
+export type UiApprovalLiveFacts = {
+  targets: UiApprovalTarget[];
+  reviewed: Record<string, unknown>;
+};
+
+// Verdict of revalidating an approved bundle against live state (NGX-539). `status` is the single
+// safety signal: "fresh" only when every selected target is still present and unchanged and no
+// reviewed fact drifted; any divergence is "stale", so the agent refuses execution and the human
+// re-reviews. The granular id/key lists explain *what* drifted, and the two fingerprints make the
+// verdict auditable against the persisted bundle.
+export type UiApprovalRevalidation = {
+  status: "fresh" | "stale";
+  // The persisted bundle fingerprint - what the human actually approved.
+  expectedFingerprint: string;
+  // Fingerprint recomputed over the live versions of the selected targets + live reviewed facts.
+  liveFingerprint: string;
+  // Selected targets no longer present in live state.
+  missingTargetIds: string[];
+  // Selected targets whose live row differs from the reviewed row.
+  changedTargetIds: string[];
+  // Reviewed facts whose live value differs (changed, added, or removed).
+  reviewedKeysDrifted: string[];
+};

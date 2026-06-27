@@ -18,6 +18,7 @@ import {
   readSessionHistory,
   replyToEvent,
   resolveUiHome,
+  revalidateApprovalSnapshot,
   selectedApprovalTargets,
   startOrResumeSession,
   UI_DECISION_INTENTS,
@@ -1081,4 +1082,143 @@ test("writeApprovalSnapshot refuses a target missing its owning ledger path", ()
       }),
     /ledgerPath/i
   );
+});
+
+test("revalidateApprovalSnapshot reports a fresh verdict when live facts reproduce the approved selection", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: sampleTargets(),
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  assert.equal(verdict.status, "fresh");
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.reviewedKeysDrifted, []);
+  assert.equal(verdict.expectedFingerprint, snapshot.fingerprint);
+  assert.equal(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot flags a vanished selected target as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: { total: 2 }
+  });
+
+  // The agent re-reads live state and shf_b's subject is gone (already resolved out-of-band).
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: [sampleTargets()[0]!],
+    reviewed: { total: 2 }
+  });
+
+  assert.equal(verdict.status, "stale");
+  assert.deepEqual(verdict.missingTargetIds, ["shf_b"]);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.notEqual(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot flags a selected target whose exact subject drifted as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: {}
+  });
+
+  // shf_a now points at a different record path than the human reviewed.
+  const live = sampleTargets();
+  live[0]!.recordPath = "/tmp/a-moved";
+  const verdict = revalidateApprovalSnapshot(snapshot, { targets: live, reviewed: {} });
+
+  assert.equal(verdict.status, "stale");
+  assert.deepEqual(verdict.changedTargetIds, ["shf_a"]);
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.notEqual(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot flags drifted reviewed facts as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  // The live plan now reports a different total than what the human reviewed.
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: sampleTargets(),
+    reviewed: { planId: "plan_a", total: 5 }
+  });
+
+  assert.equal(verdict.status, "stale");
+  assert.deepEqual(verdict.reviewedKeysDrifted, ["total"]);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.missingTargetIds, []);
+});
+
+test("revalidateApprovalSnapshot ignores drift in unselected candidate rows", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  // Only shf_a is approved; shf_b is an unselected candidate that was merely shown.
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+
+  // shf_b drifts in live state, but it was never part of the approved action.
+  const live = [sampleTargets()[0]!, { ...sampleTargets()[1]!, recordPath: "/tmp/b-moved" }];
+  const verdict = revalidateApprovalSnapshot(snapshot, { targets: live, reviewed: {} });
+
+  assert.equal(verdict.status, "fresh");
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.equal(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot ignores property order in live targets and reviewed facts", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  // Same facts, different property insertion order in both the target row and the reviewed map.
+  const reordered: UiApprovalTarget = {
+    label: "trash scratch a",
+    actionType: "trash-resolve",
+    planId: "plan_a",
+    recordPath: "/tmp/a",
+    registryPath: null,
+    ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl",
+    targetId: "shf_a"
+  };
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: [reordered],
+    reviewed: { total: 2, planId: "plan_a" }
+  });
+
+  assert.equal(verdict.status, "fresh");
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.reviewedKeysDrifted, []);
 });

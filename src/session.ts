@@ -6,6 +6,8 @@ import type { ArtshelfEnv } from "./config/env.js";
 import { withPathLock } from "./locks.js";
 import { now, toIso } from "./time.js";
 import type {
+  UiApprovalLiveFacts,
+  UiApprovalRevalidation,
   UiApprovalSnapshot,
   UiApprovalTarget,
   UiDecisionIntent,
@@ -498,6 +500,63 @@ export function approvalSnapshotFingerprint(targets: UiApprovalTarget[], reviewe
     .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   const canonical = `[${sortedTargets.join(",")}]|${canonicalJson(reviewed)}`;
   return createHash("sha256").update(canonical).digest("hex");
+}
+
+// Revalidate an approved bundle against the live facts an agent re-read from current
+// ledger/registry/record/plan state (NGX-539). The reviewed snapshot is immutable, so this never
+// mutates it - it only reports whether the live world still matches what the human approved. A
+// bundle is "fresh" (safe for the agent to execute) only when every *selected* target is still
+// present and unchanged and no reviewed fact drifted; any divergence is "stale", and the granular
+// fields tell the agent (and, later, the workbench) exactly what changed so the human can
+// re-review. Drift in an unselected candidate row is ignored: only the approved subset gates
+// execution.
+export function revalidateApprovalSnapshot(
+  snapshot: UiApprovalSnapshot,
+  live: UiApprovalLiveFacts
+): UiApprovalRevalidation {
+  const selected = selectedApprovalTargets(snapshot);
+  const liveById = new Map((live.targets ?? []).map((target) => [target.targetId, target]));
+  const missingTargetIds: string[] = [];
+  const changedTargetIds: string[] = [];
+  const liveSelected: UiApprovalTarget[] = [];
+  for (const target of selected) {
+    const liveTarget = liveById.get(target.targetId);
+    if (liveTarget === undefined) {
+      missingTargetIds.push(target.targetId);
+      continue;
+    }
+    liveSelected.push(liveTarget);
+    if (canonicalJson(liveTarget) !== canonicalJson(target)) {
+      changedTargetIds.push(target.targetId);
+    }
+  }
+
+  const liveReviewed = live.reviewed ?? {};
+  const reviewedKeysDrifted = driftedReviewedKeys(snapshot.reviewed, liveReviewed);
+  const drifted = missingTargetIds.length > 0 || changedTargetIds.length > 0 || reviewedKeysDrifted.length > 0;
+  return {
+    status: drifted ? "stale" : "fresh",
+    expectedFingerprint: snapshot.fingerprint,
+    liveFingerprint: approvalSnapshotFingerprint(liveSelected, liveReviewed),
+    missingTargetIds,
+    changedTargetIds,
+    reviewedKeysDrifted
+  };
+}
+
+// Reviewed facts whose live value diverges from what was captured at approval time - a changed
+// value, a key that disappeared from live state, or a new key live state now reports. Compared by
+// canonical form so property insertion order never registers as drift, and returned sorted so the
+// verdict is stable for logging and assertions.
+function driftedReviewedKeys(reviewed: Record<string, unknown>, live: Record<string, unknown>): string[] {
+  const keys = new Set<string>([...Object.keys(reviewed ?? {}), ...Object.keys(live ?? {})]);
+  const drifted: string[] = [];
+  for (const key of keys) {
+    if (canonicalJson((reviewed ?? {})[key]) !== canonicalJson((live ?? {})[key])) {
+      drifted.push(key);
+    }
+  }
+  return drifted.sort();
 }
 
 function buildEvent(sessionId: string, input: AppendEventInput, source: UiEvent["source"], createdAt: string): UiEvent {
