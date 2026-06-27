@@ -196,6 +196,71 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+// Re-read the live ledger/record facts an executor revalidates an approved bundle against before
+// running anything (NGX-540). Approval persisted an immutable snapshot; revalidateApprovalSnapshot
+// then compares the *selected* per-target context (and reviewed basis) the human approved against
+// what live state now reports. This produces that live re-read: for each selected target it resolves
+// the live ledger row (matched by record id - the targetId is the record id) straight from disk and
+// reflects the SPEC drift signals so a drifted target never executes:
+//   - record gone, or its ledger unreadable/absent: omitted, so revalidation marks it missing.
+//   - status already terminal (trashed/resolved): the approved disposition is moot, so the target is
+//     dropped from the live actionable pool and marked missing.
+//   - subject remapped (the live row's path no longer matches the reviewed recordPath): echoed with
+//     the live path so exactly one field diverges and revalidation marks it changed.
+//   - otherwise present and active: echoed verbatim so it revalidates as unchanged.
+// Reviewed facts capture the shared basis the human approved against. No production path populates
+// them with re-derivable content yet (NGX-539 built the fingerprint/drift mechanism ahead of a
+// producer), so this re-confirms none of them: any captured reviewed fact therefore surfaces as
+// drift and the whole bundle is conservatively refused - the deliberate refuse-on-ambiguity posture
+// for the first mutating UI slice - while the common empty-reviewed bundle is gated purely on its
+// exact targets' liveness. A future reviewed-fact producer adds its matching live re-derivation here.
+export function collectApprovalLiveFacts(snapshot: UiApprovalSnapshot): UiApprovalLiveFacts {
+  const ledgerCache = new Map<string, Map<string, ArtshelfRecord>>();
+  const targets: UiApprovalTarget[] = [];
+  for (const target of selectedApprovalTargets(snapshot)) {
+    const liveTarget = reReadLiveTarget(target, ledgerCache);
+    if (liveTarget !== null) targets.push(liveTarget);
+  }
+  return { targets, reviewed: {} };
+}
+
+// Resolve one approved target's live ledger row and map it to its live target context, or null when
+// the approved subject is gone or no longer actionable (see collectApprovalLiveFacts for the rules).
+function reReadLiveTarget(
+  target: UiApprovalTarget,
+  ledgerCache: Map<string, Map<string, ArtshelfRecord>>
+): UiApprovalTarget | null {
+  const record = liveRecordById(target.ledgerPath, target.targetId, ledgerCache);
+  if (record === undefined) return null; // subject gone, or the ledger could not be re-read
+  if (isTerminalStatus(record.status)) return null; // already disposed: the approved action is moot
+  // A remapped subject is present but changed: echo the live path so revalidation flags it changed.
+  if (isNonEmptyString(target.recordPath) && record.path !== target.recordPath) {
+    return { ...target, recordPath: record.path };
+  }
+  return target;
+}
+
+// Index a ledger by record id once per ledger path, treating an unreadable or absent ledger as empty
+// so a re-read failure safely reads as "subject gone" rather than throwing mid-revalidation.
+function liveRecordById(
+  ledgerPath: string,
+  recordId: string,
+  cache: Map<string, Map<string, ArtshelfRecord>>
+): ArtshelfRecord | undefined {
+  let byId = cache.get(ledgerPath);
+  if (byId === undefined) {
+    byId = new Map<string, ArtshelfRecord>();
+    try {
+      for (const record of readLedger(ledgerPath)) byId.set(record.id, record);
+    } catch {
+      // An unreadable ledger means we cannot confirm any subject on it: leave the index empty so
+      // every target there reads as missing and is safely skipped/refused rather than executed.
+    }
+    cache.set(ledgerPath, byId);
+  }
+  return byId.get(recordId);
+}
+
 export function executeApprovalBundle(
   snapshot: UiApprovalSnapshot,
   live: UiApprovalLiveFacts,
