@@ -7,7 +7,7 @@ import { normalizeLedgerPath } from "./ledger.js";
 import { renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
 import { listRegisteredLedgers } from "./registry.js";
 import type { AppendEventInput } from "./session.js";
-import { appendEvent, readSession, readSessionHistory, validateBrowserToken } from "./session.js";
+import { appendEvent, readSession, readSessionHistory, UI_DECISION_INTENTS, validateBrowserToken } from "./session.js";
 import type { UiEventType, UiSessionHistoryEntry } from "./types.js";
 
 // Loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard, NGX-536 detail
@@ -225,10 +225,19 @@ function buildIntentInput(fields: Record<string, string>): AppendEventInput {
   if (fields.ledgerPath !== undefined) target.ledgerPath = fields.ledgerPath;
 
   const payload: Record<string, unknown> = {};
-  if (type === "comment_added" && fields.text !== undefined) {
+  if (type === "comment_added") {
+    if (!isNonBlank(fields.text)) {
+      throw intentError(400, "Invalid Artshelf UI comment text; expected a non-empty string");
+    }
     payload.text = fields.text;
   } else if (type === "decision_submitted") {
-    if (fields.decision !== undefined) payload.decision = fields.decision;
+    if (fields.decision === undefined || !(UI_DECISION_INTENTS as string[]).includes(fields.decision)) {
+      throw intentError(
+        400,
+        `Invalid Artshelf UI decision intent "${String(fields.decision)}"; expected one of: ${UI_DECISION_INTENTS.join(", ")}`
+      );
+    }
+    payload.decision = fields.decision;
     if (isNonBlank(fields.reason)) payload.reason = fields.reason;
   }
 
@@ -335,7 +344,7 @@ function intentError(status: number, message: string): Error {
 }
 
 function sendIntentError(response: any, error: unknown): void {
-  const status = typeof (error as { httpStatus?: unknown }).httpStatus === "number" ? (error as { httpStatus: number }).httpStatus : 400;
+  const status = typeof (error as { httpStatus?: unknown }).httpStatus === "number" ? (error as { httpStatus: number }).httpStatus : 500;
   const title = status === 413 ? "Intent too large" : status >= 500 ? "Server error" : "Intent rejected";
   sendHtml(response, status, renderErrorPage({ status, title, message: errorMessage(error) }));
 }

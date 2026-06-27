@@ -779,6 +779,36 @@ test("POST /intents rejects a non-intent event type so the browser cannot forge 
   });
 });
 
+test("POST /intents rejects incomplete browser intent payloads as validation errors", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    const missingComment = await postIntent(server, { type: "comment_added", recordId: "shf_1", ledgerPath });
+    assert.equal(missingComment.status, 400);
+    assert.match(await missingComment.text(), /comment text/i);
+
+    const missingDecision = await postIntent(server, { type: "decision_submitted", recordId: "shf_1", ledgerPath });
+    assert.equal(missingDecision.status, 400);
+    assert.match(await missingDecision.text(), /decision intent/i);
+
+    assert.equal(readSessionEvents(server.home, server.sessionId).length, 0);
+  });
+});
+
+test("POST /intents reports append storage failures as server errors", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    mkdirSync(join(server.home, "sessions", server.sessionId, "events.jsonl"));
+
+    const response = await postIntent(server, { type: "inspect_requested", recordId: "shf_1", ledgerPath });
+
+    assert.equal(response.status, 500);
+    const html = await response.text();
+    assert.match(html, /Server error/i);
+  });
+});
+
 test("the served detail page exposes token-bound intent forms under a form-action 'self' policy", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
