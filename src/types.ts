@@ -440,7 +440,9 @@ export type UiSessionHistoryEntry = {
 
 // One exact target inside an approval snapshot. Cross-ledger action is always a bundle of
 // exact per-target actions, so every target carries its own ledger/registry/record/plan
-// context plus the human-facing label shown at approval time - never a global execute.
+// context plus the human-facing label shown at approval time - never a global execute. A
+// selected target must name a concrete subject (recordPath, planId, or registryPath) in
+// addition to its owning ledger, so "approve everything on ledger X" can never be encoded.
 export type UiApprovalTarget = {
   targetId: string;
   ledgerPath: string;
@@ -453,19 +455,87 @@ export type UiApprovalTarget = {
 };
 
 // Immutable reviewed approval snapshot persisted at
-// `<ui-home>/sessions/<id>/bundles/<bundle-id>.json`. Slice 1 only defines the storage
-// model and fingerprint; the full review/execute flow lands in later slices. The
-// `fingerprint` is a deterministic digest over the selected targets and key reviewed
-// facts so a later agent can detect drift and refuse a stale or tampered bundle before
-// executing any exact target.
+// `<ui-home>/sessions/<id>/bundles/<bundle-id>.json` (NGX-539). `targets` is the full
+// reviewed candidate pool (the grouped rows shown in the approval workbench, selected and
+// unselected alike); `selectedTargetIds` is the deliberate human selection - a non-empty
+// subset of those target ids. Persisting both lets the workbench and the agent distinguish
+// what was offered from what was approved. The `fingerprint` is a deterministic digest over
+// the *selected* targets and key reviewed facts, so deselecting a row or any drift in the
+// reviewed facts changes the bundle identity and a later agent can refuse a stale or tampered
+// bundle before executing any exact target.
 export type UiApprovalSnapshot = {
   id: string; // bundle_<id>
   sessionId: string; // session_<id>
   createdAt: string;
   actionType: string;
+  // Full reviewed candidate pool (selected + unselected rows), persisted intact.
   targets: UiApprovalTarget[];
+  // Deliberate human selection: a non-empty, duplicate-free subset of `targets` ids.
+  selectedTargetIds: string[];
   // Reviewed snapshot of the key plan facts captured at approval time.
   reviewed: Record<string, unknown>;
-  // Deterministic fingerprint over `targets` + `reviewed`.
+  // Deterministic fingerprint over the *selected* targets + `reviewed`.
   fingerprint: string;
+};
+
+// Live facts an agent re-reads from current ledger/registry/record/plan state before executing
+// an approved bundle (NGX-539): the still-present exact targets (matched to the bundle by
+// `targetId`) and the reviewed facts re-derived from live state. revalidateApprovalSnapshot()
+// compares these against the immutable reviewed snapshot, so a drifted or tampered bundle is
+// caught before any exact target is executed - the agent never trusts a stale approval.
+export type UiApprovalLiveFacts = {
+  targets: UiApprovalTarget[];
+  reviewed: Record<string, unknown>;
+};
+
+// Verdict of revalidating an approved bundle against live state (NGX-539). `status` is the single
+// safety signal: "fresh" only when every selected target is still present and unchanged and no
+// reviewed fact drifted; any divergence is "stale", so the agent refuses execution and the human
+// re-reviews. The granular id/key lists explain *what* drifted, and the two fingerprints make the
+// verdict auditable against the persisted bundle.
+export type UiApprovalRevalidation = {
+  status: "fresh" | "stale";
+  // The persisted bundle fingerprint - what the human actually approved.
+  expectedFingerprint: string;
+  // Fingerprint recomputed over the live versions of the selected targets + live reviewed facts.
+  liveFingerprint: string;
+  // Selected targets no longer present in live state.
+  missingTargetIds: string[];
+  // Selected targets whose live row differs from the reviewed row.
+  changedTargetIds: string[];
+  // Reviewed facts whose live value differs (changed, added, or removed).
+  reviewedKeysDrifted: string[];
+};
+
+// One candidate row in the browser approval workbench (NGX-539 AC4): an exact reviewed target
+// paired with whether the human currently has it selected for approval. Reuses UiApprovalTarget so
+// the row carries the same exact ledger/registry/record/plan context and human label the persisted
+// bundle will store - the workbench never invents target context the snapshot would not preserve.
+export type UiApprovalCandidate = {
+  target: UiApprovalTarget;
+  selected: boolean;
+};
+
+// Candidate rows grouped for the workbench (NGX-539 "grouped rows"). Grouping is by owning ledger so
+// the reviewer reads per-ledger batches of exact targets; `ledgerName` is the human label and
+// `ledgerPath` the exact scope. Cross-ledger approval therefore stays a set of grouped exact-target
+// rows, never a single global "approve ledger X" affordance.
+export type UiApprovalGroup = {
+  ledgerName: string;
+  ledgerPath: string;
+  candidates: UiApprovalCandidate[];
+};
+
+// The browser approval workbench view (NGX-539 AC4). A pure read projection the renderer turns into
+// the scriptless workbench page: `groups` are the grouped candidate rows, `actionType` is the exact
+// bundle action being approved, and `selectedCount`/`totalCount` summarize the deliberate selection
+// so approval can never be expressed as a vague approve-all. The server derives this from live state
+// and decides the selection; the renderer only displays it and never mints its own selection.
+export type UiApprovalWorkbenchView = {
+  sessionId: string;
+  actionType: string;
+  reviewed?: Record<string, unknown>;
+  groups: UiApprovalGroup[];
+  selectedCount: number;
+  totalCount: number;
 };

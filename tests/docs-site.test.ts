@@ -448,6 +448,10 @@ test("docs document the Artshelf UI session command surface", () => {
     assert.match(text, /ui poll/);
     assert.match(text, /ui reply/);
     assert.match(text, /ui end/);
+    // NGX-539: every UI-documenting surface names the agent-facing approval-bundle read
+    // command and the read-only browser workbench page over persisted immutable snapshots.
+    assert.match(text, /ui bundle/);
+    assert.match(text, /\/bundle\/(?:<|&lt;)bundle-id(?:>|&gt;)/);
     assert.match(text, /browser (?:side )?records|browser-recorded events/i);
     // NGX-538: every UI-documenting surface states the browser captures human triage
     // intents but never directly mutates ledgers/files/trash/plans.

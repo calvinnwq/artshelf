@@ -43,15 +43,17 @@ Available Commands:
   serve       Serve the read-only dashboard and drawers in a local browser
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
-  end         End the session and revoke browser event writes
+  bundle      Load or list persisted approval bundles for the agent
+  end         End the session and revoke browser writes
 
 Flags:
   -h, --help   help for ui
 
-The browser records exact-target triage intents; the agent polls them, executes
-existing approval-gated paths, and replies with receipts. The dashboard and
-detail surfaces never read file contents. The browser captures human triage
-intents only; it never executes or mutates ledgers, files, trash, or plans directly.
+The browser records exact-target triage intents and approval bundle submissions;
+the agent polls them, executes existing approval-gated paths, and replies with
+receipts. The dashboard, detail, and bundle surfaces never read file contents.
+The browser captures handoff events only; it never executes or mutates ledgers,
+files, trash, or plans directly.
 Defaults to user-level, multi-ledger review.
 
 Use "artshelf ui <command> --help" for more information about a command.
@@ -108,7 +110,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "end"])]
+  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -524,14 +526,15 @@ Options:
   --ledger <path>          Fallback ledger for detail drawers opened without a target
   --json                   Emit a compact launch packet before waiting in the foreground
 
-Serve hosts the review dashboard and artifact detail drawers as a local browser
-surface. It binds to loopback (127.0.0.1) only, never a wildcard interface, and
-recomputes live state on every request. Dashboard and detail pages require the
-active UI session capability token printed in the serve URL; ending that session
-revokes browser access. The pages carry no script and embed no file contents. The
-dashboard only displays state; the detail drawer also captures human triage intents
-(inspect, comment, keep/trash/resolve/defer, dry-run request) as pending session
-events through a token-bound POST, but never mutates ledgers, files, trash, or plans
+Serve hosts the review dashboard, artifact detail drawers, and approval-bundle
+workbench as a local browser surface. It binds to loopback (127.0.0.1) only,
+never a wildcard interface, and recomputes live state on every request. Pages
+require the active UI session capability token printed in the serve URL; ending
+that session revokes browser access. The pages carry no script and embed no file
+contents. The dashboard only displays state; the detail drawer captures human
+triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) and
+the bundle workbench captures revised approval selections as pending session
+events through token-bound POSTs, but never mutates ledgers, files, trash, or plans
 directly. The process runs in the foreground; press Ctrl-C to stop it.
 `;
   }
@@ -569,6 +572,22 @@ browser-direct execution path.
 `;
   }
 
+  if (command === "ui bundle") {
+    return `Usage:
+  artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
+
+Options:
+  --scope <scope>          Locate the session in user (default) or repo scope
+  --json                   Emit a compact single-line agent packet
+
+Bundle is the agent's read surface over persisted approval bundles. With a
+bundle id it loads one immutable reviewed snapshot and its deliberate selected
+targets - the agent-facing JSON used to revalidate live state before execution.
+With no bundle id it lists the session's approved bundles. It only reads approval
+records; it never executes a bundle or mutates ledgers, files, trash, or plans.
+`;
+  }
+
   if (command === "ui end") {
     return `Usage:
   artshelf ui end <session-id> [--scope user|repo] [--json]
@@ -577,7 +596,7 @@ Options:
   --scope <scope>          Locate the session in user (default) or repo scope
   --json                   Emit a compact single-line agent packet
 
-End closes the session and revokes browser event writes for it. The session
+End closes the session and revokes browser writes for it. The session
 stays readable so its receipt and decision trail survive for audit and resume.
 `;
   }

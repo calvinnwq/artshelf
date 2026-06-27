@@ -10,6 +10,7 @@ import {
   approvalSnapshotFingerprint,
   endSession,
   isUiDecisionIntent,
+  listApprovalSnapshots,
   pollPendingEvents,
   readApprovalSnapshot,
   readReplies,
@@ -18,6 +19,8 @@ import {
   readSessionHistory,
   replyToEvent,
   resolveUiHome,
+  revalidateApprovalSnapshot,
+  selectedApprovalTargets,
   startOrResumeSession,
   UI_DECISION_INTENTS,
   validateBrowserToken,
@@ -189,6 +192,7 @@ test("session storage uses owner-only directory and token file permissions", () 
     bundleId = writeApprovalSnapshot(home, session.id, {
       actionType: "trash-resolve",
       targets: sampleTargets(),
+      selectedTargetIds: ["shf_a", "shf_b"],
       reviewed: { planId: "plan_a" }
     }).id;
   } finally {
@@ -847,14 +851,432 @@ test("writeApprovalSnapshot persists a fingerprinted bundle that readApprovalSna
   const snapshot = writeApprovalSnapshot(home, session.id, {
     actionType: "trash-resolve",
     targets,
+    selectedTargetIds: ["shf_a", "shf_b"],
     reviewed: { planId: "plan_a", total: 2 }
   });
 
   assert.match(snapshot.id, /^bundle_/);
   assert.equal(snapshot.sessionId, session.id);
+  assert.deepEqual(snapshot.selectedTargetIds, ["shf_a", "shf_b"]);
   assert.equal(snapshot.fingerprint, approvalSnapshotFingerprint(targets, { planId: "plan_a", total: 2 }));
 
   const persisted = join(home, "sessions", session.id, "bundles", `${snapshot.id}.json`);
   assert.equal(existsSync(persisted), true);
   assert.deepEqual(readApprovalSnapshot(home, session.id, snapshot.id), snapshot);
+});
+
+test("writeApprovalSnapshot persists the full candidate pool and the partial selected subset", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  // The reviewed candidate pool (selected + unselected rows) is persisted intact so the
+  // approval workbench can distinguish what was offered from what the human approved.
+  assert.deepEqual(snapshot.targets, targets);
+  assert.deepEqual(snapshot.selectedTargetIds, ["shf_a"]);
+  // The fingerprint covers only the selected target, so a partial selection produces a
+  // different bundle identity than approving both rows.
+  assert.equal(snapshot.fingerprint, approvalSnapshotFingerprint([targets[0]!], { planId: "plan_a", total: 2 }));
+  assert.notEqual(snapshot.fingerprint, approvalSnapshotFingerprint(targets, { planId: "plan_a", total: 2 }));
+  assert.deepEqual(readApprovalSnapshot(home, session.id, snapshot.id), snapshot);
+});
+
+test("deselecting a target changes the persisted bundle fingerprint", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const both = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: {}
+  });
+  const onlyA = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+
+  assert.notEqual(onlyA.fingerprint, both.fingerprint);
+});
+
+test("selectedTargetIds order does not change the persisted bundle fingerprint", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const ab = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: {}
+  });
+  const ba = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_b", "shf_a"],
+    reviewed: {}
+  });
+
+  assert.equal(ab.fingerprint, ba.fingerprint);
+});
+
+test("selectedApprovalTargets resolves the selected subset in selection order", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_b"],
+    reviewed: {}
+  });
+
+  assert.deepEqual(selectedApprovalTargets(snapshot), [targets[1]]);
+});
+
+test("writeApprovalSnapshot refuses an empty selection so approval cannot be a vague approve-all", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: sampleTargets(),
+        selectedTargetIds: []
+      }),
+    /at least one|deliberate|select/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a blank bundle actionType", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "  ",
+        targets: sampleTargets(),
+        selectedTargetIds: ["shf_a"]
+      }),
+    /actionType/i
+  );
+});
+
+test("writeApprovalSnapshot refuses an empty candidate pool", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: [],
+        selectedTargetIds: []
+      }),
+    /target/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a selection that names a target outside the pool", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: sampleTargets(),
+        selectedTargetIds: ["shf_a", "shf_missing"]
+      }),
+    /shf_missing/
+  );
+});
+
+test("writeApprovalSnapshot refuses duplicate selected target ids", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: sampleTargets(),
+        selectedTargetIds: ["shf_a", "shf_a"]
+      }),
+    /duplicate/i
+  );
+});
+
+test("writeApprovalSnapshot refuses duplicate target ids in the candidate pool", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+  targets[1]!.targetId = "shf_a";
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets,
+        selectedTargetIds: ["shf_a"]
+      }),
+    /duplicate/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a selected target with no exact subject context (no vague global approval)", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const vague: UiApprovalTarget = {
+    targetId: "shf_vague",
+    ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl",
+    registryPath: null,
+    recordPath: null,
+    planId: null,
+    actionType: "trash-resolve",
+    label: "everything on ledger a"
+  };
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: [vague],
+        selectedTargetIds: ["shf_vague"]
+      }),
+    /exact|context|recordPath|planId|registryPath/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a target missing its owning ledger path", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const noLedger: UiApprovalTarget = {
+    targetId: "shf_x",
+    ledgerPath: "",
+    registryPath: null,
+    recordPath: "/tmp/x",
+    planId: null,
+    actionType: "trash-resolve",
+    label: "missing ledger"
+  };
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: [noLedger],
+        selectedTargetIds: ["shf_x"]
+      }),
+    /ledgerPath/i
+  );
+});
+
+test("revalidateApprovalSnapshot reports a fresh verdict when live facts reproduce the approved selection", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: sampleTargets(),
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  assert.equal(verdict.status, "fresh");
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.reviewedKeysDrifted, []);
+  assert.equal(verdict.expectedFingerprint, snapshot.fingerprint);
+  assert.equal(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot flags a stored fingerprint mismatch as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { total: 1 }
+  });
+
+  const tamperedSnapshot = { ...snapshot, fingerprint: "0".repeat(64) };
+  const verdict = revalidateApprovalSnapshot(tamperedSnapshot, {
+    targets: sampleTargets(),
+    reviewed: { total: 1 }
+  });
+
+  assert.equal(verdict.status, "stale");
+  assert.equal(verdict.expectedFingerprint, tamperedSnapshot.fingerprint);
+  assert.notEqual(verdict.liveFingerprint, tamperedSnapshot.fingerprint);
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.reviewedKeysDrifted, []);
+});
+
+test("revalidateApprovalSnapshot flags a vanished selected target as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: { total: 2 }
+  });
+
+  // The agent re-reads live state and shf_b's subject is gone (already resolved out-of-band).
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: [sampleTargets()[0]!],
+    reviewed: { total: 2 }
+  });
+
+  assert.equal(verdict.status, "stale");
+  assert.deepEqual(verdict.missingTargetIds, ["shf_b"]);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.notEqual(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot flags a selected target whose exact subject drifted as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: {}
+  });
+
+  // shf_a now points at a different record path than the human reviewed.
+  const live = sampleTargets();
+  live[0]!.recordPath = "/tmp/a-moved";
+  const verdict = revalidateApprovalSnapshot(snapshot, { targets: live, reviewed: {} });
+
+  assert.equal(verdict.status, "stale");
+  assert.deepEqual(verdict.changedTargetIds, ["shf_a"]);
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.notEqual(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot flags drifted reviewed facts as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  // The live plan now reports a different total than what the human reviewed.
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: sampleTargets(),
+    reviewed: { planId: "plan_a", total: 5 }
+  });
+
+  assert.equal(verdict.status, "stale");
+  assert.deepEqual(verdict.reviewedKeysDrifted, ["total"]);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.missingTargetIds, []);
+});
+
+test("revalidateApprovalSnapshot ignores drift in unselected candidate rows", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  // Only shf_a is approved; shf_b is an unselected candidate that was merely shown.
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+
+  // shf_b drifts in live state, but it was never part of the approved action.
+  const live = [sampleTargets()[0]!, { ...sampleTargets()[1]!, recordPath: "/tmp/b-moved" }];
+  const verdict = revalidateApprovalSnapshot(snapshot, { targets: live, reviewed: {} });
+
+  assert.equal(verdict.status, "fresh");
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.equal(verdict.liveFingerprint, snapshot.fingerprint);
+});
+
+test("revalidateApprovalSnapshot ignores property order in live targets and reviewed facts", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  // Same facts, different property insertion order in both the target row and the reviewed map.
+  const reordered: UiApprovalTarget = {
+    label: "trash scratch a",
+    actionType: "trash-resolve",
+    planId: "plan_a",
+    recordPath: "/tmp/a",
+    registryPath: null,
+    ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl",
+    targetId: "shf_a"
+  };
+  const verdict = revalidateApprovalSnapshot(snapshot, {
+    targets: [reordered],
+    reviewed: { total: 2, planId: "plan_a" }
+  });
+
+  assert.equal(verdict.status, "fresh");
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.reviewedKeysDrifted, []);
+});
+
+test("listApprovalSnapshots returns every persisted bundle for a session and is empty when none exist", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  // A session with no approved bundles lists nothing, even before any bundles dir is created.
+  assert.deepEqual(listApprovalSnapshots(home, session.id), []);
+
+  const first = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+  const second = writeApprovalSnapshot(home, session.id, {
+    actionType: "resolve-only",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_b"],
+    reviewed: { planId: "plan_b", total: 2 }
+  });
+
+  const listed = listApprovalSnapshots(home, session.id);
+  // Every persisted bundle is returned, each an exact round-trip of its stored snapshot.
+  assert.equal(listed.length, 2);
+  const byId = new Map(listed.map((bundle) => [bundle.id, bundle]));
+  assert.deepEqual(byId.get(first.id), readApprovalSnapshot(home, session.id, first.id));
+  assert.deepEqual(byId.get(second.id), readApprovalSnapshot(home, session.id, second.id));
+  // Listing is deterministic: a second call yields the same bundles in the same order.
+  assert.deepEqual(
+    listApprovalSnapshots(home, session.id).map((bundle) => bundle.id),
+    listed.map((bundle) => bundle.id)
+  );
 });

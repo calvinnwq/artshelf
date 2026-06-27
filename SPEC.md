@@ -421,10 +421,10 @@ next action, and a verify command); `--agent` takes precedence over `--json`.
 
 ### `artshelf ui`
 
-Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views for live review state.
-The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents in the session log, the agent polls those intents, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
+Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views plus approval-bundle workbench views for live review state.
+The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, the agent polls those events, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
 The dashboard/detail subcommands are read-only data surfaces over existing ledger, registry, trash, and inspect state.
-The browser captures human triage intents as session events but never mutates ledgers, files, trash, or plans directly.
+The browser captures human triage intents and approval bundle submissions as session events but never mutates ledgers, files, trash, or plans directly.
 
 ```bash
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
@@ -433,6 +433,7 @@ artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
 artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
+artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
 artshelf ui end <session-id> [--scope user|repo] [--json]
 ```
 
@@ -441,15 +442,22 @@ Rules:
 - `artshelf ui` defaults to user-level, multi-ledger review and stores the session under `~/.artshelf/ui` unless an explicit UI home override is set.
 - `--scope repo` anchors the session home at the current repository's `.artshelf/ui` tree, and `--ledger <path>` narrows the session target while keeping the same session model.
 - Starting an active session for the same scope and ledger target resumes it instead of creating a duplicate.
-- `artshelf ui --json` returns the session token separately from the public session view; the token is a same-machine browser-write capability and must be treated as secret.
+- `artshelf ui --json` returns the session token separately from the public session view; the token is a same-machine browser access and write capability and must be treated as secret.
 - `ui dashboard` recomputes a multi-ledger snapshot from registered ledgers and surfaces needs-review, needs-context, cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts buckets without mutating anything.
 - `ui detail <record-id>` composes the path label, inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
-- `ui serve` hosts the `ui dashboard` and `ui detail` surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
-- The served pages carry no script and embed no file contents: the server accepts safe GET/HEAD reads for pages and health checks plus a token-bound `POST /intents` that records the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) as pending session events, refuses any other mutating method, and renders bad or missing ledgers and records as explicit non-crashing problem states rather than blank panels. The captured intents never mutate ledgers, files, trash, or plans directly; the agent still executes every approval-gated command itself through the agent-mediated `ui` session loop.
+- `ui serve` hosts the `ui dashboard`, `ui detail`, and approval-bundle workbench surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
+- The served pages carry no script and embed no file contents: the server accepts safe GET/HEAD reads for pages and health checks, a token-bound `POST /intents` that records the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request), and a token-bound `POST /approve` that records approval-bundle submissions as pending session events.
+It refuses any other mutating method and renders bad or missing ledgers, records, and bundles as explicit non-crashing problem states rather than blank panels.
+The captured intents and approval bundles never mutate ledgers, files, trash, or plans directly; the agent still executes every approval-gated command itself through the agent-mediated `ui` session loop.
+- `GET /bundle/<bundle-id>` renders one persisted approval bundle as a browser workbench: grouped candidate rows that clearly distinguish the deliberately selected exact targets from the merely reviewed ones, the exact action being approved, and the human row labels captured at approval time.
+The page requires the active session token, renders the immutable source snapshot, and provides scriptless selection inputs that can submit a revised non-empty subset through `POST /approve`.
+That submit creates a new immutable approval snapshot and queues an `approval_bundle_submitted` event; it never edits the original bundle and never executes a workflow.
+Absent or malformed bundle ids render as non-crashing not-found states.
+- `ui bundle <session-id> [<bundle-id>]` is the agent's read surface over persisted approval bundles, scoped to `user` or `repo` (default `user`). With a bundle id it loads one immutable reviewed snapshot and resolves its deliberate selection to the exact per-target rows, emitting the agent-facing JSON the executor revalidates against live ledger, registry, record, and plan facts before any exact-target execution; with no bundle id it lists the session's approved bundles as a compact discovery summary. It only reads approval records - it never executes a bundle or mutates ledgers, files, trash, or plans - and a bundle is fresh only when every selected target is still present and unchanged and no reviewed fact drifted, otherwise it is stale and the human re-reviews.
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
-- `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail access while keeping the session readable for audit.
+- `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail/bundle access while keeping the session readable for audit.
 - `ARTSHELF_UI_URL` may provide a trusted review UI base URL for printed links; when unset, the command prints a host-local instruction instead of inventing a localhost URL.
 
 ### `artshelf update`
@@ -793,10 +801,11 @@ sessions/<session-id>/bundles/<bundle-id>.json
 ```
 
 `session.json` stores versioned metadata, the scope, lifecycle status, timestamps, optional ledger path, and the same-machine browser capability token.
-The token authorizes browser event writes only while the session is active; ending the session revokes writes without deleting audit history.
+The token authorizes browser reads plus intent and approval writes only while the session is active; ending the session revokes browser access without deleting audit history.
 `events.jsonl` is append-only and stores exact-target browser triage intents plus agent replies as separate log lines, with read-side projections folding replies into the current event status and preserving reply payloads for record history.
-Approval snapshots under `bundles/` are immutable JSON documents with exact per-target ledger or registry context and a deterministic fingerprint over the selected targets and reviewed facts.
-A later executor can use that fingerprint to detect drift or tampering before running an approval-gated command.
+Approval snapshots under `bundles/` are immutable JSON documents that persist the full reviewed candidate pool, the deliberate selection (a non-empty, duplicate-free subset of those targets, never a vague approve-all), exact per-target ledger or registry context for every selected target, and a deterministic fingerprint over the selected targets and reviewed facts.
+Before running any approval-gated command, an executor revalidates the bundle against live ledger, registry, record, and plan facts, comparing the persisted fingerprint and the selected per-target context with what live state now reports.
+The bundle is fresh only when every selected target is still present and unchanged and no reviewed fact drifted; any missing target, changed target, or drifted reviewed fact marks it stale so the agent refuses execution and the human re-reviews, while drift in an unselected candidate row is ignored because only the approved subset gates execution.
 
 The storage layer must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions.
 Those remain existing explicit CLI paths that require the same reviewed plan ids and approval wording as the non-UI flow.
@@ -1188,9 +1197,10 @@ for later human review.
   ledger scoping.
 - CLI can run the AXI-style `artshelf ui` command family: start/resume a session,
   show the read-only multi-ledger dashboard and artifact detail drawer, poll
-  pending browser events, reply with agent receipts or notes, and end the session;
-  the browser captures human triage intents but never mutates ledgers, files, trash,
-  or plans directly.
+  pending browser events, reply with agent receipts or notes, list or load
+  approval bundles for agent revalidation, and end the session; the browser
+  captures human triage intents and approval bundle submissions but never mutates
+  ledgers, files, trash, or plans directly.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf
@@ -1222,7 +1232,8 @@ for later human review.
 - Package includes the deterministic `ArtshelfReviewReport` schema, canonical
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`; the `artshelf ui` family uses compact
-  single-line JSON packets for the read-only dashboard/detail views, serve launch packet, and session loop.
+  single-line JSON packets for the read-only dashboard/detail views, serve launch
+  packet, approval-bundle read surface, and session loop.
 - `review`, `status`, `doctor`, `ledgers prune --dry-run`, `dispose --dry-run`,
   and `get --inspect` also support `--agent`, a compact single-line JSON decision
   packet for agents that takes precedence over `--json`.
@@ -1230,8 +1241,8 @@ for later human review.
   `artshelf doctor`, the `artshelf status` dashboard, `--all` review, stale-registry,
   dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent
   ledger writes, trash list/purge, path provenance validation, registry-prune,
-  reconcile dry-run/execute, dispose dry-run/execute, UI dashboard/detail, and
-  UI session/command behavior.
+  reconcile dry-run/execute, dispose dry-run/execute, UI dashboard/detail,
+  approval-bundle workbench, and UI session/command behavior.
 
 ## Deferred
 

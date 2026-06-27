@@ -123,7 +123,7 @@ everyone confirms the next read-only review is quiet.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`artshelf ui` never executes or mutates ledgers, files, trash, or plans directly**, with read-only dashboard/detail views plus a session loop where the browser captures human triage intents while the agent polls, executes existing approval-gated commands, and replies with receipts.
+- **`artshelf ui` never executes or mutates ledgers, files, trash, or plans directly**, with read-only dashboard/detail views plus a session loop where the browser captures human triage intents and approval bundles while the agent polls, executes existing approval-gated commands, and replies with receipts.
 - **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`,
   `dispose --dry-run`, and `get --inspect`**, a compact, token-efficient decision packet for agents,
   while the default render stays human-scannable.
@@ -156,6 +156,7 @@ artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
 artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
+artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
 artshelf ui end <session-id> [--scope user|repo] [--json]
 artshelf update [--json]
 artshelf cleanup --dry-run [--all]
@@ -178,8 +179,9 @@ or `artshelf help <command>` for focused details. Nested commands such as
 `--json`; `artshelf ui --json` is a compact single-line session packet,
 `ui dashboard --json` and `ui detail --json` emit compact read-only review
 snapshots, `ui serve --json` prints a compact launch packet before the foreground
-server waits, and `ui poll`/`ui reply`/`ui end` use the same compact agent loop
-format. `review`, `status`, `doctor`, `ledgers prune --dry-run`,
+server waits, `ui bundle` lists or loads approval bundles, and
+`ui poll`/`ui reply`/`ui end` use the same compact agent loop format.
+`review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` also take `--agent` for a compact
 decision packet; `--ledger`, `--registry`, and `--all` are scope flags only on
 commands that list them.
@@ -239,12 +241,16 @@ Use `artshelf ui dashboard --json` for a multi-ledger snapshot with needs-review
 Use `artshelf ui detail <record-id> --ledger <path> --json` for the artifact detail drawer: metadata, path label, original reason, provenance, audit trail, existence facts, inspect-card recommendation, needs-context badge, and last action.
 Both views are read-only and never preview file contents.
 Run `artshelf ui serve [--scope user|repo] [--port <port>] [--json]` to open those same dashboard and detail surfaces as a local browser page; it binds to loopback (127.0.0.1) only, recomputes live state on every request, ships no script and no file contents, requires the active UI session capability token printed in the serve URL, and runs in the foreground until you press Ctrl-C.
+The served pages also expose `GET /bundle/<bundle-id>`: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets, the exact action, and the reviewed-only rows.
+With the active token, its scriptless form lets a reviewer keep or deselect rows and submit a revised non-empty subset through `POST /approve`, creating a new immutable approval snapshot without editing the original bundle or executing a workflow.
 On the served page the dashboard stays display-only, while the detail drawer adds scriptless forms that capture lightweight human triage intents - inspect, comment, keep/trash/resolve/defer, and dry-run request - as pending session events for the agent to act on after approval.
 The session command defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
 Set `ARTSHELF_UI_HOME` only for tests or controlled hosts that need to move that durable session home.
-The browser side records exact-target triage intents into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
-The browser captures triage intents only and never mutates ledgers, files, trash, or plans directly.
-The session token printed by `artshelf ui` and `artshelf ui serve` is a same-machine browser capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes and served dashboard access while keeping the audit trail.
+The browser side records exact-target triage intents and approval bundle submissions into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
+`artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution, and with no bundle id it lists the session's approved bundles.
+It only reads approval records - never executes a bundle or mutates ledgers, files, trash, or plans.
+The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly.
+The session token printed by `artshelf ui` and `artshelf ui serve` is a same-machine browser capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes and served dashboard/detail/bundle access while keeping the audit trail.
 Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; otherwise the command prints a host-local instruction instead of a dead localhost link.
 </details>
 

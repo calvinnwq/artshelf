@@ -10,7 +10,15 @@ import type {
   DashboardSnapshot,
   DashboardTrashRow
 } from "../dashboard.js";
-import type { UiEvent, UiReply, UiSessionHistoryEntry } from "../types.js";
+import type {
+  UiApprovalCandidate,
+  UiApprovalGroup,
+  UiApprovalTarget,
+  UiApprovalWorkbenchView,
+  UiEvent,
+  UiReply,
+  UiSessionHistoryEntry
+} from "../types.js";
 
 // Read-only HTML rendering for the Artshelf UI v1 browser surface (NGX-535 dashboard, NGX-536
 // detail drawer, NGX-537 needs-context presentation). These are pure functions: they take the
@@ -100,11 +108,27 @@ dl.fields dd { margin: 0; word-break: break-word; }
 .history .replies { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid #eceef1; }
 .history .replies li { padding: 4px 0; font-size: 13px; }
 .back { display: inline-block; margin: 16px 20px 0; }
-@media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } .intents button { align-self: stretch; } }
+.approval-group > h2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.approval-group > h2 .muted { font-size: 12px; font-weight: 400; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.candidate { background: #fff; border: 1px solid #dfe3e8; border-left: 4px solid #cfd4da; border-radius: 8px; padding: 12px 14px; margin: 0 0 10px; }
+.candidate.selected { border-left-color: #2f855a; }
+.candidate.unselected { opacity: .72; }
+.candidate-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 0 0 8px; font-weight: 600; cursor: pointer; }
+.candidate-head input { width: 16px; height: 16px; }
+.candidate .sel { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #6b7480; }
+.candidate.selected .sel { color: #2f855a; }
+.approve-actions { display: flex; flex-direction: column; gap: 8px; margin: 12px 0 0; }
+.approve-actions button { font: inherit; padding: 8px 14px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #fff; border-radius: 6px; cursor: pointer; align-self: flex-start; }
+.approve-actions button:hover { background: #245a96; }
+.approve-actions button[disabled] { background: #b9c2cc; border-color: #b9c2cc; cursor: not-allowed; }
+@media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } .intents button { align-self: stretch; } .approve-actions button { align-self: stretch; } }
 `;
 
 const REVIEW_SURFACE_NOTE =
   "Review surface - metadata only, never file contents, and never mutates ledgers, files, trash, or plans directly; open a record to capture a triage intent for the agent.";
+
+const APPROVAL_SURFACE_NOTE =
+  "Approval workbench - approving records a reviewed bundle for the agent to revalidate before execution; it is an approval record, not execution, and mutates no ledger, file, trash, or plan by itself. Deselect any row you are not approving.";
 
 // Contract bucket order for the count summary. The literal hyphenated keys double as the
 // machine-precise lane labels in the first viewport.
@@ -434,6 +458,107 @@ function replyNote(payload: Record<string, unknown>): string | null {
     if (typeof value === "string" && value.trim().length > 0) return value;
   }
   return null;
+}
+
+// NGX-539 browser approval workbench (AC4). A pure, scriptless render of the grouped reviewed
+// candidate rows: it shows the exact action being approved, clearly distinguishes selected from
+// unselected rows, and (only when a capability token is present) exposes per-row checkboxes plus a
+// single deliberate "Approve N selected" submit posting to /approve. There is no approve-all or
+// select-all affordance, and an empty selection disables the submit - approval is always a deliberate
+// act over an explicit subset. Like the other surfaces it embeds no file contents and mutates
+// nothing; submitting only records an approval bundle for the agent to revalidate before execution.
+export function renderApprovalWorkbenchPage(view: UiApprovalWorkbenchView, token?: string): string {
+  const summary = `${view.selectedCount} of ${view.totalCount} selected &middot; action ${escapeHtml(view.actionType)}`;
+  const body = `<header class="top">
+<h1>Artshelf approval workbench</h1>
+<div class="meta">${summary}</div>
+</header>
+<p class="banner">${APPROVAL_SURFACE_NOTE}</p>
+<main>
+${approvalWorkbenchMain(view, token)}
+</main>`;
+  return page("Artshelf approval workbench", body);
+}
+
+// The candidate body. With no candidates it is an explicit empty state (never a blank panel). With a
+// token the grouped rows and the deliberate submit live inside one /approve form so deselecting a row
+// and approving the remaining subset is a single act; without a token the same grouped rows render
+// read-only, carrying no form or selection inputs.
+function approvalWorkbenchMain(view: UiApprovalWorkbenchView, token?: string): string {
+  if (view.totalCount === 0) {
+    return `<p class="empty">No reviewed candidates to approve.</p>`;
+  }
+  const withSelection = token !== undefined;
+  const groups = view.groups.map((group) => approvalGroupSection(group, withSelection)).join("");
+  if (!withSelection) return groups;
+  return `<form class="approve" method="post" action="/approve">
+<input type="hidden" name="token" value="${escapeHtml(token)}">
+<input type="hidden" name="actionType" value="${escapeHtml(view.actionType)}">
+<input type="hidden" name="reviewed" value="${escapeHtml(JSON.stringify(view.reviewed ?? {}))}">
+${approvalTargetInputs(view)}
+${groups}
+${approvalSubmit(view)}
+</form>`;
+}
+
+function approvalTargetInputs(view: UiApprovalWorkbenchView): string {
+  return view.groups
+    .flatMap((group) => group.candidates)
+    .map((candidate) => `<input type="hidden" name="target" value="${escapeHtml(JSON.stringify(candidate.target))}">`)
+    .join("");
+}
+
+function approvalGroupSection(group: UiApprovalGroup, withSelection: boolean): string {
+  const rows = group.candidates.map((candidate) => approvalCandidateRow(candidate, withSelection)).join("");
+  return `<section class="approval-group">
+<h2>${escapeHtml(group.ledgerName)} <span class="muted">${escapeHtml(group.ledgerPath)}</span></h2>
+${rows}
+</section>`;
+}
+
+// One grouped candidate row. The article class and the state badge both carry the selected/unselected
+// distinction so it survives with or without checkboxes; the checkbox (token render only) names the
+// exact targetId, pre-checked to mirror the server-decided selection. Every dynamic value is escaped.
+function approvalCandidateRow(candidate: UiApprovalCandidate, withSelection: boolean): string {
+  const { target, selected } = candidate;
+  const cls = selected ? "candidate selected" : "candidate unselected";
+  const stateBadge = `<span class="sel">${selected ? "Selected" : "Not selected"}</span>`;
+  const checkbox = withSelection
+    ? `<input type="checkbox" name="targetId" value="${escapeHtml(target.targetId)}"${selected ? " checked" : ""}>`
+    : "";
+  return `<article class="${cls}">
+<label class="candidate-head">${checkbox}<span class="candidate-label">${escapeHtml(target.label)}</span> ${stateBadge}</label>
+<dl class="fields">
+<div><dt>action</dt><dd>${escapeHtml(target.actionType)}</dd></div>
+<div><dt>subject</dt><dd>${escapeHtml(approvalSubject(target))}</dd></div>
+<div><dt>ledger</dt><dd>${escapeHtml(target.ledgerPath)}</dd></div>
+</dl>
+</article>`;
+}
+
+// The deliberate-approval submit. An empty selection is an invalid state: the submit is disabled and a
+// notice explains approval must name an explicit subset, so it can never collapse into an approve-all.
+function approvalSubmit(view: UiApprovalWorkbenchView): string {
+  if (view.selectedCount === 0) {
+    return `<div class="approve-actions">
+<p class="badge">Select at least one target to approve. Approval is a deliberate act over an explicit subset, never an approve-all.</p>
+<button type="submit" disabled>Approve 0 selected targets</button>
+</div>`;
+  }
+  const noun = view.selectedCount === 1 ? "target" : "targets";
+  return `<div class="approve-actions">
+<button type="submit">Approve ${view.selectedCount} selected ${noun}</button>
+</div>`;
+}
+
+// The exact subject of an approval target, typed so the reviewer sees what concretely will be acted
+// on. A selected target always names one of these (enforced at the storage seam); the fallback only
+// guards a malformed unselected candidate row.
+function approvalSubject(target: UiApprovalTarget): string {
+  if (target.recordPath) return `record ${target.recordPath}`;
+  if (target.planId) return `plan ${target.planId}`;
+  if (target.registryPath) return `registry ${target.registryPath}`;
+  return "(no exact subject)";
 }
 
 export function renderErrorPage(options: { status: number; title: string; message: string }): string {
