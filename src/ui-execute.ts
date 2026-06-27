@@ -658,9 +658,18 @@ function validateApprovalSnapshotScope(home: string, session: UiSession, event: 
 }
 
 function approvalRegistryPath(session: UiSession, event: UiEvent): string | null {
+  const sessionRegistryPath = session.registryPath ? resolve(session.registryPath) : null;
   const eventRegistryPath = event.payload.registryPath;
+  if (sessionRegistryPath !== null) {
+    if (isNonEmptyString(eventRegistryPath) && !samePath(eventRegistryPath, sessionRegistryPath)) {
+      throw new Error(
+        `Artshelf UI session ${session.id} approval event registry does not match the session registry scope: expected ${sessionRegistryPath}, found ${resolve(eventRegistryPath)}`
+      );
+    }
+    return sessionRegistryPath;
+  }
   if (isNonEmptyString(eventRegistryPath)) return resolve(eventRegistryPath);
-  return session.registryPath ? resolve(session.registryPath) : null;
+  return null;
 }
 
 function validateApprovalTargetsRegistryScope(snapshot: UiApprovalSnapshot, selected: UiApprovalTarget[], registryPath: string): void {

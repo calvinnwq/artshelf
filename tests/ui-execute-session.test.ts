@@ -53,6 +53,27 @@ function ledgerWith(records: Array<Record<string, unknown>>): string {
   return ledger;
 }
 
+function writeRegistryFile(registryPath: string, ledgers: string[]): void {
+  mkdirSync(dirname(registryPath), { recursive: true });
+  writeFileSync(
+    registryPath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        ledgers: ledgers.map((ledgerPath, index) => ({
+          name: `ledger-${index}`,
+          path: ledgerPath,
+          scope: "other",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z"
+        }))
+      },
+      null,
+      2
+    )}\n`
+  );
+}
+
 function repoWithSubject(recordId: string): { ledger: string; subject: string } {
   const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-session-repo-"));
   mkdirSync(join(repo, ".git"), { recursive: true });
@@ -323,6 +344,42 @@ test("executeApprovedBundle refuses selected targets outside a repo-scoped sessi
   );
   assert.equal(executions, 0);
   const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+  assert.equal(submitted?.event.status, "pending");
+  assert.equal(submitted?.replies.length, 0);
+});
+
+test("executeApprovedBundle refuses event registry overrides for a registry-scoped session", () => {
+  const home = freshHome();
+  const scopedLedger = ledgerWith([record("shf_scope", "/subjects/scoped")]);
+  const outsideLedger = ledgerWith([record("shf_outside", "/subjects/outside")]);
+  const allowedRegistry = join(mkdtempSync(join(tmpdir(), "artshelf-exec-allowed-registry-")), "ledgers.json");
+  const eventRegistry = join(mkdtempSync(join(tmpdir(), "artshelf-exec-event-registry-")), "ledgers.json");
+  writeRegistryFile(allowedRegistry, [scopedLedger]);
+  writeRegistryFile(eventRegistry, [outsideLedger]);
+  const session = startOrResumeSession({ home, scope: "user", registryPath: allowedRegistry });
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: [target("shf_outside", outsideLedger, "/subjects/outside")],
+    selectedTargetIds: ["shf_outside"],
+    reviewed: {}
+  });
+  appendEvent(home, session.id, {
+    type: "approval_bundle_submitted",
+    target: { bundleId: snapshot.id },
+    payload: { ...approvalEventPayload(snapshot), registryPath: eventRegistry }
+  });
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, session.id, snapshot.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /registry.*session.*scope/i
+  );
+  assert.equal(executions, 0);
+  const submitted = readSessionHistory(home, session.id).find((h) => h.event.type === "approval_bundle_submitted");
   assert.equal(submitted?.event.status, "pending");
   assert.equal(submitted?.replies.length, 0);
 });
