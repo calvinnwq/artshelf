@@ -1108,6 +1108,30 @@ test("revalidateApprovalSnapshot reports a fresh verdict when live facts reprodu
   assert.equal(verdict.liveFingerprint, snapshot.fingerprint);
 });
 
+test("revalidateApprovalSnapshot flags a stored fingerprint mismatch as stale", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { total: 1 }
+  });
+
+  const tamperedSnapshot = { ...snapshot, fingerprint: "0".repeat(64) };
+  const verdict = revalidateApprovalSnapshot(tamperedSnapshot, {
+    targets: sampleTargets(),
+    reviewed: { total: 1 }
+  });
+
+  assert.equal(verdict.status, "stale");
+  assert.equal(verdict.expectedFingerprint, tamperedSnapshot.fingerprint);
+  assert.notEqual(verdict.liveFingerprint, tamperedSnapshot.fingerprint);
+  assert.deepEqual(verdict.missingTargetIds, []);
+  assert.deepEqual(verdict.changedTargetIds, []);
+  assert.deepEqual(verdict.reviewedKeysDrifted, []);
+});
+
 test("revalidateApprovalSnapshot flags a vanished selected target as stale", () => {
   const home = freshHome();
   const session = startUserSession(home);

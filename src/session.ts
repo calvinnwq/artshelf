@@ -559,11 +559,16 @@ export function revalidateApprovalSnapshot(
 
   const liveReviewed = live.reviewed ?? {};
   const reviewedKeysDrifted = driftedReviewedKeys(snapshot.reviewed, liveReviewed);
-  const drifted = missingTargetIds.length > 0 || changedTargetIds.length > 0 || reviewedKeysDrifted.length > 0;
+  const liveFingerprint = approvalSnapshotFingerprint(liveSelected, liveReviewed);
+  const drifted =
+    missingTargetIds.length > 0 ||
+    changedTargetIds.length > 0 ||
+    reviewedKeysDrifted.length > 0 ||
+    liveFingerprint !== snapshot.fingerprint;
   return {
     status: drifted ? "stale" : "fresh",
     expectedFingerprint: snapshot.fingerprint,
-    liveFingerprint: approvalSnapshotFingerprint(liveSelected, liveReviewed),
+    liveFingerprint,
     missingTargetIds,
     changedTargetIds,
     reviewedKeysDrifted
