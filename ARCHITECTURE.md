@@ -134,8 +134,9 @@ Current root ownership:
   subject to plan-scoped trash for trash-resolve, and writes a receipt with verification (NGX-483)
 - `dashboard.ts`: read-only multi-ledger UI dashboard aggregation (NGX-535/NGX-537) over
   registered ledgers, trash, purge candidates, registry/reconcile problems, recent receipts, and
-  needs-context classification. It must not mutate ledgers, registries, plans, or artifacts, and it
-  must not preview file contents
+  needs-context classification, plus the read-only approval-workbench view projection (NGX-539) that
+  groups a persisted approval bundle's candidate rows by owning ledger. It must not mutate ledgers,
+  registries, plans, or artifacts, and it must not preview file contents
 - `artifact-detail.ts`: read-only single-record UI detail drawer (NGX-536/NGX-537) composing the
   inspect decision card, provenance, audit trail, last action, and needs-context badge without
   file content previews
@@ -146,10 +147,11 @@ Current root ownership:
   captures exact-target triage intents and the agent executes existing approval-gated paths, so
   it never runs a mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped
   optionally
-- `ui-server.ts`: token-protected loopback HTTP server for dashboard/detail browser pages and
-  human triage intent capture. It accepts safe browser reads, recomputes live state per request,
-  appends exact-target intents through the token-bound `/intents` endpoint, refuses every other
-  mutating method, and never embeds file contents or scripts
+- `ui-server.ts`: token-protected loopback HTTP server for dashboard/detail browser pages, the
+  read-only approval-bundle workbench page (NGX-539 `GET /bundle/<id>`), and human triage intent
+  capture. It accepts safe browser reads, recomputes live state per request, appends exact-target
+  intents through the token-bound `/intents` endpoint, refuses every other mutating method, and
+  never embeds file contents or scripts
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization

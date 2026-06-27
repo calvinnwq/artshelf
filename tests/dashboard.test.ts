@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { buildDashboard } from "../src/dashboard.js";
+import { buildApprovalWorkbenchView, buildDashboard } from "../src/dashboard.js";
+import type { UiApprovalSnapshot } from "../src/types.js";
 
 // Read-only multi-ledger dashboard aggregation (NGX-535). Fixtures author registry + ledger
 // files directly so a row can carry stale paths, trash provenance, or weak metadata without
@@ -466,4 +467,55 @@ test("ledger-scoped dashboard excludes unrelated registered ledgers", () => {
     ["shf_primary"]
   );
   assert.equal(snapshot.buckets.cleanup.some((row) => row.recordId === "shf_outside"), false);
+});
+
+// NGX-539: the persisted immutable approval bundle projects into the read-only browser workbench
+// view-model. Candidate rows keep their exact target context, `selected` mirrors the deliberate
+// selection (so partial selection survives), rows group by owning ledger in first-seen order with
+// the human ledger name resolved from the registry (falling back to the path when unregistered),
+// and the counts summarize the deliberate subset so approval can never read as a vague approve-all.
+test("buildApprovalWorkbenchView projects a persisted bundle into grouped, partially-selected rows", () => {
+  const dir = fixture();
+  const registeredLedger = join(dir, "a", "ledger.jsonl");
+  const unregisteredLedger = join(dir, "b", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "Primary ledger", path: registeredLedger }]);
+
+  const snapshot: UiApprovalSnapshot = {
+    id: "bundle_20260625_120000_abcdef01",
+    sessionId: "session_20260625_120000_abcdef01",
+    createdAt: NOW,
+    actionType: "trash-resolve",
+    targets: [
+      { targetId: "t_a1", ledgerPath: registeredLedger, registryPath: null, recordPath: "/tmp/a1", planId: null, actionType: "trash", label: "trash a1" },
+      { targetId: "t_a2", ledgerPath: registeredLedger, registryPath: null, recordPath: "/tmp/a2", planId: null, actionType: "trash", label: "trash a2" },
+      { targetId: "t_b1", ledgerPath: unregisteredLedger, registryPath: null, recordPath: "/tmp/b1", planId: null, actionType: "trash", label: "trash b1" }
+    ],
+    selectedTargetIds: ["t_a1", "t_b1"],
+    reviewed: { planId: "plan_a" },
+    fingerprint: "deadbeef"
+  };
+
+  const view = buildApprovalWorkbenchView(snapshot, { registryPath });
+
+  assert.equal(view.sessionId, snapshot.sessionId);
+  assert.equal(view.actionType, "trash-resolve");
+  assert.equal(view.totalCount, 3);
+  assert.equal(view.selectedCount, 2);
+  assert.equal(view.groups.length, 2);
+  assert.equal(view.groups[0]?.ledgerName, "Primary ledger");
+  assert.equal(view.groups[0]?.ledgerPath, registeredLedger);
+  assert.deepEqual(
+    view.groups[0]?.candidates.map((candidate) => [candidate.target.targetId, candidate.selected]),
+    [
+      ["t_a1", true],
+      ["t_a2", false]
+    ]
+  );
+  // An unregistered ledger has no human name in the registry, so the path is shown rather than blank.
+  assert.equal(view.groups[1]?.ledgerName, unregisteredLedger);
+  assert.deepEqual(
+    view.groups[1]?.candidates.map((candidate) => [candidate.target.targetId, candidate.selected]),
+    [["t_b1", true]]
+  );
 });

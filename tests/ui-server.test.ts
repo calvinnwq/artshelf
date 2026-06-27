@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
-import { endSession, pollPendingEvents, readSessionEvents, replyToEvent, startOrResumeSession } from "../src/session.js";
+import { endSession, pollPendingEvents, readSessionEvents, replyToEvent, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
 
 // Tests for the loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
@@ -892,5 +892,95 @@ test("the detail history is scoped to its record so intents never leak across dr
     const bHtml = await (await server.request(`/detail/shf_b?ledger=${encodeURIComponent(ledgerPath)}`)).text();
     assert.doesNotMatch(bHtml, /only-on-a note/, "another record's intent must not leak into this drawer");
     assert.match(bHtml, /No triage intents recorded/i, "a record with no intents shows the empty history state");
+  });
+});
+
+// NGX-539: the browser exposes a persisted approval bundle as a read-only workbench page. A reviewer
+// who already approved a bundle can reopen it to see exactly which exact targets were selected vs
+// merely reviewed and the exact action - but never re-approve it, because an approval snapshot is
+// immutable. The capability token still gates access; the immutable record is rendered without a
+// re-approval form, so the browser still executes nothing.
+test("GET /bundle/<id> renders a persisted approval bundle read-only (NGX-539 AC4)", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const snapshot = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-resolve",
+      targets: [
+        {
+          targetId: "t_keep",
+          ledgerPath: ledger.ledgerPath,
+          registryPath: null,
+          recordPath: "/tmp/keep",
+          planId: null,
+          actionType: "trash",
+          label: "trash keep me"
+        },
+        {
+          targetId: "t_skip",
+          ledgerPath: ledger.ledgerPath,
+          registryPath: null,
+          recordPath: "/tmp/skip",
+          planId: null,
+          actionType: "trash",
+          label: "trash skip me"
+        }
+      ],
+      selectedTargetIds: ["t_keep"],
+      reviewed: { planId: "plan_x" }
+    });
+
+    const response = await server.request(`/bundle/${snapshot.id}`);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /Artshelf approval workbench/);
+    assert.match(body, /1 of 2 selected/, "the deliberate subset is summarized, never a vague approve-all");
+    assert.match(body, /action trash-resolve/, "the exact bundle action is shown");
+    assert.match(body, new RegExp(escapeRegExp("primary")), "rows group under the human ledger name");
+    assert.match(body, /trash keep me/);
+    assert.match(body, /trash skip me/);
+    assert.match(body, /Selected/, "the selected row carries its state badge");
+    assert.match(body, /Not selected/, "the merely-reviewed row is clearly distinguished");
+    // An immutable approval record is read-only here: no re-approval form, checkboxes, or submit.
+    assert.doesNotMatch(body, /<form/, "a persisted bundle must not render a re-approval form");
+    assert.doesNotMatch(body, /type="checkbox"/, "a read-only bundle exposes no selection inputs");
+  });
+});
+
+test("GET /bundle/<id> requires the capability token", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const snapshot = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-resolve",
+      targets: [
+        {
+          targetId: "t_keep",
+          ledgerPath: ledger.ledgerPath,
+          registryPath: null,
+          recordPath: "/tmp/keep",
+          planId: null,
+          actionType: "trash",
+          label: "trash keep me"
+        }
+      ],
+      selectedTargetIds: ["t_keep"],
+      reviewed: {}
+    });
+
+    const response = await server.requestRaw(`/bundle/${snapshot.id}`);
+    assert.equal(response.status, 401, "an untokened bundle read is refused like every other read surface");
+  });
+});
+
+test("GET /bundle/<id> reports an unknown bundle as not found", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const absent = await server.request("/bundle/bundle_20260625_120000_deadbeef");
+    assert.equal(absent.status, 404, "a well-formed but absent bundle id is a 404, not a server error");
+
+    const malformed = await server.request("/bundle/not-a-real-bundle-id");
+    assert.equal(malformed.status, 404, "a malformed bundle id is a 404, not a 500 server error");
   });
 });

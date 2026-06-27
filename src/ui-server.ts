@@ -2,18 +2,21 @@ import { createServer } from "node:http";
 import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions } from "./dashboard.js";
-import { buildDashboard } from "./dashboard.js";
+import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { normalizeLedgerPath } from "./ledger.js";
-import { renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
+import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
 import { listRegisteredLedgers } from "./registry.js";
 import type { AppendEventInput } from "./session.js";
-import { appendEvent, readSession, readSessionHistory, UI_DECISION_INTENTS, validateBrowserToken } from "./session.js";
+import { appendEvent, readApprovalSnapshot, readSession, readSessionHistory, UI_DECISION_INTENTS, validateBrowserToken } from "./session.js";
 import type { UiEventType, UiSessionHistoryEntry } from "./types.js";
 
 // Loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard, NGX-536 detail
-// drawer, NGX-537 needs-context presentation, NGX-538 human triage intents). It binds to 127.0.0.1
-// only and answers safe GET/HEAD reads by recomputing live state from the read-only domain cores and
-// rendering it as HTML. The read pages carry no script and embed no file contents.
+// drawer, NGX-537 needs-context presentation, NGX-538 human triage intents, NGX-539 read-only
+// approval-bundle workbench). It binds to 127.0.0.1 only and answers safe GET/HEAD reads by
+// recomputing live state from the read-only domain cores and rendering it as HTML. The read pages
+// carry no script and embed no file contents. The NGX-539 GET /bundle/<id> page renders one persisted
+// immutable approval snapshot read-only (selected vs reviewed rows and the exact action), never a
+// re-approval form - approval-bundle creation is a deliberate act owned by a later write slice.
 //
 // The single write path is POST /intents (NGX-538): a human records a lightweight triage intent
 // (inspect / comment / keep / trash / resolve / defer / dry-run request) through the rendered form.
@@ -61,6 +64,7 @@ const SECURITY_HEADERS: Record<string, string> = {
 };
 
 const DETAIL_PREFIX = "/detail/";
+const BUNDLE_PREFIX = "/bundle/";
 const INTENTS_PATH = "/intents";
 
 // Intents are tiny - a record id, a decision word, a short note - so the request body is capped well
@@ -156,6 +160,11 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
 
   if (pathname.startsWith(DETAIL_PREFIX)) {
     routeDetail(options, decodeURIComponent(pathname.slice(DETAIL_PREFIX.length)), query, response, access.token);
+    return;
+  }
+
+  if (pathname.startsWith(BUNDLE_PREFIX)) {
+    routeBundle(options, decodeURIComponent(pathname.slice(BUNDLE_PREFIX.length)), response);
     return;
   }
 
@@ -385,6 +394,32 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
     // A missing record is an expected, non-crashing state; anything else is a real server error.
     if (/not found/i.test(message)) {
       sendHtml(response, 404, renderErrorPage({ status: 404, title: "Record not found", message }));
+    } else {
+      sendHtml(response, 500, renderErrorPage({ status: 500, title: "Server error", message }));
+    }
+  }
+}
+
+// Render one persisted approval bundle as the read-only browser workbench (NGX-539 AC4). An approval
+// snapshot is immutable, so the page shows exactly which exact targets were selected versus merely
+// reviewed and the exact action being approved, but carries no re-approval form - the surface
+// executes nothing and mutates nothing. The capability token already gated this read. A malformed or
+// absent bundle id is an expected, non-crashing not-found state; anything else is a real server error.
+function routeBundle(options: UiServerOptions, bundleId: string, response: any): void {
+  if (!bundleId) {
+    sendHtml(response, 404, renderErrorPage({ status: 404, title: "Bundle not found", message: "Missing approval bundle id." }));
+    return;
+  }
+  try {
+    const snapshot = readApprovalSnapshot(options.uiHome, options.sessionId, bundleId);
+    const view = buildApprovalWorkbenchView(snapshot, options.registryPath !== undefined ? { registryPath: options.registryPath } : {});
+    // No token is passed to the renderer on purpose: a persisted bundle is immutable, so it renders
+    // read-only (no selection inputs, no submit) even though the reader is authorized.
+    sendHtml(response, 200, renderApprovalWorkbenchPage(view));
+  } catch (error) {
+    const message = errorMessage(error);
+    if (/not found/i.test(message) || /invalid Artshelf UI bundle id/i.test(message)) {
+      sendHtml(response, 404, renderErrorPage({ status: 404, title: "Bundle not found", message }));
     } else {
       sendHtml(response, 500, renderErrorPage({ status: 500, title: "Server error", message }));
     }

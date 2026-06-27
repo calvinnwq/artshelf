@@ -7,7 +7,17 @@ import { classifyReconcileFindings } from "./reconcile.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import type { LedgerRegistryEntry, LedgerScope } from "./registry.js";
 import { ageOf, now, toIso } from "./time.js";
-import type { ArtshelfKind, ArtshelfRecord, ArtshelfStatus, CleanupAction, DueStatus, Retention } from "./types.js";
+import type {
+  ArtshelfKind,
+  ArtshelfRecord,
+  ArtshelfStatus,
+  CleanupAction,
+  DueStatus,
+  Retention,
+  UiApprovalGroup,
+  UiApprovalSnapshot,
+  UiApprovalWorkbenchView
+} from "./types.js";
 
 // Read-only multi-ledger review dashboard (NGX-535, Artshelf UI v1 contract slice 2). The
 // dashboard recomputes live state from registered ledgers, the registry, and trash by
@@ -263,6 +273,51 @@ export function buildDashboard(options: BuildDashboardOptions = {}): DashboardSn
       "registry-reconcile": buckets.registryReconcile.length,
       "recent-receipts": buckets.recentReceipts.length
     }
+  };
+}
+
+export type BuildApprovalWorkbenchViewOptions = {
+  registryPath?: string;
+};
+
+// Project a persisted, immutable approval bundle (NGX-539) into the read-only browser approval
+// workbench view-model. Every candidate row keeps the exact ledger/registry/record/plan context and
+// human label the snapshot stored; `selected` mirrors the bundle's deliberate selection so partial
+// selection survives the round trip; rows are grouped by owning ledger in first-seen order with the
+// human ledger name resolved from the registry (falling back to the path when the ledger is not
+// registered); and the counts summarize the deliberate subset so the surface can never present a
+// vague approve-all. This is a pure read projection: it reads only the registry for ledger names and
+// never mutates, executes, or previews anything.
+export function buildApprovalWorkbenchView(
+  snapshot: UiApprovalSnapshot,
+  options: BuildApprovalWorkbenchViewOptions = {}
+): UiApprovalWorkbenchView {
+  const registryPath = normalizeRegistryPath(options.registryPath);
+  const ledgerNames = new Map<string, string>();
+  for (const ledger of listRegisteredLedgers(registryPath)) {
+    ledgerNames.set(normalizeLedgerPath(ledger.path), ledger.name);
+  }
+
+  const selected = new Set(snapshot.selectedTargetIds);
+  const groups: UiApprovalGroup[] = [];
+  const groupsByLedger = new Map<string, UiApprovalGroup>();
+  for (const target of snapshot.targets) {
+    const key = normalizeLedgerPath(target.ledgerPath);
+    let group = groupsByLedger.get(key);
+    if (!group) {
+      group = { ledgerName: ledgerNames.get(key) ?? target.ledgerPath, ledgerPath: target.ledgerPath, candidates: [] };
+      groupsByLedger.set(key, group);
+      groups.push(group);
+    }
+    group.candidates.push({ target, selected: selected.has(target.targetId) });
+  }
+
+  return {
+    sessionId: snapshot.sessionId,
+    actionType: snapshot.actionType,
+    groups,
+    selectedCount: snapshot.targets.filter((target) => selected.has(target.targetId)).length,
+    totalCount: snapshot.targets.length
   };
 }
 
