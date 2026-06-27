@@ -1160,3 +1160,45 @@ test("browser approves a bundle, the agent executes it, and the receipt lands in
     assert.deepEqual(receipts.map((r) => r.outcome), ["executed"]);
   });
 });
+
+test("browser-approved bundles cannot execute ledgers outside the served registry", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-scope-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const allowedLedger = join(repo, ".artshelf", "ledger.jsonl");
+  writeLedgerFile(allowedLedger, [baseRecord({ id: "shf_allowed", path: join(repo, "allowed.tar") })]);
+
+  const outsider = mkdtempSync(join(tmpdir(), "artshelf-ui-scope-outsider-"));
+  const outsiderLedger = join(outsider, ".artshelf", "ledger.jsonl");
+  const outsiderSubject = join(outsider, "secret.tar");
+  writeFileSync(outsiderSubject, "payload");
+  writeLedgerFile(outsiderLedger, [baseRecord({ id: "shf_outside", path: outsiderSubject, kind: "backup" })]);
+  const outsiderPlan = createDisposePlan(outsiderLedger, { id: "shf_outside", action: "trash-resolve", reason: "reviewed" });
+
+  const registryPath = join(repo, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "primary", path: allowedLedger }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const approveResponse = await postApproval(server, {
+      actionType: "trash-resolve",
+      targets: [
+        {
+          targetId: "shf_outside",
+          ledgerPath: outsiderLedger,
+          registryPath: null,
+          recordPath: outsiderSubject,
+          planId: outsiderPlan.planId,
+          actionType: "trash-resolve",
+          label: "trash outside"
+        }
+      ],
+      selectedTargetIds: ["shf_outside"]
+    });
+    assert.equal(approveResponse.status, 303);
+    const pending = readSessionEvents(server.home, server.sessionId).find((e) => e.type === "approval_bundle_submitted");
+    const bundleId = pending?.target.bundleId as string;
+
+    assert.throws(() => executeApprovedBundle(server.home, server.sessionId, bundleId), /outside.*registry|scope/i);
+    assert.equal(readLedger(outsiderLedger).find((r) => r.id === "shf_outside")?.status, "active");
+    assert.equal(existsSync(outsiderSubject), true);
+  });
+});

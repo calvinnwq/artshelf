@@ -5,7 +5,7 @@ import type { BuildDashboardOptions } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
-import { listRegisteredLedgers } from "./registry.js";
+import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import type { AppendEventInput, ApprovalSnapshotInput } from "./session.js";
 import {
   appendEvent,
@@ -260,6 +260,8 @@ async function routeApprovalSubmission(options: UiServerOptions, request: any, r
         bundleId: snapshot.id,
         actionType: snapshot.actionType,
         fingerprint: snapshot.fingerprint,
+        registryPath: normalizeRegistryPath(options.registryPath),
+        ledgerPath: options.ledgerPath ? normalizeLedgerPath(options.ledgerPath) : null,
         selectedTargetIds: snapshot.selectedTargetIds,
         selectedCount: snapshot.selectedTargetIds.length,
         targetCount: snapshot.targets.length

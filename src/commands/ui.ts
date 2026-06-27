@@ -375,7 +375,7 @@ async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number>
   const ledgerPath = stringFlag(parsed, "ledger");
   const scope = resolveScope(stringFlag(parsed, "scope"));
   const home = resolveUiHome({ scope, cwd: process.cwd() });
-  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, cwd: process.cwd() });
+  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, registryPath: registryPath ?? null, cwd: process.cwd() });
   const options: StartUiServerOptions = { uiHome: home, sessionId: session.id };
   if (port !== undefined) options.port = port;
   if (registryPath !== undefined) options.registryPath = registryPath;

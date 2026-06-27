@@ -3,6 +3,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import { resolveRepoRoot } from "./provenance.js";
+import { listRegisteredLedgers } from "./registry.js";
 import {
   approvalSnapshotFingerprint,
   readApprovalSnapshot,
@@ -539,7 +540,7 @@ export function executeApprovedBundle(
   const claim = findApprovalBundleEvent(home, session.id, bundleId);
   validateApprovalEventWitness(claim.event, snapshot);
   validateApprovalEventClaim(claim, snapshot);
-  validateApprovalSnapshotScope(home, session, snapshot);
+  validateApprovalSnapshotScope(home, session, claim.event, snapshot);
   if (claim.status === "pending") {
     replyToEvent(home, session.id, claim.event.id, {
       status: "in_progress",
@@ -623,7 +624,7 @@ function validateApprovalEventClaim(claim: ApprovalBundleEventClaim, snapshot: U
   }
 }
 
-function validateApprovalSnapshotScope(home: string, session: UiSession, snapshot: UiApprovalSnapshot): void {
+function validateApprovalSnapshotScope(home: string, session: UiSession, event: UiEvent, snapshot: UiApprovalSnapshot): void {
   const selected = selectedApprovalTargets(snapshot);
   if (session.ledgerPath) {
     const allowedLedger = resolve(session.ledgerPath);
@@ -637,16 +638,44 @@ function validateApprovalSnapshotScope(home: string, session: UiSession, snapsho
     return;
   }
 
-  if (session.scope !== "repo") return;
-  const sessionRepoRoot = session.repoRoot ? resolve(session.repoRoot) : repoRootFromUiHome(home);
-  if (sessionRepoRoot === null) {
-    throw new Error(`Artshelf UI session ${session.id} repo scope cannot be resolved from UI home ${resolve(home)}`);
+  if (session.scope === "repo") {
+    const sessionRepoRoot = session.repoRoot ? resolve(session.repoRoot) : repoRootFromUiHome(home);
+    if (sessionRepoRoot === null) {
+      throw new Error(`Artshelf UI session ${session.id} repo scope cannot be resolved from UI home ${resolve(home)}`);
+    }
+    for (const target of selected) {
+      const targetRepoRoot = resolveRepoRoot(target.ledgerPath);
+      if (targetRepoRoot === null || !samePath(targetRepoRoot, sessionRepoRoot)) {
+        throw new Error(
+          `Artshelf UI bundle ${snapshot.id} target ${target.targetId} is outside the session scope: expected repo ${sessionRepoRoot}, found ${targetRepoRoot ?? "unresolved"}`
+        );
+      }
+    }
   }
+
+  const registryPath = approvalRegistryPath(session, event);
+  if (registryPath !== null) validateApprovalTargetsRegistryScope(snapshot, selected, registryPath);
+}
+
+function approvalRegistryPath(session: UiSession, event: UiEvent): string | null {
+  const eventRegistryPath = event.payload.registryPath;
+  if (isNonEmptyString(eventRegistryPath)) return resolve(eventRegistryPath);
+  return session.registryPath ? resolve(session.registryPath) : null;
+}
+
+function validateApprovalTargetsRegistryScope(snapshot: UiApprovalSnapshot, selected: UiApprovalTarget[], registryPath: string): void {
+  let allowedLedgers: Set<string>;
+  try {
+    allowedLedgers = new Set(listRegisteredLedgers(registryPath).map((entry) => resolve(entry.path)));
+  } catch (error) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} registry scope ${registryPath} could not be read: ${(error as Error).message}`);
+  }
+
   for (const target of selected) {
-    const targetRepoRoot = resolveRepoRoot(target.ledgerPath);
-    if (targetRepoRoot === null || !samePath(targetRepoRoot, sessionRepoRoot)) {
+    const targetLedger = resolve(target.ledgerPath);
+    if (!allowedLedgers.has(targetLedger)) {
       throw new Error(
-        `Artshelf UI bundle ${snapshot.id} target ${target.targetId} is outside the session scope: expected repo ${sessionRepoRoot}, found ${targetRepoRoot ?? "unresolved"}`
+        `Artshelf UI bundle ${snapshot.id} target ${target.targetId} is outside the served registry scope: expected a ledger registered in ${registryPath}, found ${targetLedger}`
       );
     }
   }

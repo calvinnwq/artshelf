@@ -51,6 +51,7 @@ export type StartSessionInput = {
   home: string;
   scope: UiSessionScope;
   ledgerPath?: string | null;
+  registryPath?: string | null;
   cwd?: string;
 };
 
@@ -170,6 +171,7 @@ export function resolveUiHome(input: ResolveUiHomeInput = {}): string {
 export function startOrResumeSession(input: StartSessionInput): UiSession {
   const home = input.home;
   const ledgerPath = input.ledgerPath ? resolve(input.ledgerPath) : null;
+  const registryPath = input.registryPath ? resolve(input.registryPath) : null;
   const repoRoot = input.scope === "repo" ? resolveSessionRepoRoot(input.cwd) : null;
   const lockPath = join(sessionsDir(home), "create");
   return withUiStorageLock(home, lockPath, () => {
@@ -179,6 +181,7 @@ export function startOrResumeSession(input: StartSessionInput): UiSession {
           session.status === "active" &&
           session.scope === input.scope &&
           session.ledgerPath === ledgerPath &&
+          session.registryPath === registryPath &&
           session.repoRoot === repoRoot
       )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
@@ -194,6 +197,7 @@ export function startOrResumeSession(input: StartSessionInput): UiSession {
       updatedAt: createdAt,
       endedAt: null,
       ledgerPath,
+      registryPath,
       repoRoot,
       token: randomBytes(24).toString("hex")
     };
@@ -230,6 +234,7 @@ export function readSession(home: string, sessionId: string): UiSession {
     updatedAt: parsed.updatedAt ?? "",
     endedAt: parsed.endedAt ?? null,
     ledgerPath: parsed.ledgerPath ?? null,
+    registryPath: typeof parsed.registryPath === "string" ? resolve(parsed.registryPath) : null,
     repoRoot: typeof parsed.repoRoot === "string" ? resolve(parsed.repoRoot) : null,
     token: parsed.token
   };
