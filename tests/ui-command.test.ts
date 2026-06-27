@@ -119,7 +119,10 @@ test("artshelf ui poll surfaces pending browser events compactly", () => {
 test("artshelf ui reply advances an event and clears it from the poll queue", () => {
   const home = freshHome();
   const session = startSession(home).session;
-  const event = appendEvent(home, session.id, { type: "dry_run_requested", target: { planId: "plan_a" } });
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { recordId: "shf_plan", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" }
+  });
 
   const reply = JSON.parse(
     ui(home, [
@@ -149,7 +152,11 @@ test("artshelf ui reply advances an event and clears it from the poll queue", ()
 test("artshelf ui reply rejects a missing --event, an invalid --status, and an unknown event", () => {
   const home = freshHome();
   const session = startSession(home).session;
-  const event = appendEvent(home, session.id, { type: "comment_added", payload: { text: "hi" } });
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "hi" }
+  });
 
   const missingEvent = ui(home, ["ui", "reply", session.id, "--status", "completed", "--json"]);
   assert.notEqual(missingEvent.status, 0);
@@ -171,7 +178,11 @@ test("artshelf ui reply rejects a missing --event, an invalid --status, and an u
 test("artshelf ui reply rejects a non-object --payload", () => {
   const home = freshHome();
   const session = startSession(home).session;
-  const event = appendEvent(home, session.id, { type: "comment_added", payload: { text: "hi" } });
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "hi" }
+  });
 
   const result = ui(home, ["ui", "reply", session.id, "--event", event.id, "--status", "completed", "--payload", "not-json", "--json"]);
   assert.notEqual(result.status, 0);
@@ -204,7 +215,11 @@ test("artshelf ui prints a human summary without --json", () => {
   assert.match(start.stdout, /active/);
 
   const session = startSession(home).session;
-  appendEvent(home, session.id, { type: "comment_added", payload: { text: "review me" } });
+  appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "review me" }
+  });
   const poll = ui(home, ["ui", "poll", session.id]);
   assert.equal(poll.status, 0, poll.stderr);
   assert.match(poll.stdout, /1 pending/);

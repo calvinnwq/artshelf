@@ -8,12 +8,14 @@ import { now, toIso } from "./time.js";
 import type {
   UiApprovalSnapshot,
   UiApprovalTarget,
+  UiDecisionIntent,
   UiEvent,
   UiReplyStatus,
   UiEventStatus,
   UiEventType,
   UiReply,
   UiSession,
+  UiSessionHistoryEntry,
   UiSessionScope
 } from "./types.js";
 
@@ -22,7 +24,7 @@ import type {
 // that executes existing approval-gated CLI paths. It is the only authority on session
 // metadata, the capability token, the append-only event log, and approval snapshots; it
 // never executes a mutating workflow itself, preserving the v1 boundary that the browser
-// records decisions and the agent executes.
+// records exact-target triage intents and the agent executes.
 //
 // On-disk layout under the resolved UI home:
 //
@@ -98,8 +100,18 @@ const UI_EVENT_TYPE_SET: Record<UiEventType, true> = {
   session_note_added: true
 };
 
+// Exhaustive runtime view of the UiDecisionIntent union, mirroring UI_EVENT_TYPE_SET so a new
+// triage intent cannot be added to the type without the storage layer learning to validate it.
+const UI_DECISION_INTENT_SET: Record<UiDecisionIntent, true> = {
+  keep: true,
+  trash: true,
+  resolve: true,
+  defer: true
+};
+
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
+export const UI_DECISION_INTENTS = Object.keys(UI_DECISION_INTENT_SET) as UiDecisionIntent[];
 
 const UI_ID_PATTERNS: Record<"session" | "event" | "reply" | "bundle", RegExp> = {
   session: /^session_\d{8}_\d{6}_[0-9a-f]{8}$/,
@@ -120,6 +132,10 @@ export function isUiEventType(value: unknown): value is UiEventType {
 
 export function isUiReplyStatus(value: string): value is UiReplyStatus {
   return isUiEventStatus(value) && value !== "pending";
+}
+
+export function isUiDecisionIntent(value: unknown): value is UiDecisionIntent {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(UI_DECISION_INTENT_SET, value);
 }
 
 // Resolve the UI home directory for a scope. An explicit ARTSHELF_UI_HOME/SHELF_UI_HOME
@@ -269,6 +285,32 @@ export function readSessionEvents(home: string, sessionId: string): UiEvent[] {
   return order.map((id) => events.get(id)!);
 }
 
+// Read the full session history: every event paired, in creation order, with the agent replies
+// appended against it. Like readSessionEvents this folds each reply's status/updatedAt onto the
+// event, but it additionally keeps every reply (with its own payload) so the browser session
+// history can show the agent's note, receipt, or rejection reason - the visible-in-history half of
+// the NGX-538 decision-intent contract. The on-disk log stays append-only; this is a read-side view.
+export function readSessionHistory(home: string, sessionId: string): UiSessionHistoryEntry[] {
+  const entries = new Map<string, UiSessionHistoryEntry>();
+  const order: string[] = [];
+  for (const line of readLog(home, sessionId)) {
+    if (line.kind === "event") {
+      const { kind: _kind, ...event } = line;
+      entries.set(event.id, { event, replies: [] });
+      order.push(event.id);
+    } else {
+      const entry = entries.get(line.eventId);
+      if (entry) {
+        const { kind: _kind, ...reply } = line;
+        entry.event.status = reply.status;
+        entry.event.updatedAt = reply.createdAt;
+        entry.replies.push(reply);
+      }
+    }
+  }
+  return order.map((id) => entries.get(id)!);
+}
+
 // Compact actionable queue for agent consumption: events still awaiting an agent reply.
 export function pollPendingEvents(home: string, sessionId: string): UiEvent[] {
   const path = sessionFile(home, sessionId);
@@ -380,12 +422,86 @@ function validateEventInput(input: AppendEventInput): Required<AppendEventInput>
   if (input.status !== undefined && !isUiEventStatus(input.status)) {
     throw new Error(`Invalid Artshelf UI event status "${String(input.status)}"`);
   }
+  const target = normalizeEventRecord("target", input.target);
+  const payload = normalizeEventRecord("payload", input.payload);
+  UI_EVENT_VALIDATORS[input.type]?.(target, payload);
   return {
     type: input.type,
     status: input.status ?? "pending",
-    target: normalizeEventRecord("target", input.target),
-    payload: normalizeEventRecord("payload", input.payload)
+    target,
+    payload
   };
+}
+
+// Per-intent payload/target validators run before the event reaches the durable log, enforcing the
+// NGX-538 rule that every triage intent names the exact record + ledger it concerns and carries a
+// well-formed body - no vague global action events. The record-scoped intents (inspect/comment/
+// decision/dry-run request) are tightened here; session-level types
+// (session_done/session_note_added/etc.) keep the base validation. Event types without an entry
+// accept any plain-object target/payload.
+const UI_EVENT_VALIDATORS: Partial<
+  Record<UiEventType, (target: Record<string, unknown>, payload: Record<string, unknown>) => void>
+> = {
+  inspect_requested: validateInspectRequest,
+  comment_added: validateCommentIntent,
+  decision_submitted: validateDecisionIntent,
+  dry_run_requested: validateDryRunRequest
+};
+
+// An inspect intent asks the agent to surface the inspect card for one exact record; it carries no
+// body of its own, only the record + ledger it concerns, so a vague "inspect everything" request
+// cannot enter the log.
+function validateInspectRequest(target: Record<string, unknown>): void {
+  requireRecordTarget(target);
+}
+
+// A dry-run request asks the agent to prepare the appropriate reviewed plan for one exact record; it
+// carries no executable authority, but still must name the record + ledger so it cannot become a
+// vague global planning event.
+function validateDryRunRequest(target: Record<string, unknown>): void {
+  requireRecordTarget(target);
+}
+
+// A comment intent annotates one exact record and must carry the human's note: the record + ledger it
+// concerns plus a non-empty text body, so a blank or record-less comment never enters the audit trail.
+// A session-wide note is a separate (future) session_note_added event, not a target-less comment.
+function validateCommentIntent(target: Record<string, unknown>, payload: Record<string, unknown>): void {
+  requireRecordTarget(target);
+  if (!isNonEmptyString(payload.text)) {
+    throw new Error("Invalid Artshelf UI comment text; expected a non-empty string");
+  }
+}
+
+// A keep/trash/resolve/defer triage intent must name the exact record + ledger it concerns and
+// carry a recognized decision; the optional reason, when present, must be a non-empty string so a
+// blank-but-present reason cannot slip into the audit trail.
+function validateDecisionIntent(target: Record<string, unknown>, payload: Record<string, unknown>): void {
+  requireRecordTarget(target);
+  if (!isUiDecisionIntent(payload.decision)) {
+    throw new Error(
+      `Invalid Artshelf UI decision intent "${String(payload.decision)}"; expected one of: ${UI_DECISION_INTENTS.join(", ")}`
+    );
+  }
+  if (payload.reason !== undefined && !isNonEmptyString(payload.reason)) {
+    throw new Error("Invalid Artshelf UI decision reason; expected a non-empty string when provided");
+  }
+}
+
+// Exact-target guard shared by record-scoped intents: the record id and its owning ledger path
+// must both be present so a multi-ledger agent can act on an unambiguous target.
+function requireRecordTarget(target: Record<string, unknown>): void {
+  requireNonEmptyTargetField(target, "recordId");
+  requireNonEmptyTargetField(target, "ledgerPath");
+}
+
+function requireNonEmptyTargetField(target: Record<string, unknown>, field: string): void {
+  if (!isNonEmptyString(target[field])) {
+    throw new Error(`Invalid Artshelf UI event target.${field}; expected a non-empty string`);
+  }
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
 }
 
 function normalizeEventRecord(name: "target" | "payload", value: Record<string, unknown> | undefined): Record<string, unknown> {

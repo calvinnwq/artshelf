@@ -422,9 +422,9 @@ next action, and a verify command); `--agent` takes precedence over `--json`.
 ### `artshelf ui`
 
 Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views for live review state.
-The command family is the AXI-style shell for the human review UI contract: the browser records decisions in the session log, the agent polls those decisions, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
+The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents in the session log, the agent polls those intents, existing approval-gated Artshelf commands do the actual work, and the agent replies with receipts.
 The dashboard/detail subcommands are read-only data surfaces over existing ledger, registry, trash, and inspect state.
-It does not add a browser-direct mutation path.
+The browser captures human triage intents as session events but never mutates ledgers, files, trash, or plans directly.
 
 ```bash
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
@@ -446,7 +446,7 @@ Rules:
 - `ui detail <record-id>` composes the path label, inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
 - `ui serve` hosts the `ui dashboard` and `ui detail` surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
-- The served pages carry no script, embed no file contents, and expose no mutation path: the server accepts safe GET/HEAD reads for pages and health checks, refuses mutating methods, and renders bad or missing ledgers and records as explicit non-crashing problem states rather than blank panels. It is the read-only display half of the UI; recording review decisions stays in the agent-mediated `ui` session loop.
+- The served pages carry no script and embed no file contents: the server accepts safe GET/HEAD reads for pages and health checks plus a token-bound `POST /intents` that records the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) as pending session events, refuses any other mutating method, and renders bad or missing ledgers and records as explicit non-crashing problem states rather than blank panels. The captured intents never mutate ledgers, files, trash, or plans directly; the agent still executes every approval-gated command itself through the agent-mediated `ui` session loop.
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail access while keeping the session readable for audit.
@@ -794,7 +794,7 @@ sessions/<session-id>/bundles/<bundle-id>.json
 
 `session.json` stores versioned metadata, the scope, lifecycle status, timestamps, optional ledger path, and the same-machine browser capability token.
 The token authorizes browser event writes only while the session is active; ending the session revokes writes without deleting audit history.
-`events.jsonl` is append-only and stores browser events plus agent replies as separate log lines, with read-side projection folding replies into the current event status.
+`events.jsonl` is append-only and stores exact-target browser triage intents plus agent replies as separate log lines, with read-side projections folding replies into the current event status and preserving reply payloads for record history.
 Approval snapshots under `bundles/` are immutable JSON documents with exact per-target ledger or registry context and a deterministic fingerprint over the selected targets and reviewed facts.
 A later executor can use that fingerprint to detect drift or tampering before running an approval-gated command.
 
@@ -1188,8 +1188,9 @@ for later human review.
   ledger scoping.
 - CLI can run the AXI-style `artshelf ui` command family: start/resume a session,
   show the read-only multi-ledger dashboard and artifact detail drawer, poll
-  pending browser events, reply with agent receipts or notes, and end the session
-  without adding a browser-direct mutation path.
+  pending browser events, reply with agent receipts or notes, and end the session;
+  the browser captures human triage intents but never mutates ledgers, files, trash,
+  or plans directly.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf

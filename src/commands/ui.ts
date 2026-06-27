@@ -23,11 +23,13 @@ import { startUiServer } from "../ui-server.js";
 
 // AXI-style command surface for the Artshelf UI v1 review session (NGX-532). This is the agent's
 // side of the v1 boundary: `ui` starts or resumes a durable review session, and the poll/reply/end
-// loop lets the agent drain browser-recorded decisions and write back receipts. `dashboard` and
+// loop lets the agent drain browser-recorded triage intents and write back receipts. `dashboard` and
 // `detail` are the read-only review surfaces (NGX-535/536/537): they recompute live multi-ledger
 // state and the single-record detail drawer from existing read-only domain cores. The browser
-// records decisions through the durable session layer; this command never executes a mutating
-// workflow, never reads or previews file contents, and exposes no browser-direct mutation path.
+// records triage intents through the durable session layer; this command never executes a mutating
+// workflow and never reads or previews file contents. The browser's only write path is capturing
+// human triage intents (NGX-538) as pending session events; it never mutates ledgers, files,
+// trash, or plans directly.
 // Output defaults to a human summary; `--json` emits a compact single-line packet for agents.
 export async function handleUi(parsed: ParsedArgs, json: boolean): Promise<number> {
   const sub = parsed.positionals[0];
@@ -215,11 +217,13 @@ function handleUiDetail(parsed: ParsedArgs, json: boolean): number {
   return 0;
 }
 
-// `artshelf ui serve [--port <port>] [--registry <path>] [--ledger <path>]` - host the read-only
-// dashboard (NGX-535) and artifact detail drawers (NGX-536) as a local browser surface. It binds
-// to loopback only, recomputes live state per request, and never mutates state or reads file
-// contents. The process runs in the foreground until interrupted, so this is the one `ui`
-// subcommand that does not return immediately.
+// `artshelf ui serve [--port <port>] [--registry <path>] [--ledger <path>]` - host the dashboard
+// (NGX-535) and artifact detail drawers (NGX-536/538) as a local browser surface. It binds to
+// loopback only, recomputes live state per request, and never reads file contents. The dashboard
+// is display-only; the detail drawer also captures human triage intents (NGX-538) as pending
+// session events but never mutates ledgers, files, trash, or plans directly. The process runs in
+// the foreground until interrupted, so this is the one `ui` subcommand that does not return
+// immediately.
 async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number> {
   const portRaw = stringFlag(parsed, "port");
   let port: number | undefined;
@@ -254,13 +258,13 @@ async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number>
       token: session.token
     });
   } else {
-    process.stdout.write(`artshelf ui serve: read-only review dashboard on ${handle.url}\n`);
+    process.stdout.write(`artshelf ui serve: review dashboard and triage drawer on ${handle.url}\n`);
     process.stdout.write(`session: ${session.id}\n`);
     process.stdout.write(`open ${accessUrl} in a browser on this machine; treat the token as secret.\n`);
     process.stdout.write("press Ctrl-C to stop.\n");
   }
   // Keep the foreground process alive while the loopback server runs. SIGINT/SIGTERM terminate it;
-  // nothing in this read-only surface needs a graceful flush.
+  // captured intents are durably appended per request, so nothing here needs a graceful flush.
   await waitForServerClose(handle);
   return 0;
 }

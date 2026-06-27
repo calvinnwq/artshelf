@@ -51,7 +51,7 @@ src/
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
   session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
-  ui-server.ts        read-only loopback browser server for dashboard/detail pages
+  ui-server.ts        loopback browser server for dashboard/detail pages and intent capture
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger, cleanup, disposal, reconcile, registry, and UI contracts
@@ -64,7 +64,7 @@ src/
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
 (`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `dashboard.ts`, `artifact-detail.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
 the existing core/domain modules for this closeout. `ui-server.ts` is a root support module for the
-read-only browser surface. A future issue may move these under `src/core/`,
+browser review surface and token-bound intent capture. A future issue may move these under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
 
 ### `commands/`
@@ -106,9 +106,9 @@ The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
 `session.ts` plus the read-only review data surface over `dashboard.ts`,
 `artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
 sessions, serves token-protected loopback dashboard/detail pages, returns compact
-`--json` review snapshots, and runs the poll/reply/end agent loop. It owns no
-browser-direct mutation path - the browser records decisions, the agent executes
-existing approval-gated commands and replies with receipts.
+`--json` review snapshots, and runs the poll/reply/end agent loop. The browser
+captures human triage intents but never mutates ledgers, files, trash, or plans directly - the
+agent executes existing approval-gated commands and replies with receipts.
 
 ### Domain files
 
@@ -143,11 +143,13 @@ Current root ownership:
 - `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
   browser-write capability token, the append-only event log (events plus agent replies), and
   immutable fingerprinted approval snapshots. This is the v1 handoff layer where the browser
-  records decisions and the agent executes existing approval-gated paths, so it never runs a
-  mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped optionally
-- `ui-server.ts`: token-protected loopback HTTP server for the read-only dashboard/detail browser
-  pages. It accepts safe browser reads only, recomputes live state per request, refuses mutation
-  methods, and never embeds file contents or scripts
+  captures exact-target triage intents and the agent executes existing approval-gated paths, so
+  it never runs a mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped
+  optionally
+- `ui-server.ts`: token-protected loopback HTTP server for dashboard/detail browser pages and
+  human triage intent capture. It accepts safe browser reads, recomputes live state per request,
+  appends exact-target intents through the token-bound `/intents` endpoint, refuses every other
+  mutating method, and never embeds file contents or scripts
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
@@ -178,7 +180,7 @@ Render modes:
 - human output: compact terminal text for people
 - `--json`: full machine/audit payloads and compact UI packets
 - `--agent`: terse decision packets for agents
-- browser HTML: script-free dashboard/detail pages generated from read-only snapshots
+- browser HTML: script-free dashboard/detail pages and token-bound intent forms generated from read-only snapshots
 
 ### `config/`
 

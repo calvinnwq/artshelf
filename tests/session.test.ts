@@ -9,14 +9,17 @@ import {
   appendEvent,
   approvalSnapshotFingerprint,
   endSession,
+  isUiDecisionIntent,
   pollPendingEvents,
   readApprovalSnapshot,
   readReplies,
   readSession,
   readSessionEvents,
+  readSessionHistory,
   replyToEvent,
   resolveUiHome,
   startOrResumeSession,
+  UI_DECISION_INTENTS,
   validateBrowserToken,
   writeApprovalSnapshot
 } from "../src/session.js";
@@ -70,6 +73,7 @@ function childAppendEvent(home: string, sessionId: string, text: string): Return
     try {
       const event = appendEvent(process.env.ARTSHELF_TEST_UI_HOME, process.env.ARTSHELF_TEST_SESSION_ID, {
         type: "comment_added",
+        target: { recordId: "shf_lock", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
         payload: { text: process.env.ARTSHELF_TEST_TEXT }
       });
       process.stdout.write(JSON.stringify({ ok: true, eventId: event.id }));
@@ -176,7 +180,11 @@ test("session storage uses owner-only directory and token file permissions", () 
   let bundleId: string;
   try {
     session = startUserSession(home);
-    eventId = appendEvent(home, session.id, { type: "comment_added", payload: { text: "private" } }).id;
+    eventId = appendEvent(home, session.id, {
+      type: "comment_added",
+      target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "private" }
+    }).id;
     assert.match(eventId, /^event_/);
     bundleId = writeApprovalSnapshot(home, session.id, {
       actionType: "trash-resolve",
@@ -323,6 +331,7 @@ test("appendEvent keeps browser-submitted events pending even when input supplie
 
   const event = appendEvent(home, session.id, {
     type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
     status: "completed",
     payload: { text: "do not hide this from poll" }
   });
@@ -338,6 +347,7 @@ test("appendEvent treats caller-supplied agent source as browser input", () => {
 
   const event = appendEvent(home, session.id, {
     type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
     source: "agent",
     status: "completed",
     payload: { text: "do not bypass browser normalization" }
@@ -354,7 +364,12 @@ test("appendEvent refuses browser writes once the session has ended", () => {
   endSession(home, session.id);
 
   assert.throws(
-    () => appendEvent(home, session.id, { type: "comment_added", payload: { text: "too late" } }),
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { text: "too late" }
+      }),
     /ended/i
   );
 });
@@ -368,6 +383,7 @@ test("appendEvent refuses caller-supplied agent source once the session has ende
     () =>
       appendEvent(home, session.id, {
         type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
         source: "agent",
         status: "completed",
         payload: { text: "do not bypass revocation" }
@@ -379,7 +395,11 @@ test("appendEvent refuses caller-supplied agent source once the session has ende
 test("pollPendingEvents returns no actionable browser events after the session ends", () => {
   const home = freshHome();
   const session = startUserSession(home);
-  appendEvent(home, session.id, { type: "comment_added", payload: { text: "review me" } });
+  appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "review me" }
+  });
 
   endSession(home, session.id);
 
@@ -408,6 +428,296 @@ test("appendEvent rejects unknown types and non-object event bodies", () => {
     /payload/i
   );
 
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("isUiDecisionIntent recognizes exactly the keep/trash/resolve/defer triage set", () => {
+  assert.deepEqual([...UI_DECISION_INTENTS].sort(), ["defer", "keep", "resolve", "trash"]);
+  for (const decision of UI_DECISION_INTENTS) assert.equal(isUiDecisionIntent(decision), true);
+  assert.equal(isUiDecisionIntent("purge"), false);
+  assert.equal(isUiDecisionIntent("approve_all"), false);
+  assert.equal(isUiDecisionIntent(""), false);
+  assert.equal(isUiDecisionIntent(undefined), false);
+});
+
+test("appendEvent records each keep/trash/resolve/defer decision intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  for (const decision of UI_DECISION_INTENTS) {
+    const event = appendEvent(home, session.id, {
+      type: "decision_submitted",
+      target: { recordId: `shf_${decision}`, ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { decision }
+    });
+    assert.equal(event.type, "decision_submitted");
+    assert.equal(event.status, "pending");
+    assert.equal(event.source, "browser");
+    assert.equal(event.payload.decision, decision);
+    assert.equal(event.target.recordId, `shf_${decision}`);
+  }
+
+  assert.equal(pollPendingEvents(home, session.id).length, UI_DECISION_INTENTS.length);
+});
+
+test("a decision intent survives a fresh read with its compact target and payload intact", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const event = appendEvent(home, session.id, {
+    type: "decision_submitted",
+    target: { recordId: "shf_keep", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { decision: "keep", reason: "still in active use" }
+  });
+
+  const reloaded = readSessionEvents(home, session.id).find((entry) => entry.id === event.id);
+  assert.deepEqual(reloaded?.target, { recordId: "shf_keep", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" });
+  assert.deepEqual(reloaded?.payload, { decision: "keep", reason: "still in active use" });
+});
+
+test("a decision intent flows through the agent poll/reply loop and leaves the queue", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const event = appendEvent(home, session.id, {
+    type: "decision_submitted",
+    target: { recordId: "shf_trash", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { decision: "trash" }
+  });
+
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+  replyToEvent(home, session.id, event.id, { status: "completed", payload: { receipt: "trashed via dispose" } });
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+
+  const folded = readSessionEvents(home, session.id).find((entry) => entry.id === event.id);
+  assert.equal(folded?.status, "completed");
+});
+
+test("readSessionHistory pairs each event with the agent replies that advanced it (NGX-538 history)", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const target = { recordId: "shf_keep", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" };
+  const comment = appendEvent(home, session.id, { type: "comment_added", target, payload: { text: "needs a look" } });
+  const decision = appendEvent(home, session.id, { type: "decision_submitted", target, payload: { decision: "keep" } });
+
+  // Two replies advance the decision; both must survive in order so the agent's trail is visible.
+  replyToEvent(home, session.id, decision.id, { status: "acknowledged", payload: { note: "queued" } });
+  replyToEvent(home, session.id, decision.id, { status: "completed", payload: { receipt: "kept via dispose" } });
+
+  const history = readSessionHistory(home, session.id);
+  assert.deepEqual(history.map((entry) => entry.event.id), [comment.id, decision.id], "history preserves creation order");
+
+  const commentEntry = history[0]!;
+  assert.equal(commentEntry.event.status, "pending", "an unanswered intent stays pending in history");
+  assert.equal(commentEntry.replies.length, 0, "an unanswered intent carries no replies");
+
+  const decisionEntry = history[1]!;
+  assert.equal(decisionEntry.event.status, "completed", "the event folds to its latest reply status");
+  assert.deepEqual(
+    decisionEntry.replies.map((reply) => reply.status),
+    ["acknowledged", "completed"],
+    "every reply is preserved in append order"
+  );
+  assert.equal(decisionEntry.replies[1]!.payload.receipt, "kept via dispose", "reply payloads survive so the agent's note stays visible");
+});
+
+test("appendEvent rejects a decision intent with an unknown decision before it enters the log", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { decision: "purge" }
+      }),
+    /decision intent/i
+  );
+  // No vague global "approve all" action may be smuggled in as a decision intent.
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: {}
+      }),
+    /decision intent/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects a decision intent missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { decision: "keep" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1" },
+        payload: { decision: "keep" }
+      }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects a decision intent whose optional reason is present but blank", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "decision_submitted",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { decision: "resolve", reason: "   " }
+      }),
+    /reason/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent records a dry_run_requested intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { recordId: "shf_dry_run", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+  });
+
+  assert.equal(event.type, "dry_run_requested");
+  assert.equal(event.status, "pending");
+  assert.equal(event.source, "browser");
+  assert.equal(event.target.recordId, "shf_dry_run");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
+test("appendEvent rejects a dry-run request missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "dry_run_requested",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () => appendEvent(home, session.id, { type: "dry_run_requested", target: { recordId: "shf_1" } }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent records an inspect_requested intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "inspect_requested",
+    target: { recordId: "shf_inspect", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+  });
+
+  assert.equal(event.type, "inspect_requested");
+  assert.equal(event.status, "pending");
+  assert.equal(event.source, "browser");
+  assert.equal(event.target.recordId, "shf_inspect");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
+test("appendEvent rejects an inspect request missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "inspect_requested",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () => appendEvent(home, session.id, { type: "inspect_requested", target: { recordId: "shf_1" } }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent records a comment_added intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_comment", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "looks stale, likely safe to trash" }
+  });
+
+  assert.equal(event.type, "comment_added");
+  assert.equal(event.target.recordId, "shf_comment");
+  assert.equal(event.payload.text, "looks stale, likely safe to trash");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
+test("appendEvent rejects a comment missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { text: "looks stale" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1" },
+        payload: { text: "looks stale" }
+      }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects a comment whose text is missing or blank", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+      }),
+    /comment text/i
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "comment_added",
+        target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+        payload: { text: "   " }
+      }),
+    /comment text/i
+  );
   assert.equal(pollPendingEvents(home, session.id).length, 0);
 });
 
@@ -441,7 +751,11 @@ test("appendEvent serializes browser writes against session end", async () => {
 test("pollPendingEvents serializes pending queue reads against session end", async () => {
   const home = freshHome();
   const session = startUserSession(home);
-  appendEvent(home, session.id, { type: "comment_added", payload: { text: "review me before close" } });
+  appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "review me before close" }
+  });
   const sessionPath = join(home, "sessions", session.id, "session.json");
   const markerPath = join(home, "sessions", session.id, "poll-marker");
   let child: ReturnType<typeof spawn> | null = null;
@@ -464,7 +778,10 @@ test("pollPendingEvents serializes pending queue reads against session end", asy
 test("replyToEvent advances event status, clears it from the poll queue, and is durable", () => {
   const home = freshHome();
   const session = startUserSession(home);
-  const event = appendEvent(home, session.id, { type: "dry_run_requested", target: { planId: "plan_a" } });
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { recordId: "shf_plan", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+  });
 
   const { reply } = replyToEvent(home, session.id, event.id, {
     status: "completed",
@@ -495,7 +812,11 @@ test("replyToEvent rejects a reply that targets an unknown event", () => {
 test("replyToEvent rejects pending and unknown reply statuses at the storage boundary", () => {
   const home = freshHome();
   const session = startUserSession(home);
-  const event = appendEvent(home, session.id, { type: "comment_added", payload: { text: "reviewed" } });
+  const event = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "reviewed" }
+  });
 
   assert.throws(
     () => replyToEvent(home, session.id, event.id, { status: "pending" as never }),

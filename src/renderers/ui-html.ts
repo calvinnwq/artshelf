@@ -10,13 +10,15 @@ import type {
   DashboardSnapshot,
   DashboardTrashRow
 } from "../dashboard.js";
+import type { UiEvent, UiReply, UiSessionHistoryEntry } from "../types.js";
 
 // Read-only HTML rendering for the Artshelf UI v1 browser surface (NGX-535 dashboard, NGX-536
 // detail drawer, NGX-537 needs-context presentation). These are pure functions: they take the
 // existing read-only domain snapshots and return a self-contained HTML document with inline styles
-// and no scripts. The browser is a display surface only - the rendered pages carry no executable
-// code, embed no file contents, and expose no mutation affordance, matching the v1 contract's
-// non-negotiable boundaries. The loopback server (src/ui-server.ts) wires these to live state.
+// and no scripts. The dashboard is display-only; detail pages carry no executable code or file
+// contents and expose only token-bound triage-intent forms, never
+// direct ledger/file/trash/plan mutation affordances. The loopback server (src/ui-server.ts) wires
+// these to live state.
 
 // Escape the five HTML metacharacters so record-supplied text (reasons, paths, ids) is always
 // rendered as text, never markup. Every dynamic value in these pages routes through here.
@@ -85,11 +87,24 @@ dl.fields dd { margin: 0; word-break: break-word; }
 .audit { list-style: none; margin: 0; padding: 0; }
 .audit li { padding: 6px 0; border-bottom: 1px solid #eceef1; }
 .audit li:last-child { border-bottom: 0; }
+.intents .intent { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 12px 14px; margin: 0 0 10px; display: flex; flex-direction: column; gap: 8px; }
+.intents label { font-size: 11px; text-transform: uppercase; letter-spacing: .03em; color: #6b7480; }
+.intents textarea { width: 100%; font: inherit; padding: 8px; border: 1px solid #cfd4da; border-radius: 6px; resize: vertical; background: #fff; color: inherit; }
+.intents .intent-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.intents button { font: inherit; padding: 8px 14px; border: 1px solid #2b6cb0; background: #2b6cb0; color: #fff; border-radius: 6px; cursor: pointer; align-self: flex-start; }
+.intents button:hover { background: #245a96; }
+.history .timeline { list-style: none; margin: 0; padding: 0; }
+.history .event { background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; padding: 12px 14px; margin: 0 0 10px; }
+.history .event-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+.history .event .reason { margin: 8px 0 0; }
+.history .replies { list-style: none; margin: 8px 0 0; padding: 8px 0 0; border-top: 1px solid #eceef1; }
+.history .replies li { padding: 4px 0; font-size: 13px; }
 .back { display: inline-block; margin: 16px 20px 0; }
-@media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } }
+@media (max-width: 560px) { dl.fields { grid-template-columns: 1fr; } main { padding: 12px 14px 40px; } .intents button { align-self: stretch; } }
 `;
 
-const READ_ONLY_NOTE = "Read-only review surface - no file contents, no mutations, no browser-direct actions.";
+const REVIEW_SURFACE_NOTE =
+  "Review surface - metadata only, never file contents, and never mutates ledgers, files, trash, or plans directly; open a record to capture a triage intent for the agent.";
 
 // Contract bucket order for the count summary. The literal hyphenated keys double as the
 // machine-precise lane labels in the first viewport.
@@ -114,7 +129,7 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string)
 <h1>Artshelf review dashboard</h1>
 <div class="meta">${snapshot.ledgers.length} ledger(s), ${okLedgers} healthy &middot; generated ${escapeHtml(snapshot.generatedAt)} &middot; registry ${escapeHtml(snapshot.registryPath)}</div>
 </header>
-<p class="banner">${READ_ONLY_NOTE}</p>
+<p class="banner">${REVIEW_SURFACE_NOTE}</p>
 <main>
 <ul class="chips">${chips}</ul>
 ${ledgerHealthSection(snapshot.ledgers)}
@@ -244,7 +259,7 @@ function receiptLane(key: string, title: string, rows: DashboardReceiptRow[]): s
   return laneSection(key, title, rows.length, inner);
 }
 
-export function renderDetailPage(detail: ArtifactDetail, token?: string): string {
+export function renderDetailPage(detail: ArtifactDetail, token?: string, history: UiSessionHistoryEntry[] = []): string {
   const inspect = detail.inspect;
   const reason = inspect.reason.trim() ? escapeHtml(inspect.reason) : `<span class="muted">(no reason recorded)</span>`;
   const source = detail.ledgerName ? `${escapeHtml(detail.ledgerName)} (${escapeHtml(detail.ledgerPath)})` : escapeHtml(detail.ledgerPath);
@@ -272,6 +287,8 @@ ${needsContextBadge(detail.needsContext)}
 <div><dt>next action</dt><dd>${escapeHtml(inspect.nextAction)}</dd></div>
 <div><dt>provenance</dt><dd>${provenanceLabel(detail.provenance)}</dd></div>
 </dl>
+${token ? intentForms(detail.recordId, detail.ledgerPath, token) : ""}
+${sessionHistorySection(history)}
 <section>
 <h2>Audit trail</h2>
 <ul class="audit">${detail.audit.map(auditItem).join("")}</ul>
@@ -306,6 +323,117 @@ function lastActionSection(lastAction: DashboardLastAction | null): string {
   if (!lastAction) return "";
   const receipt = lastAction.receiptPath ? ` &middot; receipt ${escapeHtml(lastAction.receiptPath)}` : "";
   return `<section><h2>Last action</h2><p>${escapeHtml(lastAction.kind)} at ${escapeHtml(lastAction.at)}${receipt}</p></section>`;
+}
+
+// NGX-538 human triage intent affordances on the detail drawer. Each intent is a scriptless HTML form
+// posting back to the server's /intents endpoint under the page's capability token. The browser only
+// records the intent for the agent's poll queue - it executes nothing and mutates no ledger, file,
+// trash, or plan. Every form carries the exact record + ledger target as hidden fields so each queued
+// event names an unambiguous target. The four decision buttons share one form; the clicked button's
+// value is the keep/trash/resolve/defer decision. Rendered only when a capability token is present, so
+// a tokenless render stays read-only.
+function intentForms(recordId: string, ledgerPath: string, token: string): string {
+  const targetFields =
+    `<input type="hidden" name="recordId" value="${escapeHtml(recordId)}">` +
+    `<input type="hidden" name="ledgerPath" value="${escapeHtml(ledgerPath)}">` +
+    `<input type="hidden" name="token" value="${escapeHtml(token)}">`;
+  return `<section class="intents">
+<h2>Record a triage intent</h2>
+<p class="muted">Intents are queued for the agent to act on. The browser records the intent; it executes nothing and changes no ledger, file, trash, or plan.</p>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="inspect_requested">${targetFields}
+<button type="submit">Request inspect card</button>
+</form>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="dry_run_requested">${targetFields}
+<button type="submit">Request dry-run plan</button>
+</form>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="decision_submitted">${targetFields}
+<label for="decision-reason">Decision reason (optional)</label>
+<textarea id="decision-reason" name="reason" rows="2" placeholder="why keep, trash, resolve, or defer this record"></textarea>
+<div class="intent-actions">
+<button type="submit" name="decision" value="keep">Keep</button>
+<button type="submit" name="decision" value="trash">Trash candidate</button>
+<button type="submit" name="decision" value="resolve">Resolve candidate</button>
+<button type="submit" name="decision" value="defer">Defer / snooze</button>
+</div>
+</form>
+<form method="post" action="/intents" class="intent">
+<input type="hidden" name="type" value="comment_added">${targetFields}
+<label for="comment-text">Comment</label>
+<textarea id="comment-text" name="text" rows="2" required placeholder="note for the agent and the audit trail"></textarea>
+<button type="submit">Add comment</button>
+</form>
+</section>`;
+}
+
+// NGX-538 session activity history on the detail drawer. The browser is the human half of the agent
+// poll/reply loop, so the drawer surfaces this record's queued triage intents together with the
+// agent's replies (acknowledged/completed/rejected/...): the visible-in-history acceptance criterion.
+// Entries arrive already scoped to this record and in creation order; every dynamic value routes
+// through escapeHtml so record/agent-supplied text is rendered as text. Still scriptless and still no
+// file contents - it is a read of the durable session log, not an action.
+function sessionHistorySection(entries: UiSessionHistoryEntry[]): string {
+  if (entries.length === 0) {
+    return `<section class="history"><h2>Session activity</h2><p class="empty">No triage intents recorded for this record yet.</p></section>`;
+  }
+  const items = entries.map(historyItem).join("");
+  return `<section class="history"><h2>Session activity</h2><ul class="timeline">${items}</ul></section>`;
+}
+
+function historyItem(entry: UiSessionHistoryEntry): string {
+  const { event, replies } = entry;
+  const note = intentNote(event);
+  const noteHtml = note ? `<p class="reason">${escapeHtml(note)}</p>` : "";
+  const repliesHtml = replies.length > 0 ? `<ul class="replies">${replies.map(replyItem).join("")}</ul>` : "";
+  return `<li class="event">
+<div class="event-head"><strong>${escapeHtml(intentLabel(event))}</strong> <span class="status">${escapeHtml(event.status)}</span> <span class="muted">${escapeHtml(event.createdAt)}</span></div>
+${noteHtml}${repliesHtml}</li>`;
+}
+
+// Humanize a triage intent for the history line. decision_submitted carries the keep/trash/resolve/
+// defer choice in its payload, so it reads as "Decision: <choice>"; the rest map to a plain label.
+function intentLabel(event: UiEvent): string {
+  switch (event.type) {
+    case "inspect_requested":
+      return "Inspect requested";
+    case "dry_run_requested":
+      return "Dry-run requested";
+    case "comment_added":
+      return "Comment";
+    case "decision_submitted": {
+      const decision = typeof event.payload.decision === "string" ? event.payload.decision : "";
+      return decision ? `Decision: ${decision}` : "Decision";
+    }
+    default:
+      return event.type;
+  }
+}
+
+// The human's own note for an intent: a comment's text or a decision's optional reason. Other intent
+// types carry no free-text body of their own.
+function intentNote(event: UiEvent): string | null {
+  if (event.type === "comment_added" && typeof event.payload.text === "string") return event.payload.text;
+  if (event.type === "decision_submitted" && typeof event.payload.reason === "string") return event.payload.reason;
+  return null;
+}
+
+function replyItem(reply: UiReply): string {
+  const note = replyNote(reply.payload);
+  const detail = note ? ` &middot; ${escapeHtml(note)}` : "";
+  return `<li><span class="status">agent ${escapeHtml(reply.status)}</span> <span class="muted">${escapeHtml(reply.createdAt)}</span>${detail}</li>`;
+}
+
+// Surface the agent's free-text reply note from the first recognized payload field. Replies carry a
+// result/receipt/validation-failure/question/note; showing the first present one keeps the human in
+// the loop without coupling the browser to the agent's full reply schema.
+function replyNote(payload: Record<string, unknown>): string | null {
+  for (const key of ["note", "receipt", "result", "reason", "message"]) {
+    const value = payload[key];
+    if (typeof value === "string" && value.trim().length > 0) return value;
+  }
+  return null;
 }
 
 export function renderErrorPage(options: { status: number; title: string; message: string }): string {

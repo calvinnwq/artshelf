@@ -332,8 +332,8 @@ export type UiSessionScope = "user" | "repo";
 export type UiSessionStatus = "active" | "ended";
 
 // Durable session metadata persisted at `<ui-home>/sessions/<id>/session.json`. The
-// session is the handoff layer of the v1 contract: the browser records decisions and the
-// agent executes, so this row never holds executable authority itself - only the
+// session is the handoff layer of the v1 contract: the browser records exact-target triage
+// intents and the agent executes, so this row never holds executable authority itself - only the
 // capability token that authorizes browser event writes while the session is active.
 // The token is an unguessable, same-machine capability secret (capability protection,
 // not full account authentication), so it is stored alongside the user-owned session
@@ -383,6 +383,17 @@ export type UiEventType =
   | "filter_saved"
   | "session_note_added";
 
+// The lightweight human triage decisions the browser records against one reviewed record
+// (NGX-538). Each is an *intent*, not an execution: it names what the human wants done, and
+// the agent later translates it into the matching approval-gated `dispose` action and runs
+// that through the existing CLI path. The browser never mutates a ledger/file/trash/plan
+// itself. The 1:1 mapping the agent applies is:
+//   - keep    -> dispose --action keep          (mark reviewed-and-quiet, retention kept)
+//   - trash   -> dispose --action trash-resolve (move the path to Artshelf trash, resolve row)
+//   - resolve -> dispose --action resolve-only  (resolve the ledger row only, no file move)
+//   - defer   -> dispose --action snooze        (extend retention / the next review horizon)
+export type UiDecisionIntent = "keep" | "trash" | "resolve" | "defer";
+
 // One event in the durable, append-only session log. `target` carries the exact
 // ledger/registry/record/plan identifiers the event concerns (never an ambiguous global
 // action); `payload` is the type-specific body (comment text, decision intent, bundle id,
@@ -414,6 +425,17 @@ export type UiReply = {
   status: UiReplyStatus;
   createdAt: string;
   payload: Record<string, unknown>;
+};
+
+// One event paired with the agent replies appended against it, in log order. This is the read
+// model the browser session/dashboard history renders (NGX-538: "agent replies update the event
+// projection and are visible in the session/dashboard history"). The event carries its folded
+// current status; each reply preserves its own payload so the agent's note, receipt, or rejection
+// reason stays visible to the human after reload, restart, or resume - unlike the compact
+// poll/status projection (readSessionEvents), which keeps only the latest status.
+export type UiSessionHistoryEntry = {
+  event: UiEvent;
+  replies: UiReply[];
 };
 
 // One exact target inside an approval snapshot. Cross-ledger action is always a bundle of
