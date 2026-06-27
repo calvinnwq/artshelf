@@ -110,9 +110,9 @@ Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` for compact decisions; use `--json`
 for full audit/API payloads, custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
 
-For browser review sessions, use `artshelf ui`, read-only `ui dashboard --json` / `ui detail <record-id> --ledger <path> --json`, token-protected `ui serve [--json]`, `ui poll`, `ui reply`, and `ui end`.
-The browser captures triage intents only, with no direct ledger/file/trash/plan mutation and no file-content preview, so agents still execute only existing approval-gated commands after exact human approval.
-Treat the session token printed by `artshelf ui` and `ui serve` as a secret same-machine browser capability; `ui end` revokes browser writes and served dashboard access while preserving the audit trail.
+For browser review sessions, use `artshelf ui`, read-only `ui dashboard --json` / `ui detail <record-id> --ledger <path> --json`, token-protected `ui serve [--json]`, `ui bundle <session-id> [<bundle-id>] --json`, `ui poll`, `ui reply`, and `ui end`.
+Use `ui bundle` to list approved bundles or load one immutable snapshot plus its selected exact targets before live-state revalidation; the browser captures triage intents and approval bundles only, with no direct ledger/file/trash/plan mutation and no file-content preview.
+Treat the session token printed by `artshelf ui` and `ui serve` as a secret same-machine browser capability; `ui end` revokes browser writes and served dashboard/detail/bundle access while preserving the audit trail.
 Register existing project ledgers explicitly:
 
 ```bash

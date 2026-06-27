@@ -243,9 +243,10 @@ export function endSession(home: string, sessionId: string): UiSession {
   });
 }
 
-// Capability check for browser event writes. The token authorizes writes only while the
-// session is active, so ending a session revokes it regardless of the token presented. This
-// is same-machine capability protection, not full account authentication.
+// Capability check for browser page access plus event/approval writes. The token authorizes
+// browser access only while the session is active, so ending a session revokes it regardless
+// of the token presented. This is same-machine capability protection, not full account
+// authentication.
 export function validateBrowserToken(session: UiSession, token: string): boolean {
   if (session.status !== "active") return false;
   if (!token) return false;

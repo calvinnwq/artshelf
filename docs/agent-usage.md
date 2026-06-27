@@ -91,11 +91,14 @@ requires `--inspect`.
 Both views are metadata-only and never preview file contents.
 `artshelf ui serve [--scope user|repo] [--port <port>] [--json]` hosts those dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, requires the active UI session capability token printed in the serve URL, serves no script and no file contents, and supports `--json` for a compact launch packet.
 The dashboard stays display-only, while the detail drawer adds scriptless forms that capture lightweight human triage intents - inspect, comment, keep/trash/resolve/defer, and dry-run request - recording each as a pending event in the durable session log for the agent to act on after approval.
+The served bundle workbench at `GET /bundle/<bundle-id>` shows the selected exact targets, reviewed-only rows, and exact action from an immutable approval snapshot.
+With the active token, its scriptless form can submit a revised non-empty subset through `POST /approve`, creating a new immutable approval snapshot and pending approval event without editing the original bundle or executing a workflow.
 The session command defaults to user-level, multi-ledger review and stores session state under `~/.artshelf/ui`; use `--scope repo` or `--ledger <path>` when the review needs a narrower target.
-The browser records exact-target triage intents, the agent polls with `artshelf ui poll <session-id> --json`, runs existing approval-gated commands only after exact human approval, replies with `artshelf ui reply`, and closes with `artshelf ui end`.
-The browser captures triage intents only and never mutates ledgers, files, trash, or plans directly.
-`artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles. It never executes a bundle, and the served `GET /bundle/<bundle-id>` page reopens one persisted bundle as a read-only workbench (selected vs reviewed rows and the exact action; never a re-approval form, because an approval snapshot is immutable).
-Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard access while keeping the audit trail readable.
+The browser records exact-target triage intents and approval bundle submissions, the agent polls with `artshelf ui poll <session-id> --json`, runs existing approval-gated commands only after exact human approval, replies with `artshelf ui reply`, and closes with `artshelf ui end`.
+The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly.
+`artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles.
+It never executes a bundle.
+Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard/detail/bundle access while keeping the audit trail readable.
 
 ## Portable Skill
 

@@ -51,7 +51,7 @@ src/
   reconcile.ts        path-drift classification plus reconcile dry-run plan and execute layers
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
   session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
-  ui-server.ts        loopback browser server for dashboard/detail pages and intent capture
+  ui-server.ts        loopback browser server for dashboard/detail/bundle pages and handoff capture
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger, cleanup, disposal, reconcile, registry, and UI contracts
@@ -64,7 +64,7 @@ src/
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
 (`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `dashboard.ts`, `artifact-detail.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
 the existing core/domain modules for this closeout. `ui-server.ts` is a root support module for the
-browser review surface and token-bound intent capture. A future issue may move these under `src/core/`,
+browser review surface and token-bound intent/approval capture. A future issue may move these under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
 
 ### `commands/`
@@ -102,13 +102,14 @@ Each public command has a discoverable module named after the CLI surface:
 these files must contain real command-family implementation code.
 
 The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
-`ui poll`, `ui reply`, `ui end`) is the agent-mediated AXI surface over
+`ui poll`, `ui reply`, `ui bundle`, `ui end`) is the agent-mediated AXI surface over
 `session.ts` plus the read-only review data surface over `dashboard.ts`,
 `artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
-sessions, serves token-protected loopback dashboard/detail pages, returns compact
-`--json` review snapshots, and runs the poll/reply/end agent loop. The browser
-captures human triage intents but never mutates ledgers, files, trash, or plans directly - the
-agent executes existing approval-gated commands and replies with receipts.
+sessions, serves token-protected loopback dashboard/detail/bundle pages, returns
+compact `--json` review and bundle snapshots, and runs the poll/reply/end agent
+loop. The browser captures human triage intents and approval bundles but never
+mutates ledgers, files, trash, or plans directly - the agent executes existing
+approval-gated commands and replies with receipts.
 
 ### Domain files
 
@@ -142,16 +143,17 @@ Current root ownership:
   file content previews
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
-  browser-write capability token, the append-only event log (events plus agent replies), and
+  browser capability token, the append-only event log (events plus agent replies), and
   immutable fingerprinted approval snapshots. This is the v1 handoff layer where the browser
-  captures exact-target triage intents and the agent executes existing approval-gated paths, so
+  captures exact-target triage intents and approval bundles while the agent executes existing approval-gated paths, so
   it never runs a mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped
   optionally
 - `ui-server.ts`: token-protected loopback HTTP server for dashboard/detail browser pages, the
-  read-only approval-bundle workbench page (NGX-539 `GET /bundle/<id>`), and human triage intent
-  capture. It accepts safe browser reads, recomputes live state per request, appends exact-target
-  intents through the token-bound `/intents` endpoint, refuses every other mutating method, and
-  never embeds file contents or scripts
+  approval-bundle workbench page (NGX-539 `GET /bundle/<id>`), human triage intent
+  capture, and approval-bundle submission. It accepts safe browser reads, recomputes live state
+  per request, appends exact-target intents through the token-bound `/intents` endpoint, records
+  revised approval selections through token-bound `/approve`, refuses every other mutating method,
+  and never embeds file contents or scripts
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
@@ -182,7 +184,7 @@ Render modes:
 - human output: compact terminal text for people
 - `--json`: full machine/audit payloads and compact UI packets
 - `--agent`: terse decision packets for agents
-- browser HTML: script-free dashboard/detail pages and token-bound intent forms generated from read-only snapshots
+- browser HTML: script-free dashboard/detail/bundle pages and token-bound intent/approval forms generated from read-only snapshots
 
 ### `config/`
 
@@ -253,9 +255,9 @@ Artshelf's public contract is safety-first:
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, `list`,
   `ui dashboard`, and `ui detail` remain read-only surfaces.
 - `ui` remains non-mutating: session subcommands may create session metadata, append browser events
-  or agent replies, write approval snapshots, and end sessions; dashboard/detail may read live
-  ledger, registry, trash, and inspect state. The command family must not execute cleanup, dispose,
-  reconcile, registry-prune, resolve, or purge actions itself.
+  or agent replies, write approval snapshots, and end sessions; dashboard/detail/bundle may read
+  live ledger, registry, trash, inspect, and approval state. The command family must not execute
+  cleanup, dispose, reconcile, registry-prune, resolve, or purge actions itself.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
   update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.
