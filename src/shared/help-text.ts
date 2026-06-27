@@ -44,6 +44,7 @@ Available Commands:
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
   bundle      Load or list persisted approval bundles for the agent
+  execute     Execute an approved bundle and reply per-target receipts
   end         End the session and revoke browser writes
 
 Flags:
@@ -110,7 +111,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "end"])]
+  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "execute", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -585,6 +586,31 @@ bundle id it loads one immutable reviewed snapshot and its deliberate selected
 targets - the agent-facing JSON used to revalidate live state before execution.
 With no bundle id it lists the session's approved bundles. It only reads approval
 records; it never executes a bundle or mutates ledgers, files, trash, or plans.
+`;
+  }
+
+  if (command === "ui execute") {
+    return `Usage:
+  artshelf ui execute <session-id> <bundle-id> [--scope user|repo] [--json]
+
+Options:
+  --scope <scope>          Locate the session in user (default) or repo scope
+  --json                   Emit a compact single-line agent receipt packet
+
+Execute is the agent's mutating path for an approved bundle, and the one ui
+subcommand that changes live state. It loads the immutable reviewed snapshot,
+re-reads live ledger/registry/trash state, then runs the revalidate -> execute ->
+verify loop through the existing approval-gated dispose paths, and replies the
+per-target receipts and aggregate result to the session by advancing the bundle's
+approval_bundle_submitted event. Execution is exact-target only: a stale, missing,
+mismatched, or unapproved target is refused or skipped, never force-applied, and
+the agent confirms live state rather than trusting the command exit. There is no
+ui execute --all and no browser-direct execution.
+
+Each selected target receives one of four visible outcomes - executed,
+skipped_stale, failed, or needs_manual_review - so a partial run never hides a
+target's state. A clean run (every selected target executed) exits 0; a partial
+or refused run exits non-zero while still recording every receipt in the session.
 `;
   }
 

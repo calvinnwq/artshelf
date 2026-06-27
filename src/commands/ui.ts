@@ -21,6 +21,7 @@ import type { ParsedArgs } from "../shared/cli-types.js";
 import { requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { UI_HELP } from "../shared/help-text.js";
 import type { UiApprovalSnapshot, UiApprovalTarget, UiEvent, UiSession, UiSessionScope } from "../types.js";
+import { executeApprovedBundle } from "../ui-execute.js";
 import type { StartUiServerOptions, UiServerHandle } from "../ui-server.js";
 import { startUiServer } from "../ui-server.js";
 
@@ -46,9 +47,10 @@ export async function handleUi(parsed: ParsedArgs, json: boolean): Promise<numbe
   if (sub === "poll") return handleUiPoll(parsed, json);
   if (sub === "reply") return handleUiReply(parsed, json);
   if (sub === "bundle") return handleUiBundle(parsed, json);
+  if (sub === "execute") return handleUiExecute(parsed, json);
   if (sub === "end") return handleUiEnd(parsed, json);
   if (sub === undefined) return handleUiStart(parsed, json);
-  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, poll, reply, bundle, or end)`);
+  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, poll, reply, bundle, execute, or end)`);
 }
 
 // `artshelf ui [--scope user|repo] [--ledger <path>] [--json]` - start or resume the session for
@@ -239,6 +241,49 @@ function targetSubject(target: UiApprovalTarget): string {
   return target.recordPath ?? target.planId ?? target.registryPath ?? target.ledgerPath;
 }
 
+// `artshelf ui execute <session-id> <bundle-id> [--scope user|repo] [--json]` - the agent's mutating
+// execution path for an approved bundle (NGX-540), and the one `ui` subcommand that changes live
+// state. It loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, runs the
+// revalidate -> execute -> verify loop through the existing approval-gated dispose paths, and replies
+// per-target receipts plus aggregate state to the session by advancing the bundle's
+// approval_bundle_submitted event. Execution is exact-target only: a stale, missing, mismatched, or
+// unapproved target is refused or skipped, never force-applied, and the agent confirms live state
+// rather than trusting the command exit. A clean run (every selected target executed) exits 0; a
+// partial or refused run exits non-zero so the agent loop notices, while every target's receipt is
+// still recorded in the session so no outcome is hidden.
+function handleUiExecute(parsed: ParsedArgs, json: boolean): number {
+  const sessionId = requireSessionId(parsed);
+  const home = resolveHome(parsed);
+  const bundleId = parsed.positionals[2];
+  if (!bundleId) {
+    throw new Error("Missing bundle id; usage: artshelf ui execute <session-id> <bundle-id> [--json]");
+  }
+  const { execution, event, reply } = executeApprovedBundle(home, sessionId, bundleId);
+  const clean = execution.status === "executed";
+
+  if (json) {
+    printCompactJson({
+      ok: clean,
+      command: "ui-execute",
+      sessionId,
+      execution,
+      event: { id: event.id, type: event.type, status: event.status, updatedAt: event.updatedAt },
+      reply: { id: reply.id, eventId: reply.eventId, status: reply.status, createdAt: reply.createdAt }
+    });
+    return clean ? 0 : 1;
+  }
+
+  const counts = execution.counts;
+  process.stdout.write(`artshelf ui execute: bundle ${execution.bundleId} ${execution.status} in session ${sessionId} (reply ${reply.status})\n`);
+  process.stdout.write(
+    `  ${counts.executed} executed, ${counts.skipped_stale} skipped_stale, ${counts.failed} failed, ${counts.needs_manual_review} needs_manual_review\n`
+  );
+  for (const receipt of execution.receipts) {
+    process.stdout.write(`  [${receipt.targetId}] ${receipt.outcome} - ${receipt.detail}\n`);
+  }
+  return clean ? 0 : 1;
+}
+
 // `artshelf ui dashboard [--registry <path>] [--json]` - the read-only multi-ledger review
 // dashboard (NGX-535). It recomputes live state across registered ledgers into the eight UI v1
 // lanes (including the NGX-537 needs-context bucket) without mutating anything or reading file
@@ -413,7 +458,7 @@ function resolveScope(value: string | undefined): UiSessionScope {
 
 function requireSessionId(parsed: ParsedArgs): string {
   const id = parsed.positionals[1];
-  if (!id) throw new Error("Missing session id; usage: artshelf ui <poll|reply|bundle|end> <session-id>");
+  if (!id) throw new Error("Missing session id; usage: artshelf ui <poll|reply|bundle|execute|end> <session-id>");
   return id;
 }
 
