@@ -137,7 +137,11 @@ export function createDisposePlan(ledgerPath: string, request: DisposeRequest): 
 // executed disposition stays auditable, and is registered as an artshelf-owned artifact.
 export function executeDisposePlan(ledgerPath: string, planId: string): DisposeExecution {
   const entry = readDisposePlanEntry(ledgerPath, planId);
+  return executeDisposePlanEntry(ledgerPath, planId, entry);
+}
 
+export function executeDisposePlanEntry(ledgerPath: string, planId: string, entry: DisposePlanEntry): DisposeExecution {
+  const boundEntry = assertDisposePlanEntryExecutable(entry, planId, ledgerPath);
   const receiptPath = disposeReceiptPath(ledgerPath, planId);
   return withPathLock(ledgerPath, () => {
     const completedReceipt = existsSync(receiptPath) ? readCompletedDisposeReceipt(receiptPath, planId) : null;
@@ -152,13 +156,13 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
     }
 
     const records = readLedger(ledgerPath);
-    const index = records.findIndex((record) => record.id === entry.id);
+    const index = records.findIndex((record) => record.id === boundEntry.id);
     const record = index >= 0 ? records[index] : undefined;
     if (record?.disposePlanId === planId) {
       const replayReceiptPath = record.disposeReceiptPath ?? receiptPath;
       const receipt = existsSync(replayReceiptPath) ? readCompletedDisposeReceipt(replayReceiptPath, planId) : null;
       const started = receipt ? null : readStartedDisposeReceipt(replayReceiptPath, planId);
-      const result = receipt?.result ?? appliedResultFromRecord(entry, record);
+      const result = receipt?.result ?? appliedResultFromRecord(boundEntry, record);
       const executedAt = receipt?.executedAt ?? record.disposedAt ?? started?.executedAt ?? toIso(now());
       if (!receipt) {
         writeDisposeReceipt(replayReceiptPath, { planId, ledgerPath, executedAt, status: "completed", result });
@@ -177,9 +181,9 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
     const audit: DisposeAudit = { planId, receiptPath, executedAt };
 
     // Announce intent before any mutation so an interrupted move leaves a breadcrumb.
-    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "started", action: entry.action, target: entry.targetPath ?? null });
+    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "started", action: boundEntry.action, target: boundEntry.targetPath ?? null });
 
-    const outcome = applyDisposeEntry(records, index, entry, audit);
+    const outcome = applyDisposeEntry(records, index, boundEntry, audit);
     if (outcome.records) writeLedger(ledgerPath, outcome.records);
 
     writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "completed", result: outcome.result });
@@ -447,7 +451,10 @@ function assertDisposePlanExecutable(plan: DisposePlan, planId: string, ledgerPa
   if (plan.ledgerPath !== ledgerPath) {
     throw new Error(`Dispose plan ledger mismatch: plan was created for ${plan.ledgerPath}, executing ${ledgerPath}`);
   }
-  const entry = plan.entry;
+  return assertDisposePlanEntryExecutable(plan.entry, planId, ledgerPath);
+}
+
+function assertDisposePlanEntryExecutable(entry: DisposePlanEntry | null, planId: string, ledgerPath: string): DisposePlanEntry {
   if (
     !entry ||
     typeof entry.id !== "string" ||

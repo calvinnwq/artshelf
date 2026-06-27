@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { executeDisposePlan, readDisposePlanEntry } from "./dispose.js";
+import { executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import {
   approvalSnapshotFingerprint,
@@ -77,12 +77,12 @@ export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleT
     };
   }
 
-  const validation = validateApprovedDisposeTarget(target);
-  if (validation !== null) return validation;
+  const binding = bindApprovedDisposeTarget(target);
+  if (!binding.ok) return binding.execution;
 
   let execution: DisposeExecution;
   try {
-    execution = executeDisposePlan(target.ledgerPath, target.planId);
+    execution = executeDisposePlanEntry(target.ledgerPath, target.planId, binding.entry);
   } catch (error) {
     return {
       outcome: "failed",
@@ -114,20 +114,30 @@ export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleT
 
 const APPROVED_DISPOSE_ACTIONS: ReadonlySet<string> = new Set<DisposeAction>(["trash-resolve", "resolve-only", "snooze", "keep"]);
 
-function validateApprovedDisposeTarget(target: UiApprovalTarget): UiBundleTargetExecution | null {
+type DisposeTargetBinding =
+  | { ok: true; entry: DisposePlanEntry; action: DisposeAction }
+  | { ok: false; execution: UiBundleTargetExecution };
+
+function bindApprovedDisposeTarget(target: UiApprovalTarget): DisposeTargetBinding {
   const action = approvedDisposeAction(target.actionType);
   if (action === null) {
     return {
-      outcome: "needs_manual_review",
-      detail: `needs_manual_review: unsupported approved dispose action ${target.actionType}; re-review the target`,
-      evidence: targetBindingEvidence(target)
+      ok: false,
+      execution: {
+        outcome: "needs_manual_review",
+        detail: `needs_manual_review: unsupported approved dispose action ${target.actionType}; re-review the target`,
+        evidence: targetBindingEvidence(target)
+      }
     };
   }
   if (!isNonEmptyString(target.recordPath)) {
     return {
-      outcome: "needs_manual_review",
-      detail: "needs_manual_review: approved dispose target has no record path to bind against the reviewed plan; re-review the target",
-      evidence: targetBindingEvidence(target)
+      ok: false,
+      execution: {
+        outcome: "needs_manual_review",
+        detail: "needs_manual_review: approved dispose target has no record path to bind against the reviewed plan; re-review the target",
+        evidence: targetBindingEvidence(target)
+      }
     };
   }
 
@@ -136,22 +146,25 @@ function validateApprovedDisposeTarget(target: UiApprovalTarget): UiBundleTarget
     entry = readDisposePlanEntry(target.ledgerPath, target.planId as string);
   } catch (error) {
     return {
-      outcome: "failed",
-      detail: `failed: dispose plan validation errored: ${(error as Error).message}`,
-      evidence: targetBindingEvidence(target)
+      ok: false,
+      execution: {
+        outcome: "failed",
+        detail: `failed: dispose plan validation errored: ${(error as Error).message}`,
+        evidence: targetBindingEvidence(target)
+      }
     };
   }
 
   if (entry.id !== target.targetId) {
-    return targetPlanMismatch(target, entry, `plan targets ${entry.id}, approved ${target.targetId}`);
+    return { ok: false, execution: targetPlanMismatch(target, entry, `plan targets ${entry.id}, approved ${target.targetId}`) };
   }
   if (entry.subjectPath !== target.recordPath || entry.path !== target.recordPath) {
-    return targetPlanMismatch(target, entry, `plan path ${entry.subjectPath}, approved ${target.recordPath}`);
+    return { ok: false, execution: targetPlanMismatch(target, entry, `plan path ${entry.subjectPath}, approved ${target.recordPath}`) };
   }
   if (entry.action !== action) {
-    return targetPlanMismatch(target, entry, `plan action ${entry.action}, approved ${action}`);
+    return { ok: false, execution: targetPlanMismatch(target, entry, `plan action ${entry.action}, approved ${action}`) };
   }
-  return null;
+  return { ok: true, entry, action };
 }
 
 function approvedDisposeAction(value: string): DisposeAction | null {
@@ -351,6 +364,7 @@ export function executeApprovalBundle(
   const missing = new Set(revalidation.missingTargetIds);
   const changed = new Set(revalidation.changedTargetIds);
   const snapshotFingerprintMatches = approvalSnapshotFingerprint(selected, snapshot.reviewed) === snapshot.fingerprint;
+  const actionRefusal = bundleActionRefusal(snapshot, selected);
 
   // Refuse the entire bundle - executing nothing - when the *shared* basis the human approved
   // against can no longer be trusted: a reviewed fact drifted, or the persisted fingerprint no
@@ -359,13 +373,14 @@ export function executeApprovalBundle(
   // drift (a single missing or changed target) does not poison the others: those are skipped while
   // the still-exact targets execute, so a partial run stays honest.
   const bundleRefused =
+    actionRefusal !== null ||
     revalidation.reviewedKeysDrifted.length > 0 ||
     !snapshotFingerprintMatches ||
     hasUnexplainedFingerprintMismatch(revalidation);
 
   const receipts: UiBundleTargetReceipt[] = selected.map((target) => {
     if (bundleRefused) {
-      return staleReceipt(target, "approval bundle refused: the reviewed basis or bundle fingerprint no longer matches live state; re-review");
+      return staleReceipt(target, actionRefusal ?? "approval bundle refused: the reviewed basis or bundle fingerprint no longer matches live state; re-review");
     }
     if (missing.has(target.targetId)) {
       return staleReceipt(target, "skipped_stale: the approved subject is no longer present in live state");
@@ -385,6 +400,18 @@ export function executeApprovalBundle(
     counts,
     status: aggregateStatus(counts)
   };
+}
+
+function bundleActionRefusal(snapshot: UiApprovalSnapshot, selected: UiApprovalTarget[]): string | null {
+  const action = approvedDisposeAction(snapshot.actionType);
+  if (action === null) {
+    return `approval bundle refused: unsupported bundle action ${snapshot.actionType}; re-review`;
+  }
+  const mismatch = selected.find((target) => target.actionType !== action);
+  if (mismatch) {
+    return `approval bundle refused: bundle action ${action} does not match selected target ${mismatch.targetId} action ${mismatch.actionType}; re-review`;
+  }
+  return null;
 }
 
 // A live fingerprint that disagrees with the persisted one without any per-target or reviewed-fact

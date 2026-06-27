@@ -7,7 +7,7 @@ import { test } from "node:test";
 // Fix the clock so snooze horizons, generated plan ids, and audit timestamps are deterministic.
 process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
-import { createDisposePlan } from "../src/dispose.js";
+import { createDisposePlan, executeDisposePlanEntry, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 import { startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import { disposeBackedTargetExecutor, executeApprovalBundle } from "../src/ui-execute.js";
@@ -181,6 +181,30 @@ test("disposeBackedTargetExecutor refuses a plan whose action differs from the a
   assert.equal(record?.status, "active");
   assert.equal(record?.disposePlanId, undefined);
   assert.equal(record?.disposeAction, undefined);
+});
+
+test("executeDisposePlanEntry executes the already-validated entry even if the plan artifact changes", () => {
+  const { ledger, approvedSubject, otherSubject } = twoBackupFixture();
+  const approvedPlan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const approvedEntry = readDisposePlanEntry(ledger, approvedPlan.planId);
+  const otherPlan = createDisposePlan(ledger, { id: "shf_other", action: "resolve-only", reason: "reviewed" });
+
+  // Simulate the TOCTOU edge: after validation, the plan artifact at the approved plan id is replaced
+  // with a different but well-formed entry. The UI execute path must still execute only the entry that
+  // was already validated against the approved target.
+  writeFileSync(
+    approvedPlan.planPath as string,
+    `${JSON.stringify({ ...otherPlan, planId: approvedPlan.planId, planPath: approvedPlan.planPath }, null, 2)}\n`
+  );
+
+  const execution = executeDisposePlanEntry(ledger, approvedPlan.planId, approvedEntry);
+
+  assert.equal(execution.result.id, "shf_backup");
+  assert.equal(execution.result.action, "trash-resolve");
+  assert.equal(recordById(ledger, "shf_backup")?.status, "trashed");
+  assert.equal(recordById(ledger, "shf_other")?.status, "active");
+  assert.equal(existsSync(approvedSubject), false);
+  assert.equal(existsSync(otherSubject), true);
 });
 
 test("disposeBackedTargetExecutor refuses unsupported approved actions before executing", () => {

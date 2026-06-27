@@ -167,6 +167,38 @@ test("executeApprovalBundle refuses a tampered fingerprint even when live drift 
   ]);
 });
 
+test("executeApprovalBundle refuses an unsupported bundle action before executing targets", () => {
+  const home = freshHome();
+  const { snapshot } = bundleSelecting(home, ["shf_a"]);
+  const tampered: UiApprovalSnapshot = { ...snapshot, actionType: "purge" };
+
+  const calls: string[] = [];
+  const result = executeApprovalBundle(tampered, { targets: sampleTargets(), reviewed: {} }, (target) => {
+    calls.push(target.targetId);
+    return { outcome: "executed", detail: "should not execute" };
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.status, "refused");
+  assert.match(result.receipts[0]!.detail, /unsupported bundle action/i);
+});
+
+test("executeApprovalBundle refuses when bundle action differs from selected target actions", () => {
+  const home = freshHome();
+  const { snapshot } = bundleSelecting(home, ["shf_a"]);
+  const tampered: UiApprovalSnapshot = { ...snapshot, actionType: "keep" };
+
+  const calls: string[] = [];
+  const result = executeApprovalBundle(tampered, { targets: sampleTargets(), reviewed: {} }, (target) => {
+    calls.push(target.targetId);
+    return { outcome: "executed", detail: "should not execute" };
+  });
+
+  assert.deepEqual(calls, []);
+  assert.equal(result.status, "refused");
+  assert.match(result.receipts[0]!.detail, /does not match selected target/i);
+});
+
 test("executeApprovalBundle isolates a failing target so a partial run shows both the failure and the success", () => {
   const home = freshHome();
   const { snapshot } = bundleSelecting(home, ["shf_a", "shf_b"], { total: 2 });
