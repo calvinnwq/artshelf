@@ -527,7 +527,14 @@ function requireExactTargetSubject(target: UiApprovalTarget): void {
 export function readApprovalSnapshot(home: string, sessionId: string, bundleId: string): UiApprovalSnapshot {
   const path = bundleFile(home, sessionId, bundleId);
   if (!existsSync(path)) throw new Error(`Artshelf UI approval snapshot not found: ${bundleId}`);
-  return JSON.parse(readFileSync(path, "utf8")) as UiApprovalSnapshot;
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<UiApprovalSnapshot>;
+  if (parsed.id !== bundleId) {
+    throw new Error(`Invalid Artshelf UI approval snapshot bundle id in ${path}: expected ${bundleId}, found ${String(parsed.id)}`);
+  }
+  if (parsed.sessionId !== sessionId) {
+    throw new Error(`Invalid Artshelf UI approval snapshot session id in ${path}: expected ${sessionId}, found ${String(parsed.sessionId)}`);
+  }
+  return parsed as UiApprovalSnapshot;
 }
 
 // List every persisted approval bundle for a session (NGX-539): a read-only audit/discovery

@@ -601,6 +601,12 @@ function findApprovalBundleEvent(home: string, sessionId: string, bundleId: stri
 
 function validateApprovalEventWitness(event: UiEvent, snapshot: UiApprovalSnapshot): void {
   const payload = event.payload;
+  if (event.sessionId !== snapshot.sessionId) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} approval event session does not match the loaded bundle session`);
+  }
+  if (event.target.bundleId !== snapshot.id) {
+    throw new Error(`Artshelf UI bundle ${snapshot.id} approval event target does not match the loaded bundle id`);
+  }
   if (payload.bundleId !== snapshot.id) {
     throw new Error(`Artshelf UI bundle ${snapshot.id} approval event payload does not match the loaded bundle id`);
   }

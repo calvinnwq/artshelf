@@ -296,6 +296,83 @@ test("executeApprovedBundle refuses when the approval event witness does not mat
   assert.equal(submitted?.replies.length, 0);
 });
 
+test("executeApprovedBundle refuses a snapshot whose stored bundle id does not match the requested bundle", () => {
+  const home = freshHome();
+  const ledger = ledgerWith([record("shf_a", "/subjects/a"), record("shf_b", "/subjects/b")]);
+  const registryPath = join(mkdtempSync(join(tmpdir(), "artshelf-exec-session-registry-")), "ledgers.json");
+  writeRegistryFile(registryPath, [ledger]);
+  const session = startOrResumeSession({ home, scope: "user", registryPath });
+  const snapA = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: [target("shf_a", ledger, "/subjects/a")],
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+  const snapB = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: [target("shf_b", ledger, "/subjects/b")],
+    selectedTargetIds: ["shf_b"],
+    reviewed: {}
+  });
+  writeFileSync(join(home, "sessions", session.id, "bundles", `${snapA.id}.json`), `${JSON.stringify(snapB, null, 2)}\n`);
+  appendEvent(home, session.id, {
+    type: "approval_bundle_submitted",
+    target: { bundleId: snapA.id },
+    payload: { ...approvalEventPayload(snapB), registryPath }
+  });
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, session.id, snapA.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /snapshot.*bundle id/i
+  );
+  assert.equal(executions, 0);
+  const submitted = readSessionHistory(home, session.id).find((h) => h.event.target.bundleId === snapA.id);
+  assert.equal(submitted?.event.status, "pending");
+  assert.equal(submitted?.replies.length, 0);
+});
+
+test("executeApprovedBundle refuses a snapshot whose stored session id does not match the active session", () => {
+  const home = freshHome();
+  const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
+  const registryPath = join(mkdtempSync(join(tmpdir(), "artshelf-exec-session-registry-")), "ledgers.json");
+  writeRegistryFile(registryPath, [ledger]);
+  const session = startOrResumeSession({ home, scope: "user", registryPath });
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: [target("shf_a", ledger, "/subjects/a")],
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+  writeFileSync(
+    join(home, "sessions", session.id, "bundles", `${snapshot.id}.json`),
+    `${JSON.stringify({ ...snapshot, sessionId: "session_20260301_000000_badbad00" }, null, 2)}\n`
+  );
+  appendEvent(home, session.id, {
+    type: "approval_bundle_submitted",
+    target: { bundleId: snapshot.id },
+    payload: { ...approvalEventPayload(snapshot), registryPath }
+  });
+
+  let executions = 0;
+  assert.throws(
+    () =>
+      executeApprovedBundle(home, session.id, snapshot.id, () => {
+        executions += 1;
+        return { outcome: "executed", detail: "x" };
+      }),
+    /snapshot.*session id/i
+  );
+  assert.equal(executions, 0);
+  const submitted = readSessionHistory(home, session.id).find((h) => h.event.target.bundleId === snapshot.id);
+  assert.equal(submitted?.event.status, "pending");
+  assert.equal(submitted?.replies.length, 0);
+});
+
 test("executeApprovedBundle refuses selected targets outside a ledger-scoped session before claiming the event", () => {
   const home = freshHome();
   const scopedLedger = ledgerWith([record("shf_scope", "/subjects/scoped")]);
