@@ -391,6 +391,7 @@ function refusal(entry: DisposePlanEntry, reason: string, recordStatus: Artshelf
 function appliedResultFromRecord(entry: DisposePlanEntry, record: ArtshelfRecord): DisposeResult {
   const action = record.disposeAction ?? entry.action;
   const target = action === "trash-resolve" ? (record.targetPath ?? null) : null;
+  const subjectPresent = action === "trash-resolve" ? existsSync(entry.subjectPath) : entry.subject.existence === "present";
   return {
     id: entry.id,
     action,
@@ -402,7 +403,7 @@ function appliedResultFromRecord(entry: DisposePlanEntry, record: ArtshelfRecord
     retainUntil: action === "snooze" ? (record.retainUntil ?? null) : null,
     verification: {
       recordStatus: record.status,
-      subjectPresent: existsSync(entry.subjectPath),
+      subjectPresent,
       targetPresent: action === "trash-resolve" ? (target ? existsSync(target) : false) : null
     }
   };

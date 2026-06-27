@@ -136,6 +136,42 @@ test("disposeBackedTargetExecutor fails a resolved receipt when the live subject
   assert.equal(live.subjectPresent, false);
 });
 
+test("disposeBackedTargetExecutor fails an interrupted resolve-only resume when the live subject disappeared", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "no longer needed" });
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeLedgerFile(ledger, readLedger(ledger).map((record) => record.id === "shf_backup" ? {
+    ...record,
+    status: "resolved",
+    resolvedAt: "2026-03-01T00:00:00Z",
+    resolutionReason: "no longer needed",
+    disposePlanId: plan.planId,
+    disposeReceiptPath: receiptPath,
+    disposedAt: "2026-03-01T00:00:00Z",
+    disposeAction: "resolve-only",
+    disposeReason: "no longer needed"
+  } : record));
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: plan.planId,
+    ledgerPath: ledger,
+    executedAt: "2026-03-01T00:00:00Z",
+    status: "started",
+    action: "resolve-only",
+    target: null
+  }, null, 2)}\n`);
+  rmSync(subject);
+
+  const execution = disposeBackedTargetExecutor(approvalTarget(ledger, subject, plan.planId, "resolve-only"));
+
+  assert.equal(execution.outcome, "failed");
+  const evidence = evidenceOf(execution);
+  const commandVerification = evidence.commandVerification as Record<string, unknown>;
+  const live = evidence.live as Record<string, unknown>;
+  assert.equal(commandVerification.subjectPresent, true);
+  assert.equal(live.subjectPresent, false);
+});
+
 test("disposeBackedTargetExecutor executes a reviewed snooze plan and verifies the extended retention", () => {
   const { ledger, subject } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "snooze", ttl: "7d" });
