@@ -1,5 +1,11 @@
+import { existsSync } from "node:fs";
+import { executeDisposePlan } from "./dispose.js";
+import { readLedger } from "./ledger.js";
 import { revalidateApprovalSnapshot, selectedApprovalTargets } from "./session.js";
 import type {
+  ArtshelfRecord,
+  ArtshelfStatus,
+  DisposeExecution,
   UiApprovalLiveFacts,
   UiApprovalRevalidation,
   UiApprovalSnapshot,
@@ -36,6 +42,159 @@ export type UiBundleTargetExecution = {
 // live state to verify the result. Injected so the orchestration core stays pure and the real
 // dispose-backed executor (with its own live-state verification) is wired in at the command layer.
 export type UiBundleTargetExecutor = (target: UiApprovalTarget) => UiBundleTargetExecution;
+
+// The real dispose-backed target executor (NGX-540 slice 2). It binds one exactly-approved target to
+// the reviewed dispose plan the human approved - never minting a fresh plan - runs the existing
+// approval-gated `dispose --execute` path, then INDEPENDENTLY re-reads the live ledger and filesystem
+// to confirm the disposition actually took effect rather than trusting the command's reported result.
+// Outcome mapping:
+//   needs_manual_review - the target carries no reviewed plan id, or the dispose engine refused the
+//                         plan (drift/conflict) rather than mutating; a human must decide.
+//   failed              - `dispose --execute` errored, or the independent live re-query did not match
+//                         the executed action's promised end-state.
+//   executed            - the action ran and the live ledger/filesystem confirm the expected change.
+// The keep/trash/resolve/defer triage intents map to keep/trash-resolve/resolve-only/snooze dispose
+// actions upstream; here the reviewed plan already encodes the exact action, so this binds by plan id.
+export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleTargetExecution {
+  if (!isNonEmptyString(target.planId)) {
+    return {
+      outcome: "needs_manual_review",
+      detail: "needs_manual_review: approved target carries no reviewed dispose plan id; re-run the dry-run and re-approve",
+      evidence: { ledgerPath: target.ledgerPath, recordPath: target.recordPath }
+    };
+  }
+
+  let execution: DisposeExecution;
+  try {
+    execution = executeDisposePlan(target.ledgerPath, target.planId);
+  } catch (error) {
+    return {
+      outcome: "failed",
+      detail: `failed: dispose --execute errored: ${(error as Error).message}`,
+      evidence: { ledgerPath: target.ledgerPath, planId: target.planId }
+    };
+  }
+
+  const result = execution.result;
+  // The dispose engine refuses (skips) a drifted or conflicting entry rather than mutating it: the
+  // underlying CLI path refused it, so a human must decide - not a hard failure.
+  if (result.status === "skipped") {
+    return {
+      outcome: "needs_manual_review",
+      detail: `needs_manual_review: dispose refused the reviewed plan: ${result.reason}`,
+      evidence: disposeEvidence(execution)
+    };
+  }
+
+  // Verify live state, not the command's word alone (NGX-540): re-read the ledger + filesystem and
+  // confirm they reflect the executed action's promised end-state.
+  const verified = verifyDisposeLive(target.ledgerPath, execution);
+  const evidence = { ...disposeEvidence(execution), live: verified.live };
+  if (!verified.ok) {
+    return { outcome: "failed", detail: `failed: live state did not reflect the executed ${result.action}: ${verified.detail}`, evidence };
+  }
+  return { outcome: "executed", detail: `executed ${result.action}: ${verified.detail}`, evidence };
+}
+
+// Audit-facing evidence for one dispose execution: the receipt, when it ran, the action, and the
+// command's own reported verification - enough for follow-up review alongside the agent's independent
+// live re-query (added by the caller as `live`).
+function disposeEvidence(execution: DisposeExecution): Record<string, unknown> {
+  return {
+    planId: execution.planId,
+    receiptPath: execution.receiptPath,
+    executedAt: execution.executedAt,
+    action: execution.result.action,
+    status: execution.result.status,
+    commandVerification: execution.result.verification
+  };
+}
+
+// Live disposition facts re-derived straight from the on-disk ledger row and filesystem, independent
+// of whatever the dispose command reported.
+type LiveDisposeFacts = {
+  recordStatus: ArtshelfStatus | "absent";
+  subjectPresent: boolean | null;
+  targetPresent: boolean | null;
+  retainUntil: string | null;
+  disposePlanId: string | null;
+  disposeAction: string | null;
+};
+
+type LiveVerification = { ok: boolean; detail: string; live: LiveDisposeFacts };
+
+// The post-execute verification loop: re-read the live ledger + filesystem and confirm they match the
+// end-state the executed action promises. Every applied action must carry THIS plan's audit stamp on
+// the live row (proof this execution mutated it, surviving idempotent reruns), plus the
+// action-specific status and filesystem end-state. A mismatch means the command's reported success
+// cannot be trusted, so the target is failed rather than executed.
+function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution): LiveVerification {
+  const result = execution.result;
+  let record: ArtshelfRecord | undefined;
+  try {
+    record = readLedger(ledgerPath).find((entry) => entry.id === result.id);
+  } catch (error) {
+    return liveFail(`could not re-read the live ledger: ${(error as Error).message}`, absentLive());
+  }
+  if (!record) return liveFail(`record ${result.id} is no longer in the live ledger`, absentLive());
+
+  const subjectPresent = result.previousPath ? existsSync(result.previousPath) : null;
+  const targetPresent = result.targetPath ? existsSync(result.targetPath) : null;
+  const live: LiveDisposeFacts = {
+    recordStatus: record.status,
+    subjectPresent,
+    targetPresent,
+    retainUntil: record.retainUntil ?? null,
+    disposePlanId: record.disposePlanId ?? null,
+    disposeAction: record.disposeAction ?? null
+  };
+
+  if (record.disposePlanId !== execution.planId) {
+    return liveFail(`live row is not stamped with this dispose plan (found ${record.disposePlanId ?? "none"})`, live);
+  }
+  if (record.disposeAction !== result.action) {
+    return liveFail(`live row dispose action is ${record.disposeAction ?? "none"}, expected ${result.action}`, live);
+  }
+
+  if (result.action === "trash-resolve") {
+    if (record.status !== "trashed") return liveFail(`live status is ${record.status}, expected trashed`, live);
+    if (targetPresent !== true) return liveFail(`trash target ${result.targetPath} is no longer present`, live);
+    if (subjectPresent !== false) return liveFail(`subject is still present at ${result.previousPath}`, live);
+    return liveOk(`row trashed and subject moved to ${result.targetPath}`, live);
+  }
+  if (result.action === "resolve-only") {
+    if (record.status !== "resolved") return liveFail(`live status is ${record.status}, expected resolved`, live);
+    return liveOk("row resolved without moving the subject", live);
+  }
+  if (result.action === "snooze") {
+    if (isTerminalStatus(record.status)) return liveFail(`live status is terminal (${record.status}); snooze must keep the row active`, live);
+    if (record.retainUntil !== result.retainUntil) return liveFail(`live retainUntil is ${record.retainUntil ?? "unset"}, expected ${result.retainUntil}`, live);
+    return liveOk(`retention horizon extended to ${result.retainUntil}`, live);
+  }
+  // keep
+  if (isTerminalStatus(record.status)) return liveFail(`live status is terminal (${record.status}); keep must leave the row active`, live);
+  return liveOk("row marked reviewed-and-kept", live);
+}
+
+function liveOk(detail: string, live: LiveDisposeFacts): LiveVerification {
+  return { ok: true, detail, live };
+}
+
+function liveFail(detail: string, live: LiveDisposeFacts): LiveVerification {
+  return { ok: false, detail, live };
+}
+
+function absentLive(): LiveDisposeFacts {
+  return { recordStatus: "absent", subjectPresent: null, targetPresent: null, retainUntil: null, disposePlanId: null, disposeAction: null };
+}
+
+function isTerminalStatus(status: ArtshelfStatus): boolean {
+  return status === "trashed" || status === "resolved";
+}
+
+function isNonEmptyString(value: unknown): value is string {
+  return typeof value === "string" && value.trim().length > 0;
+}
 
 export function executeApprovalBundle(
   snapshot: UiApprovalSnapshot,
