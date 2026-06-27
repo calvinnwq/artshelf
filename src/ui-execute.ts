@@ -1,7 +1,14 @@
 import { existsSync } from "node:fs";
 import { executeDisposePlan } from "./dispose.js";
 import { readLedger } from "./ledger.js";
-import { revalidateApprovalSnapshot, selectedApprovalTargets } from "./session.js";
+import {
+  readApprovalSnapshot,
+  readSession,
+  readSessionEvents,
+  replyToEvent,
+  revalidateApprovalSnapshot,
+  selectedApprovalTargets
+} from "./session.js";
 import type {
   ArtshelfRecord,
   ArtshelfStatus,
@@ -12,7 +19,10 @@ import type {
   UiApprovalTarget,
   UiBundleExecutionResult,
   UiBundleTargetOutcome,
-  UiBundleTargetReceipt
+  UiBundleTargetReceipt,
+  UiEvent,
+  UiReply,
+  UiReplyStatus
 } from "./types.js";
 
 // Agent-side execution of an approved approval bundle with a per-target post-execute verification
@@ -363,4 +373,97 @@ function aggregateStatus(counts: Record<UiBundleTargetOutcome, number>): UiBundl
   if (counts.executed === total) return "executed";
   if (counts.executed === 0 && counts.failed === 0 && counts.needs_manual_review === 0) return "refused";
   return "partial";
+}
+
+// The result of the agent's full handling of one approved bundle (NGX-540): the execution result
+// itself, plus the durable session reply the agent wrote back so the human sees per-target receipts
+// and the aggregate state. The reply is appended to the session log against the bundle's own
+// approval_bundle_submitted event, so the receipt trail survives reload, restart, and resume.
+export type UiBundleExecutionReply = {
+  execution: UiBundleExecutionResult;
+  event: UiEvent;
+  reply: UiReply;
+};
+
+// The agent's end-to-end handling of one approved bundle for a session (NGX-540): load the immutable
+// reviewed snapshot, re-read live state, run the revalidate -> execute -> verify loop, then write the
+// per-target receipts and aggregate state back to the session. This is the session-scoped, I/O-bound
+// orchestration wrapper around the pure executeApprovalBundle core: it owns loading the bundle,
+// resolving the event to reply to, and persisting the receipts, while the safety gate and per-target
+// classification stay in the pure core. The dispose-backed executor is the default; tests inject a
+// fake one to exercise the orchestration without the real mutating path.
+export function executeApprovedBundle(
+  home: string,
+  sessionId: string,
+  bundleId: string,
+  executeTarget: UiBundleTargetExecutor = disposeBackedTargetExecutor
+): UiBundleExecutionReply {
+  // Validate the session exists and load the immutable reviewed bundle. readSession throws on a
+  // missing session; readApprovalSnapshot throws on a missing or malformed bundle id.
+  const session = readSession(home, sessionId);
+  const snapshot = readApprovalSnapshot(home, session.id, bundleId);
+
+  // Resolve the bundle's own approval_bundle_submitted event BEFORE executing anything: the agent
+  // must reply receipts to it, so if it is missing we refuse the whole operation rather than mutate
+  // live state and then have nowhere to record the result.
+  const event = findApprovalBundleEvent(home, session.id, bundleId);
+
+  // Re-read live state and run the revalidate -> execute -> verify loop. The pure core decides which
+  // targets are still exactly what the human approved and produces one receipt per selected target.
+  const live = collectApprovalLiveFacts(snapshot);
+  const execution = executeApprovalBundle(snapshot, live, executeTarget);
+
+  // Write the per-target receipts and aggregate state back to the session by advancing the bundle's
+  // submitted event, so every approved target ends with a visible, durable result in the UI session.
+  const { event: repliedEvent, reply } = replyToEvent(home, session.id, event.id, {
+    status: bundleReplyStatus(execution.status),
+    payload: bundleReplyPayload(execution)
+  });
+  return { execution, event: repliedEvent, reply };
+}
+
+// Find the approval_bundle_submitted event that introduced this bundle - its target carries the
+// bundleId, per the loopback server's write path. Refuse when absent: a bundle the agent can execute
+// always has a submitted event to reply receipts against, so a missing one is an integrity problem,
+// not a silent no-op.
+function findApprovalBundleEvent(home: string, sessionId: string, bundleId: string): UiEvent {
+  const event = readSessionEvents(home, sessionId).find(
+    (entry) => entry.type === "approval_bundle_submitted" && entry.target.bundleId === bundleId
+  );
+  if (!event) {
+    throw new Error(`Artshelf UI bundle ${bundleId} has no approval_bundle_submitted event to reply to`);
+  }
+  return event;
+}
+
+// Roll the aggregate execution state up to the single session reply status that advances the event.
+// The event status enum has no "partial", so the rolled-up signal is deliberately conservative: only
+// a fully-clean run is "completed"; a wholly-refused stale bundle is "stale" so the human re-reviews;
+// anything in between is "failed" so a partial run is never silently presented as done. The full
+// per-target truth always rides along in the reply payload, so this never hides a target's state.
+function bundleReplyStatus(status: UiBundleExecutionResult["status"]): UiReplyStatus {
+  if (status === "executed") return "completed";
+  if (status === "refused") return "stale";
+  return "failed";
+}
+
+// The audit-facing reply body: the bundle identity, the aggregate execution state, the per-outcome
+// tally, every per-target receipt (in selection order), and a compact revalidation summary - enough
+// for the human to see exactly what happened to each approved target and why anything was skipped.
+function bundleReplyPayload(execution: UiBundleExecutionResult): Record<string, unknown> {
+  const revalidation = execution.revalidation;
+  return {
+    bundleId: execution.bundleId,
+    executionStatus: execution.status,
+    counts: execution.counts,
+    receipts: execution.receipts,
+    revalidation: {
+      status: revalidation.status,
+      expectedFingerprint: revalidation.expectedFingerprint,
+      liveFingerprint: revalidation.liveFingerprint,
+      missingTargetIds: revalidation.missingTargetIds,
+      changedTargetIds: revalidation.changedTargetIds,
+      reviewedKeysDrifted: revalidation.reviewedKeysDrifted
+    }
+  };
 }
