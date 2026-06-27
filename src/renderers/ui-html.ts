@@ -493,9 +493,19 @@ function approvalWorkbenchMain(view: UiApprovalWorkbenchView, token?: string): s
   if (!withSelection) return groups;
   return `<form class="approve" method="post" action="/approve">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
+<input type="hidden" name="actionType" value="${escapeHtml(view.actionType)}">
+<input type="hidden" name="reviewed" value="${escapeHtml(JSON.stringify(view.reviewed ?? {}))}">
+${approvalTargetInputs(view)}
 ${groups}
 ${approvalSubmit(view)}
 </form>`;
+}
+
+function approvalTargetInputs(view: UiApprovalWorkbenchView): string {
+  return view.groups
+    .flatMap((group) => group.candidates)
+    .map((candidate) => `<input type="hidden" name="target" value="${escapeHtml(JSON.stringify(candidate.target))}">`)
+    .join("");
 }
 
 function approvalGroupSection(group: UiApprovalGroup, withSelection: boolean): string {

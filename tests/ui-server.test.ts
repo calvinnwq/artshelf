@@ -4,7 +4,16 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
-import { endSession, pollPendingEvents, readSessionEvents, replyToEvent, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
+import {
+  endSession,
+  listApprovalSnapshots,
+  pollPendingEvents,
+  readApprovalSnapshot,
+  readSessionEvents,
+  replyToEvent,
+  startOrResumeSession,
+  writeApprovalSnapshot
+} from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
 
 // Tests for the loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
@@ -248,6 +257,33 @@ function postIntent(
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body,
+    redirect: "manual"
+  });
+}
+
+function approvalBody(fields: { token?: string; actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> }): string {
+  const params = new URLSearchParams();
+  if (fields.token !== undefined) params.append("token", fields.token);
+  params.append("actionType", fields.actionType);
+  params.append("reviewed", JSON.stringify(fields.reviewed ?? {}));
+  for (const target of fields.targets) params.append("target", JSON.stringify(target));
+  for (const id of fields.selectedTargetIds) params.append("targetId", id);
+  return params.toString();
+}
+
+function postApproval(
+  server: ServerHandle,
+  fields: { actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> },
+  options: { noToken?: boolean } = {}
+): Promise<TestResponse> {
+  const bodyFields: { token?: string; actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> } = {
+    ...fields
+  };
+  if (!options.noToken) bodyFields.token = server.token;
+  return server.requestRaw("/approve", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: approvalBody(bodyFields),
     redirect: "manual"
   });
 }
@@ -895,12 +931,10 @@ test("the detail history is scoped to its record so intents never leak across dr
   });
 });
 
-// NGX-539: the browser exposes a persisted approval bundle as a read-only workbench page. A reviewer
-// who already approved a bundle can reopen it to see exactly which exact targets were selected vs
-// merely reviewed and the exact action - but never re-approve it, because an approval snapshot is
-// immutable. The capability token still gates access; the immutable record is rendered without a
-// re-approval form, so the browser still executes nothing.
-test("GET /bundle/<id> renders a persisted approval bundle read-only (NGX-539 AC4)", async () => {
+// NGX-539: the browser exposes a persisted approval bundle as a token-gated workbench page. A
+// reviewer can reopen it to see exactly which exact targets were selected vs merely reviewed, then
+// submit a revised subset as a new immutable approval snapshot. The browser still executes nothing.
+test("GET /bundle/<id> renders a persisted approval bundle with token-gated partial selection (NGX-539 AC4)", async () => {
   const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
 
   await withServer({ registryPath: ledger.registryPath }, async (server) => {
@@ -941,9 +975,64 @@ test("GET /bundle/<id> renders a persisted approval bundle read-only (NGX-539 AC
     assert.match(body, /trash skip me/);
     assert.match(body, /Selected/, "the selected row carries its state badge");
     assert.match(body, /Not selected/, "the merely-reviewed row is clearly distinguished");
-    // An immutable approval record is read-only here: no re-approval form, checkboxes, or submit.
-    assert.doesNotMatch(body, /<form/, "a persisted bundle must not render a re-approval form");
-    assert.doesNotMatch(body, /type="checkbox"/, "a read-only bundle exposes no selection inputs");
+    assert.match(body, /<form[^>]*method="post"[^>]*action="\/approve"/, "the token-gated bundle page can record a revised partial approval");
+    assert.match(body, /type="checkbox"/, "selection inputs let the reviewer deselect rows before approval");
+    assert.match(body, /Approve 1 selected/, "the submit names the exact selected count");
+  });
+});
+
+test("POST /approve records a selected approval bundle and pending agent event", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const targets = [
+      {
+        targetId: "t_keep",
+        ledgerPath: ledger.ledgerPath,
+        registryPath: null,
+        recordPath: "/tmp/keep",
+        planId: null,
+        actionType: "trash",
+        label: "trash keep me"
+      },
+      {
+        targetId: "t_skip",
+        ledgerPath: ledger.ledgerPath,
+        registryPath: null,
+        recordPath: "/tmp/skip",
+        planId: null,
+        actionType: "trash",
+        label: "trash skip me"
+      }
+    ];
+
+    const response = await postApproval(server, {
+      actionType: "trash-resolve",
+      targets,
+      selectedTargetIds: ["t_keep"],
+      reviewed: { planId: "plan_x", total: 2 }
+    });
+
+    assert.equal(response.status, 303);
+    const location = response.headers.get("location") ?? "";
+    assert.match(location, /^\/bundle\/bundle_\d{8}_\d{6}_[0-9a-f]{8}\?token=/);
+
+    const bundleId = location.slice("/bundle/".length, location.indexOf("?"));
+    const snapshot = readApprovalSnapshot(server.home, server.sessionId, bundleId);
+    assert.equal(snapshot.actionType, "trash-resolve");
+    assert.deepEqual(snapshot.selectedTargetIds, ["t_keep"]);
+    assert.deepEqual(snapshot.targets, targets);
+    assert.deepEqual(snapshot.reviewed, { planId: "plan_x", total: 2 });
+    assert.deepEqual(listApprovalSnapshots(server.home, server.sessionId).map((bundle) => bundle.id), [bundleId]);
+
+    const events = readSessionEvents(server.home, server.sessionId);
+    assert.equal(events.length, 1);
+    assert.equal(events[0]!.type, "approval_bundle_submitted");
+    assert.equal(events[0]!.status, "pending");
+    assert.deepEqual(events[0]!.target, { bundleId });
+    assert.equal(events[0]!.payload.bundleId, bundleId);
+    assert.equal(events[0]!.payload.selectedCount, 1);
+    assert.equal(events[0]!.payload.targetCount, 2);
   });
 });
 

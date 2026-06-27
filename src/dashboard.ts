@@ -315,6 +315,7 @@ export function buildApprovalWorkbenchView(
   return {
     sessionId: snapshot.sessionId,
     actionType: snapshot.actionType,
+    reviewed: snapshot.reviewed,
     groups,
     selectedCount: snapshot.targets.filter((target) => selected.has(target.targetId)).length,
     totalCount: snapshot.targets.length

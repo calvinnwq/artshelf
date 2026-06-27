@@ -6,24 +6,29 @@ import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
 import { listRegisteredLedgers } from "./registry.js";
-import type { AppendEventInput } from "./session.js";
-import { appendEvent, readApprovalSnapshot, readSession, readSessionHistory, UI_DECISION_INTENTS, validateBrowserToken } from "./session.js";
-import type { UiEventType, UiSessionHistoryEntry } from "./types.js";
+import type { AppendEventInput, ApprovalSnapshotInput } from "./session.js";
+import {
+  appendEvent,
+  readApprovalSnapshot,
+  readSession,
+  readSessionHistory,
+  UI_DECISION_INTENTS,
+  validateBrowserToken,
+  writeApprovalSnapshot
+} from "./session.js";
+import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./types.js";
 
 // Loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard, NGX-536 detail
-// drawer, NGX-537 needs-context presentation, NGX-538 human triage intents, NGX-539 read-only
+// drawer, NGX-537 needs-context presentation, NGX-538 human triage intents, NGX-539 token-gated
 // approval-bundle workbench). It binds to 127.0.0.1 only and answers safe GET/HEAD reads by
 // recomputing live state from the read-only domain cores and rendering it as HTML. The read pages
 // carry no script and embed no file contents. The NGX-539 GET /bundle/<id> page renders one persisted
-// immutable approval snapshot read-only (selected vs reviewed rows and the exact action), never a
-// re-approval form - approval-bundle creation is a deliberate act owned by a later write slice.
+// immutable approval snapshot as selected vs reviewed rows and the exact action. Submitting a
+// revised subset creates a new immutable approval snapshot for the agent to revalidate.
 //
-// The single write path is POST /intents (NGX-538): a human records a lightweight triage intent
-// (inspect / comment / keep / trash / resolve / defer / dry-run request) through the rendered form.
-// That path is guarded by the session capability token, validates the exact record target through
-// the durable session log's per-intent validators, and appends a pending event for the agent to
-// poll. It still executes nothing and mutates no ledger, file, trash, or plan - the browser records
-// intents; the agent (the `ui` command) remains the only place anything is acted on.
+// The write paths are POST /intents for lightweight triage intents and POST /approve for immutable
+// approval snapshots. Both are guarded by the session capability token and append pending events for
+// the agent to poll. They execute nothing and mutate no ledger, file, trash, or plan.
 
 export type UiServerOptions = {
   // Registry whose ledgers are aggregated, and used to resolve a record's owning ledger name.
@@ -53,9 +58,9 @@ const LOOPBACK_HOST = "127.0.0.1";
 const SECURITY_HEADERS: Record<string, string> = {
   // Forbid everything but our own inline styles and same-origin form submission: no scripts, no
   // external fetches, no embedded file content can load - enforcing the no-preview, no-script
-  // boundary at the browser. `form-action 'self'` opens exactly one write: the human triage intent
-  // forms posting back to this server's /intents endpoint (NGX-538); the browser still executes
-  // nothing and mutates no ledger, file, trash, or plan - it only records intents for the agent.
+  // boundary at the browser. `form-action 'self'` opens only the server's token-gated forms
+  // (/intents and /approve); the browser still executes nothing and mutates no ledger, file, trash,
+  // or plan - it only records intents and approval bundles for the agent.
   "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
@@ -66,16 +71,18 @@ const SECURITY_HEADERS: Record<string, string> = {
 const DETAIL_PREFIX = "/detail/";
 const BUNDLE_PREFIX = "/bundle/";
 const INTENTS_PATH = "/intents";
+const APPROVE_PATH = "/approve";
 
 // Intents are tiny - a record id, a decision word, a short note - so the request body is capped well
 // below anything a real submission needs; a larger body is a malformed or hostile client.
 const MAX_INTENT_BODY_BYTES = 16 * 1024;
+const MAX_APPROVAL_BODY_BYTES = 256 * 1024;
 
-// The only event types a browser may create. The contract's decision intents (inspect, comment,
+// The only event types a browser may create through /intents. The contract's decision intents (inspect, comment,
 // keep/trash/resolve/defer, dry-run request) map onto exactly these four event types - keep/trash/
 // resolve/defer are all decision_submitted discriminated by payload.decision. Agent/approval/session
-// bookkeeping types (session_done, approval_bundle_submitted, session_note_added, ...) are NOT
-// browser-creatable: the human records triage intents, never agent receipts or approval bundles.
+// bookkeeping types (session_done, approval_bundle_submitted, session_note_added, ...) are not
+// creatable through /intents: approval bundles have their own token-gated /approve submission.
 const BROWSER_INTENT_TYPES: UiEventType[] = ["inspect_requested", "comment_added", "decision_submitted", "dry_run_requested"];
 
 export function createUiServer(options: UiServerOptions): any {
@@ -128,12 +135,21 @@ function route(options: UiServerOptions, request: any, response: any): void {
     return;
   }
 
+  if (method === "POST" && pathname === APPROVE_PATH) {
+    // Approval submission is async for the same body-read reason as /intents. It records a durable
+    // bundle and queues a pending agent event, but still executes no workflow itself.
+    void routeApprovalSubmission(options, request, response).catch((error) => {
+      tryServerError(response, error);
+    });
+    return;
+  }
+
   // The dashboard and detail drawer answer reads only. Writes are refused on every read path; the
-  // sole mutating route is the explicit, token-guarded /intents intent endpoint handled above.
+  // mutating routes are the explicit, token-guarded /intents and /approve endpoints handled above.
   sendHtml(response, 405, renderErrorPage({
     status: 405,
     title: "Method not allowed",
-    message: "This review surface answers reads; human triage intents are recorded only through the capability-token-guarded /intents form, and the browser executes nothing."
+    message: "This review surface answers reads; human triage intents and approval bundles are recorded only through capability-token-guarded forms, and the browser executes nothing."
   }));
 }
 
@@ -164,7 +180,7 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
   }
 
   if (pathname.startsWith(BUNDLE_PREFIX)) {
-    routeBundle(options, decodeURIComponent(pathname.slice(BUNDLE_PREFIX.length)), response);
+    routeBundle(options, decodeURIComponent(pathname.slice(BUNDLE_PREFIX.length)), response, access.token);
     return;
   }
 
@@ -209,6 +225,54 @@ async function routeIntentSubmission(options: UiServerOptions, request: any, res
   sendRedirect(response, 303, detailRedirect(event.target, fields.token ?? ""));
 }
 
+// Record one reviewed approval bundle (NGX-539). The form carries the server-rendered candidate
+// rows and reviewed facts, plus the human's checked target ids. The storage seam validates the
+// deliberate non-empty subset and exact per-target context before the bundle is persisted. The
+// follow-up event tells the agent a new bundle is ready for live-state revalidation; no execution
+// happens in the browser server.
+async function routeApprovalSubmission(options: UiServerOptions, request: any, response: any): Promise<void> {
+  let fields: Record<string, string[]>;
+  try {
+    const body = await readRequestBody(request, MAX_APPROVAL_BODY_BYTES);
+    fields = parseFormUrlEncodedMulti(body);
+  } catch (error) {
+    sendApprovalError(response, error);
+    return;
+  }
+
+  const token = firstField(fields, "token");
+  if (!authorizeBrowserWrite(options, token)) {
+    sendHtml(response, 401, renderErrorPage({
+      status: 401,
+      title: "Capability token required",
+      message: "Recording an approval bundle requires the active UI session token; reopen the review surface from the artshelf ui serve link. Ending the session revokes browser writes."
+    }));
+    return;
+  }
+
+  let snapshot;
+  try {
+    snapshot = writeApprovalSnapshot(options.uiHome, options.sessionId, buildApprovalInput(fields));
+    appendEvent(options.uiHome, options.sessionId, {
+      type: "approval_bundle_submitted",
+      target: { bundleId: snapshot.id },
+      payload: {
+        bundleId: snapshot.id,
+        actionType: snapshot.actionType,
+        fingerprint: snapshot.fingerprint,
+        selectedTargetIds: snapshot.selectedTargetIds,
+        selectedCount: snapshot.selectedTargetIds.length,
+        targetCount: snapshot.targets.length
+      }
+    });
+  } catch (error) {
+    sendApprovalError(response, error);
+    return;
+  }
+
+  sendRedirect(response, 303, bundleRedirect(snapshot.id, token));
+}
+
 // Write capability check, distinct from the read check: the token must match an ACTIVE session, so
 // ending a session revokes browser writes regardless of the token presented (per the contract).
 function authorizeBrowserWrite(options: UiServerOptions, token: string): boolean {
@@ -251,6 +315,40 @@ function buildIntentInput(fields: Record<string, string>): AppendEventInput {
   }
 
   return { type, target, payload };
+}
+
+function buildApprovalInput(fields: Record<string, string[]>): ApprovalSnapshotInput {
+  const actionType = firstField(fields, "actionType");
+  const targetFields = fields.target ?? [];
+  const selectedTargetIds = fields.targetId ?? [];
+  return {
+    actionType,
+    targets: targetFields.map((field) => parseApprovalTarget(field)),
+    selectedTargetIds,
+    reviewed: parseReviewedFacts(firstField(fields, "reviewed") || "{}")
+  };
+}
+
+function parseApprovalTarget(value: string): UiApprovalTarget {
+  const parsed = parseJsonRecord(value, "approval target");
+  return parsed as UiApprovalTarget;
+}
+
+function parseReviewedFacts(value: string): Record<string, unknown> {
+  return parseJsonRecord(value, "approval reviewed facts");
+}
+
+function parseJsonRecord(value: string, label: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch {
+    throw intentError(400, `Invalid Artshelf UI ${label}; expected JSON`);
+  }
+  if (!isPlainRecord(parsed)) {
+    throw intentError(400, `Invalid Artshelf UI ${label}; expected a JSON object`);
+  }
+  return parsed;
 }
 
 function isBrowserIntentType(value: string): value is UiEventType {
@@ -302,6 +400,11 @@ function detailRedirect(target: Record<string, unknown>, token: string): string 
   return `${DETAIL_PREFIX}${encodeURIComponent(recordId)}${query}`;
 }
 
+function bundleRedirect(bundleId: string, token: string): string {
+  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `${BUNDLE_PREFIX}${encodeURIComponent(bundleId)}${query}`;
+}
+
 // Collect the request body as a string, refusing anything past the intent size cap so a hostile or
 // runaway client cannot exhaust memory. Resolves once exactly: the guard makes the data/end/error
 // listeners idempotent.
@@ -327,15 +430,29 @@ function readRequestBody(request: any, limitBytes: number): Promise<string> {
 // Minimal application/x-www-form-urlencoded parsing for the flat intent fields, mirroring the read
 // surface's query decoding (+ -> space, percent-decoding). Later duplicate keys win.
 function parseFormUrlEncoded(body: string): Record<string, string> {
+  const multi = parseFormUrlEncodedMulti(body);
   const fields: Record<string, string> = {};
+  for (const [key, values] of Object.entries(multi)) fields[key] = values[values.length - 1] ?? "";
+  return fields;
+}
+
+function parseFormUrlEncodedMulti(body: string): Record<string, string[]> {
+  const fields: Record<string, string[]> = {};
   for (const pair of body.split("&")) {
     if (!pair) continue;
     const eq = pair.indexOf("=");
     const rawKey = eq === -1 ? pair : pair.slice(0, eq);
     const rawValue = eq === -1 ? "" : pair.slice(eq + 1);
-    fields[decodeFormComponent(rawKey)] = decodeFormComponent(rawValue);
+    const key = decodeFormComponent(rawKey);
+    const value = decodeFormComponent(rawValue);
+    (fields[key] ??= []).push(value);
   }
   return fields;
+}
+
+function firstField(fields: Record<string, string[]>, key: string): string {
+  const values = fields[key] ?? [];
+  return values[values.length - 1] ?? "";
 }
 
 function decodeFormComponent(value: string): string {
@@ -356,6 +473,22 @@ function sendIntentError(response: any, error: unknown): void {
   const status = typeof (error as { httpStatus?: unknown }).httpStatus === "number" ? (error as { httpStatus: number }).httpStatus : 500;
   const title = status === 413 ? "Intent too large" : status >= 500 ? "Server error" : "Intent rejected";
   sendHtml(response, status, renderErrorPage({ status, title, message: errorMessage(error) }));
+}
+
+function sendApprovalError(response: any, error: unknown): void {
+  const status =
+    typeof (error as { httpStatus?: unknown }).httpStatus === "number"
+      ? (error as { httpStatus: number }).httpStatus
+      : isApprovalValidationError(error)
+        ? 400
+        : 500;
+  const title = status === 413 ? "Approval too large" : status >= 500 ? "Server error" : "Approval rejected";
+  sendHtml(response, status, renderErrorPage({ status, title, message: errorMessage(error) }));
+}
+
+function isApprovalValidationError(error: unknown): boolean {
+  const message = errorMessage(error);
+  return /^(Invalid|Duplicate) Artshelf UI approval/.test(message) || /approval selection id/.test(message);
 }
 
 function tryServerError(response: any, error: unknown): void {
@@ -400,12 +533,12 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
   }
 }
 
-// Render one persisted approval bundle as the read-only browser workbench (NGX-539 AC4). An approval
-// snapshot is immutable, so the page shows exactly which exact targets were selected versus merely
-// reviewed and the exact action being approved, but carries no re-approval form - the surface
-// executes nothing and mutates nothing. The capability token already gated this read. A malformed or
-// absent bundle id is an expected, non-crashing not-found state; anything else is a real server error.
-function routeBundle(options: UiServerOptions, bundleId: string, response: any): void {
+// Render one persisted approval bundle as the browser workbench (NGX-539 AC4). An approval snapshot
+// is immutable, so submitting a revised selection creates a new bundle instead of changing this one.
+// The surface executes nothing and mutates no ledger, file, trash, or plan. The capability token
+// already gated this read. A malformed or absent bundle id is an expected, non-crashing not-found
+// state; anything else is a real server error.
+function routeBundle(options: UiServerOptions, bundleId: string, response: any, token: string): void {
   if (!bundleId) {
     sendHtml(response, 404, renderErrorPage({ status: 404, title: "Bundle not found", message: "Missing approval bundle id." }));
     return;
@@ -413,9 +546,7 @@ function routeBundle(options: UiServerOptions, bundleId: string, response: any):
   try {
     const snapshot = readApprovalSnapshot(options.uiHome, options.sessionId, bundleId);
     const view = buildApprovalWorkbenchView(snapshot, options.registryPath !== undefined ? { registryPath: options.registryPath } : {});
-    // No token is passed to the renderer on purpose: a persisted bundle is immutable, so it renders
-    // read-only (no selection inputs, no submit) even though the reader is authorized.
-    sendHtml(response, 200, renderApprovalWorkbenchPage(view));
+    sendHtml(response, 200, renderApprovalWorkbenchPage(view, token));
   } catch (error) {
     const message = errorMessage(error);
     if (/not found/i.test(message) || /invalid Artshelf UI bundle id/i.test(message)) {
@@ -506,4 +637,8 @@ function sendRedirect(response: any, status: number, location: string): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

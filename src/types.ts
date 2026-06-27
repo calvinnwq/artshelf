@@ -534,6 +534,7 @@ export type UiApprovalGroup = {
 export type UiApprovalWorkbenchView = {
   sessionId: string;
   actionType: string;
+  reviewed?: Record<string, unknown>;
   groups: UiApprovalGroup[];
   selectedCount: number;
   totalCount: number;
