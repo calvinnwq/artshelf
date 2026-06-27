@@ -4,7 +4,8 @@ import { existsSync, mkdtempSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
-import { appendEvent } from "../src/session.js";
+import { appendEvent, writeApprovalSnapshot } from "../src/session.js";
+import type { UiApprovalTarget } from "../src/types.js";
 
 // End-to-end tests for the Artshelf UI v1 AXI command surface (NGX-532). The agent loop -
 // start/resume, poll, reply, end - is driven through the built CLI exactly as an agent would
@@ -29,6 +30,29 @@ function startSession(home: string, args: string[] = []): any {
   const result = ui(home, ["ui", ...args, "--json"]);
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
+}
+
+function sampleTargets(): UiApprovalTarget[] {
+  return [
+    {
+      targetId: "shf_a",
+      ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl",
+      registryPath: null,
+      recordPath: "/tmp/a",
+      planId: "plan_a",
+      actionType: "trash-resolve",
+      label: "trash scratch a"
+    },
+    {
+      targetId: "shf_b",
+      ledgerPath: "/srv/ledgers/b/.artshelf/ledger.jsonl",
+      registryPath: null,
+      recordPath: "/tmp/b",
+      planId: "plan_b",
+      actionType: "trash-resolve",
+      label: "trash scratch b"
+    }
+  ];
 }
 
 test("artshelf ui starts a durable, token-protected user session and prints a compact packet", () => {
@@ -238,12 +262,18 @@ test("artshelf ui help surfaces the agent loop and nested help is focused", () =
   const family = ui(home, ["ui", "--help"]);
   assert.equal(family.status, 0, family.stderr);
   assert.match(family.stdout, /Usage:/);
-  for (const sub of ["poll", "reply", "end"]) assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
+  for (const sub of ["poll", "reply", "bundle", "end"]) assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
 
   const poll = ui(home, ["help", "ui", "poll"]);
   assert.equal(poll.status, 0, poll.stderr);
   assert.match(poll.stdout, /artshelf ui poll/);
   assert.doesNotMatch(poll.stdout, /Available Commands:/);
+
+  const bundle = ui(home, ["ui", "bundle", "--help"]);
+  assert.equal(bundle.status, 0, bundle.stderr);
+  assert.match(bundle.stdout, /artshelf ui bundle/);
+  assert.match(bundle.stdout, /revalidate live state before execution/);
+  assert.doesNotMatch(bundle.stdout, /Available Commands:/);
 
   const reply = ui(home, ["ui", "reply", "--help"]);
   assert.equal(reply.status, 0, reply.stderr);
@@ -253,4 +283,96 @@ test("artshelf ui help surfaces the agent loop and nested help is focused", () =
 
   const top = ui(home, ["help"]);
   assert.match(top.stdout, /\n\s+ui\s+\S/);
+});
+
+test("artshelf ui bundle loads a persisted approval bundle as agent-facing JSON", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+  // A reviewed bundle is approved in the browser and persisted via the session storage seam.
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  const packet = JSON.parse(ui(home, ["ui", "bundle", session.id, snapshot.id, "--json"]).stdout);
+  assert.equal(packet.ok, true);
+  assert.equal(packet.command, "ui-bundle");
+  assert.equal(packet.sessionId, session.id);
+  // The full immutable snapshot is echoed unchanged: this is the agent's revalidation input.
+  assert.deepEqual(packet.bundle, snapshot);
+  // The deliberate selection is resolved to its exact target rows so the agent need not re-derive it.
+  assert.equal(packet.selected.length, 1);
+  assert.equal(packet.selected[0].targetId, "shf_a");
+  assert.equal(packet.selected[0].recordPath, "/tmp/a");
+});
+
+test("artshelf ui bundle lists every approved bundle for a session and is empty when none exist", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+
+  const empty = JSON.parse(ui(home, ["ui", "bundle", session.id, "--json"]).stdout);
+  assert.equal(empty.ok, true);
+  assert.equal(empty.command, "ui-bundle-list");
+  assert.equal(empty.count, 0);
+  assert.deepEqual(empty.bundles, []);
+
+  const first = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+  const second = writeApprovalSnapshot(home, session.id, {
+    actionType: "resolve-only",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: { planId: "plan_b", total: 2 }
+  });
+
+  const listed = JSON.parse(ui(home, ["ui", "bundle", session.id, "--json"]).stdout);
+  assert.equal(listed.count, 2);
+  const ids = listed.bundles.map((bundle: { id: string }) => bundle.id);
+  assert.ok(ids.includes(first.id) && ids.includes(second.id));
+  // The list is a compact discovery summary carrying selected/reviewed counts per bundle.
+  const secondRow = listed.bundles.find((bundle: { id: string }) => bundle.id === second.id);
+  assert.equal(secondRow.actionType, "resolve-only");
+  assert.equal(secondRow.selectedCount, 2);
+  assert.equal(secondRow.targetCount, 2);
+  assert.equal(secondRow.fingerprint, second.fingerprint);
+});
+
+test("artshelf ui bundle prints a deliberate-approval human summary, not an execution", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  const out = ui(home, ["ui", "bundle", session.id, snapshot.id]);
+  assert.equal(out.status, 0, out.stderr);
+  assert.match(out.stdout, new RegExp(snapshot.id));
+  assert.match(out.stdout, /trash-resolve/);
+  // The exact approved subset is stated as "N of M", never a blanket approve-all.
+  assert.match(out.stdout, /1 of 2/);
+  assert.match(out.stdout, /trash scratch a/);
+  // It is an approval record, not an execution: the human surface says to revalidate first.
+  assert.match(out.stdout, /revalidate/i);
+});
+
+test("artshelf ui bundle rejects a missing session id and an unknown bundle id", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+
+  const missingSession = ui(home, ["ui", "bundle", "--json"]);
+  assert.notEqual(missingSession.status, 0);
+  assert.match(missingSession.stderr, /session/i);
+
+  const unknownBundle = ui(home, ["ui", "bundle", session.id, "bundle_20260101_000000_deadbeef", "--json"]);
+  assert.notEqual(unknownBundle.status, 0);
+  assert.match(unknownBundle.stderr, /bundle_20260101_000000_deadbeef/);
 });

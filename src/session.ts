@@ -490,6 +490,32 @@ export function readApprovalSnapshot(home: string, sessionId: string, bundleId: 
   return JSON.parse(readFileSync(path, "utf8")) as UiApprovalSnapshot;
 }
 
+// List every persisted approval bundle for a session (NGX-539): a read-only audit/discovery
+// surface for the agent. It resolves each immutable snapshot from `<ui-home>/sessions/<id>/bundles/`,
+// skipping any file whose name is not a well-formed bundle id, and returns them sorted by creation
+// time (then id) so the listing is stable across calls. Returns an empty list when the session has
+// approved nothing yet - the bundles directory need not exist.
+export function listApprovalSnapshots(home: string, sessionId: string): UiApprovalSnapshot[] {
+  const dir = join(sessionDir(home, sessionId), "bundles");
+  if (!existsSync(dir)) return [];
+  const snapshots: UiApprovalSnapshot[] = [];
+  for (const entry of readdirSync(dir)) {
+    if (!entry.endsWith(".json")) continue;
+    const bundleId = entry.slice(0, -".json".length);
+    if (!isUiId("bundle", bundleId)) continue;
+    snapshots.push(readApprovalSnapshot(home, sessionId, bundleId));
+  }
+  return snapshots.sort((left, right) => compareBundleOrder(left, right));
+}
+
+// Deterministic listing order: oldest approval first (by createdAt), breaking same-second ties by
+// bundle id so two bundles minted in the same second still sort stably.
+function compareBundleOrder(left: UiApprovalSnapshot, right: UiApprovalSnapshot): number {
+  if (left.createdAt !== right.createdAt) return left.createdAt < right.createdAt ? -1 : 1;
+  if (left.id !== right.id) return left.id < right.id ? -1 : 1;
+  return 0;
+}
+
 // Deterministic digest over the selected targets and reviewed facts. Targets are sorted by
 // their canonical form so selection order never changes the fingerprint, while any change to
 // a target or a reviewed fact does - the property a later agent relies on to detect drift and

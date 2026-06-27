@@ -43,6 +43,7 @@ Available Commands:
   serve       Serve the read-only dashboard and drawers in a local browser
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
+  bundle      Load or list persisted approval bundles for the agent
   end         End the session and revoke browser event writes
 
 Flags:
@@ -108,7 +109,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "end"])]
+  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -566,6 +567,22 @@ Reply appends an agent receipt, result, validation failure, question, or status
 note and advances exactly one event. The browser records triage intents; the
 agent replies after running existing approval-gated paths. There is no
 browser-direct execution path.
+`;
+  }
+
+  if (command === "ui bundle") {
+    return `Usage:
+  artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
+
+Options:
+  --scope <scope>          Locate the session in user (default) or repo scope
+  --json                   Emit a compact single-line agent packet
+
+Bundle is the agent's read surface over persisted approval bundles. With a
+bundle id it loads one immutable reviewed snapshot and its deliberate selected
+targets - the agent-facing JSON used to revalidate live state before execution.
+With no bundle id it lists the session's approved bundles. It only reads approval
+records; it never executes a bundle or mutates ledgers, files, trash, or plans.
 `;
   }
 

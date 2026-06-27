@@ -10,6 +10,7 @@ import {
   approvalSnapshotFingerprint,
   endSession,
   isUiDecisionIntent,
+  listApprovalSnapshots,
   pollPendingEvents,
   readApprovalSnapshot,
   readReplies,
@@ -1221,4 +1222,37 @@ test("revalidateApprovalSnapshot ignores property order in live targets and revi
   assert.equal(verdict.status, "fresh");
   assert.deepEqual(verdict.changedTargetIds, []);
   assert.deepEqual(verdict.reviewedKeysDrifted, []);
+});
+
+test("listApprovalSnapshots returns every persisted bundle for a session and is empty when none exist", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  // A session with no approved bundles lists nothing, even before any bundles dir is created.
+  assert.deepEqual(listApprovalSnapshots(home, session.id), []);
+
+  const first = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+  const second = writeApprovalSnapshot(home, session.id, {
+    actionType: "resolve-only",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_b"],
+    reviewed: { planId: "plan_b", total: 2 }
+  });
+
+  const listed = listApprovalSnapshots(home, session.id);
+  // Every persisted bundle is returned, each an exact round-trip of its stored snapshot.
+  assert.equal(listed.length, 2);
+  const byId = new Map(listed.map((bundle) => [bundle.id, bundle]));
+  assert.deepEqual(byId.get(first.id), readApprovalSnapshot(home, session.id, first.id));
+  assert.deepEqual(byId.get(second.id), readApprovalSnapshot(home, session.id, second.id));
+  // Listing is deterministic: a second call yields the same bundles in the same order.
+  assert.deepEqual(
+    listApprovalSnapshots(home, session.id).map((bundle) => bundle.id),
+    listed.map((bundle) => bundle.id)
+  );
 });

@@ -7,17 +7,20 @@ import { printCompactJson } from "../renderers/json.js";
 import {
   endSession,
   isUiReplyStatus,
+  listApprovalSnapshots,
   pollPendingEvents,
+  readApprovalSnapshot,
   readSession,
   replyToEvent,
   resolveUiHome,
+  selectedApprovalTargets,
   startOrResumeSession,
   UI_REPLY_STATUSES
 } from "../session.js";
 import type { ParsedArgs } from "../shared/cli-types.js";
 import { requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { UI_HELP } from "../shared/help-text.js";
-import type { UiEvent, UiSession, UiSessionScope } from "../types.js";
+import type { UiApprovalSnapshot, UiApprovalTarget, UiEvent, UiSession, UiSessionScope } from "../types.js";
 import type { StartUiServerOptions, UiServerHandle } from "../ui-server.js";
 import { startUiServer } from "../ui-server.js";
 
@@ -42,9 +45,10 @@ export async function handleUi(parsed: ParsedArgs, json: boolean): Promise<numbe
   if (sub === "serve") return handleUiServe(parsed, json);
   if (sub === "poll") return handleUiPoll(parsed, json);
   if (sub === "reply") return handleUiReply(parsed, json);
+  if (sub === "bundle") return handleUiBundle(parsed, json);
   if (sub === "end") return handleUiEnd(parsed, json);
   if (sub === undefined) return handleUiStart(parsed, json);
-  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, poll, reply, or end)`);
+  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, poll, reply, bundle, or end)`);
 }
 
 // `artshelf ui [--scope user|repo] [--ledger <path>] [--json]` - start or resume the session for
@@ -149,6 +153,90 @@ function handleUiEnd(parsed: ParsedArgs, json: boolean): number {
   }
   process.stdout.write(`artshelf ui end: session ${session.id} ended\n`);
   return 0;
+}
+
+// `artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]` - the agent's
+// read surface over persisted approval bundles (NGX-539). With a bundle id it loads one immutable
+// snapshot and resolves its deliberate selection to the exact per-target rows, emitting the
+// agent-facing JSON the agent uses to revalidate live state before execution. With no bundle id it
+// lists the session's approved bundles as a compact discovery summary. This never executes a bundle
+// and never mutates anything - an approval record is not an execution.
+function handleUiBundle(parsed: ParsedArgs, json: boolean): number {
+  const sessionId = requireSessionId(parsed);
+  const home = resolveHome(parsed);
+  const session = readSession(home, sessionId);
+  const bundleId = parsed.positionals[2];
+  return bundleId === undefined
+    ? printBundleList(home, session, json)
+    : printBundleDetail(home, session, bundleId, json);
+}
+
+function printBundleDetail(home: string, session: UiSession, bundleId: string, json: boolean): number {
+  const bundle = readApprovalSnapshot(home, session.id, bundleId);
+  const selected = selectedApprovalTargets(bundle);
+
+  if (json) {
+    // The full immutable snapshot plus the resolved selection: everything an agent needs to
+    // revalidate live state before execution, without re-deriving the approved subset.
+    return printCompactJson({ ok: true, command: "ui-bundle", sessionId: session.id, bundle, selected });
+  }
+
+  process.stdout.write(`artshelf ui bundle: ${bundle.id} (${bundle.actionType}) in session ${session.id}\n`);
+  process.stdout.write(`created: ${bundle.createdAt}\n`);
+  process.stdout.write(`fingerprint: ${bundle.fingerprint}\n`);
+  process.stdout.write(`selected: ${selected.length} of ${bundle.targets.length} reviewed target(s)\n`);
+  for (const target of selected) {
+    process.stdout.write(`  [${target.targetId}] ${target.label} -> ${targetSubject(target)}\n`);
+  }
+  process.stdout.write("revalidate live state before execution; this is an approval record, not an execution.\n");
+  return 0;
+}
+
+function printBundleList(home: string, session: UiSession, json: boolean): number {
+  const rows = listApprovalSnapshots(home, session.id).map(bundleSummary);
+
+  if (json) {
+    return printCompactJson({ ok: true, command: "ui-bundle-list", sessionId: session.id, count: rows.length, bundles: rows });
+  }
+
+  if (rows.length === 0) {
+    process.stdout.write(`artshelf ui bundle: no approved bundles for ${session.id}\n`);
+    return 0;
+  }
+  process.stdout.write(`artshelf ui bundle: ${rows.length} approved bundle(s) for ${session.id}\n`);
+  for (const row of rows) {
+    process.stdout.write(
+      `[${row.id}] ${row.actionType} - ${row.selectedCount} of ${row.targetCount} selected (created ${row.createdAt})\n`
+    );
+  }
+  return 0;
+}
+
+// Compact per-bundle row for the listing surface: identity, action, counts, and fingerprint so the
+// agent can discover and audit approved bundles, then `ui bundle <session> <id>` for the full snapshot.
+function bundleSummary(bundle: UiApprovalSnapshot): {
+  id: string;
+  actionType: string;
+  createdAt: string;
+  fingerprint: string;
+  selectedCount: number;
+  targetCount: number;
+} {
+  return {
+    id: bundle.id,
+    actionType: bundle.actionType,
+    createdAt: bundle.createdAt,
+    fingerprint: bundle.fingerprint,
+    selectedCount: bundle.selectedTargetIds.length,
+    targetCount: bundle.targets.length
+  };
+}
+
+// The exact subject a selected target points at, for the human listing line. Every selected target
+// names a concrete subject (recordPath, planId, or registryPath); the owning ledger is the last
+// resort so the line is never blank.
+function targetSubject(target: UiApprovalTarget): string {
+  return target.recordPath ?? target.planId ?? target.registryPath ?? target.ledgerPath;
 }
 
 // `artshelf ui dashboard [--registry <path>] [--json]` - the read-only multi-ledger review
@@ -325,7 +413,7 @@ function resolveScope(value: string | undefined): UiSessionScope {
 
 function requireSessionId(parsed: ParsedArgs): string {
   const id = parsed.positionals[1];
-  if (!id) throw new Error("Missing session id; usage: artshelf ui <poll|reply|end> <session-id>");
+  if (!id) throw new Error("Missing session id; usage: artshelf ui <poll|reply|bundle|end> <session-id>");
   return id;
 }
 
