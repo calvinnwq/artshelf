@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { createDisposePlan } from "../src/dispose.js";
+import { readLedger } from "../src/ledger.js";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
 import {
   endSession,
@@ -10,11 +12,13 @@ import {
   pollPendingEvents,
   readApprovalSnapshot,
   readSessionEvents,
+  readSessionHistory,
   replyToEvent,
   startOrResumeSession,
   writeApprovalSnapshot
 } from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
+import { executeApprovedBundle } from "../src/ui-execute.js";
 
 // Tests for the loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
 // dashboard, NGX-536's detail drawer, and NGX-537's needs-context presentation all named the
@@ -1071,5 +1075,87 @@ test("GET /bundle/<id> reports an unknown bundle as not found", async () => {
 
     const malformed = await server.request("/bundle/not-a-real-bundle-id");
     assert.equal(malformed.status, 404, "a malformed bundle id is a 404, not a 500 server error");
+  });
+});
+
+// NGX-540 browser/session smoke: the full mutating round-trip the contract demands - a human approves
+// exactly one target through the real browser write path (POST /approve), the agent then revalidates
+// live state, executes only that exact target through the existing approval-gated dispose path,
+// verifies the live result, and writes per-target receipts back to the session. The browser still
+// executes nothing itself; the agent's executeApprovedBundle is the only thing that mutates a ledger,
+// file, or trash. The assertions span all three hops: the browser-created bundle event, the genuine
+// live-state change, and the UI receipt update the review surface reads back from the durable session.
+test("browser approves a bundle, the agent executes it, and the receipt lands in the UI session (NGX-540)", async () => {
+  // A real repo whose recorded backup exists on disk, with a reviewed trash-resolve dispose plan -
+  // exactly the approval-gated CLI path the agent binds to by plan id, never minting a fresh plan.
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-smoke-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledgerPath = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "backup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledgerPath, [baseRecord({ id: "shf_backup", path: subject, kind: "backup" })]);
+  const plan = createDisposePlan(ledgerPath, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const trashTarget = plan.entry?.targetPath as string;
+
+  // The server's registry includes the real ledger so the served scope and the approved target agree.
+  const registryPath = join(repo, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    // Hop 1 - the human approves exactly this one target through the real browser write path. reviewed
+    // stays empty so the live re-read gates purely on exact-target liveness rather than refusing the
+    // whole bundle on a reviewed-fact mismatch.
+    const approveResponse = await postApproval(server, {
+      actionType: "trash-resolve",
+      targets: [
+        {
+          targetId: "shf_backup",
+          ledgerPath,
+          registryPath: null,
+          recordPath: subject,
+          planId: plan.planId,
+          actionType: "trash-resolve",
+          label: "trash backup.tar"
+        }
+      ],
+      selectedTargetIds: ["shf_backup"]
+    });
+    assert.equal(approveResponse.status, 303);
+    const location = approveResponse.headers.get("location") ?? "";
+    const redirectBundleId = location.slice("/bundle/".length, location.indexOf("?"));
+    assert.match(redirectBundleId, /^bundle_\d{8}_\d{6}_[0-9a-f]{8}$/, "the browser persisted a real approval bundle");
+
+    // The browser executed nothing: the bundle event is pending and live state is untouched. The agent
+    // discovers the bundle the way it really would - from the pending event's target.bundleId, the
+    // browser -> agent handoff - not from the browser's own redirect URL.
+    const pending = readSessionEvents(server.home, server.sessionId).find((e) => e.type === "approval_bundle_submitted");
+    assert.equal(pending?.status, "pending", "the browser only queues the bundle for the agent");
+    const bundleId = pending?.target.bundleId as string;
+    assert.equal(bundleId, redirectBundleId, "the queued event carries the exact bundle the browser created");
+    assert.equal(readLedger(ledgerPath).find((r) => r.id === "shf_backup")?.status, "active");
+    assert.equal(existsSync(subject), true, "the browser never touches the subject file");
+
+    // Hop 2 - the agent handles the approved bundle end to end: revalidate -> execute -> verify -> reply.
+    const outcome = executeApprovedBundle(server.home, server.sessionId, bundleId);
+    assert.equal(outcome.execution.status, "executed");
+    assert.equal(outcome.reply.status, "completed");
+
+    // Hop 2 verification - live state really changed, confirmed by re-reading the ledger and filesystem
+    // rather than trusting the command's exit: the subject moved to trash and its row is trashed.
+    assert.equal(readLedger(ledgerPath).find((r) => r.id === "shf_backup")?.status, "trashed");
+    assert.equal(existsSync(subject), false, "the approved target's subject moved to trash");
+    assert.equal(existsSync(trashTarget), true, "the trashed subject is recoverable at its trash path");
+
+    // Hop 3 - UI receipt update: the bundle's session event is now completed with a per-target receipt
+    // the review surface reads back from the durable session history, so the approved target ends with
+    // a visible, audit-ready result and nothing is hidden.
+    const entry = readSessionHistory(server.home, server.sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+    assert.ok(entry, "the approved bundle's event is in the session history the UI renders");
+    assert.equal(entry!.event.status, "completed");
+    assert.equal(entry!.replies.length, 1);
+    assert.equal(entry!.replies[0]?.status, "completed");
+    const receipts = entry!.replies[0]!.payload.receipts as Array<{ targetId: string; outcome: string }>;
+    assert.deepEqual(receipts.map((r) => r.targetId), ["shf_backup"]);
+    assert.deepEqual(receipts.map((r) => r.outcome), ["executed"]);
   });
 });
