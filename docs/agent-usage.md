@@ -98,6 +98,9 @@ The browser records exact-target triage intents and approval bundle submissions,
 The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly.
 `artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles.
 It never executes a bundle.
+`artshelf ui execute <session-id> <bundle-id> --json` is the agent's mutating path and the one `ui` subcommand that changes live state: it loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths and replies per-target receipts plus the aggregate result to the session.
+Execution is exact-target only - a stale, missing, mismatched, or unapproved target is refused or skipped, never force-applied - and the agent verifies live state after each command rather than trusting the command exit; there is no `ui execute --all` and no browser-direct execution.
+Each selected target receives one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state, and a clean run exits 0 while a partial or refused run exits non-zero with every receipt still recorded.
 Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard/detail/bundle access while keeping the audit trail readable.
 
 ## Portable Skill

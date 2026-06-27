@@ -153,6 +153,22 @@
               The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly. <code>artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles. It never executes a bundle.
             </p>
             <p>
+              <code>artshelf ui execute &lt;session-id&gt; &lt;bundle-id&gt; --json</code> is the
+              agent's mutating path and the one <code>ui</code> subcommand that changes live
+              state: it loads the immutable reviewed snapshot, re-reads live
+              ledger/registry/trash state, then runs a revalidate -&gt; execute -&gt; verify loop
+              through the existing approval-gated dispose paths and replies per-target receipts
+              plus the aggregate result to the session. Execution is exact-target only - a stale,
+              missing, mismatched, or unapproved target is refused or skipped, never
+              force-applied - and the agent verifies live state after each command rather than
+              trusting the command exit; there is no <code>ui execute --all</code> and no
+              browser-direct execution. Each selected target receives one of four visible
+              outcomes - <code>executed</code>, <code>skipped_stale</code>, <code>failed</code>,
+              or <code>needs_manual_review</code> - so a partial run never hides a target's state,
+              and a clean run exits 0 while a partial or refused run exits non-zero with every
+              receipt still recorded.
+            </p>
+            <p>
               Treat the session token printed by <code>artshelf ui</code> and
               <code>artshelf ui serve</code> as a secret same-machine browser capability;
               ending the session revokes future browser writes and served dashboard/detail/bundle access

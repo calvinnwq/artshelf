@@ -194,6 +194,9 @@ artshelf ui reply &lt;session-id&gt; --event &lt;event-id&gt; --status &lt;statu
 <span class="c"># read persisted approval bundles for revalidation before execution</span>
 artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] [--scope user|repo] [--json]
 
+<span class="c"># execute an approved bundle, verify live state, and reply per-target receipts</span>
+artshelf ui execute &lt;session-id&gt; &lt;bundle-id&gt; [--scope user|repo] [--json]
+
 <span class="c"># close the session</span>
 artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
             <p>
@@ -236,6 +239,23 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               mutates ledgers, files, trash, or plans - and it is a deliberate-approval surface, so
               an approval record is never itself an execution and no vague approve-all can be
               persisted.
+            </p>
+            <p>
+              <code>ui execute &lt;session-id&gt; &lt;bundle-id&gt; --json</code> is the agent's
+              mutating path and the one <code>ui</code> subcommand that changes live state. It
+              loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state,
+              then runs a revalidate -&gt; execute -&gt; verify loop through the existing
+              approval-gated dispose paths and replies the per-target receipts plus aggregate
+              result to the session by advancing the bundle's
+              <code>approval_bundle_submitted</code> event. Execution is exact-target only: a
+              stale, missing, mismatched, or unapproved target is refused or skipped, never
+              force-applied, and the agent verifies live state after each command rather than
+              trusting the command exit - there is no <code>ui execute --all</code> and no
+              browser-direct execution. Each selected target receives one of four visible
+              outcomes - <code>executed</code>, <code>skipped_stale</code>, <code>failed</code>,
+              or <code>needs_manual_review</code> - so a partial run never hides a target's state;
+              a clean run exits 0 while a partial or refused run exits non-zero with every receipt
+              still recorded in the session.
             </p>
             <p>
               The session token printed by <code>artshelf ui</code> and
@@ -386,7 +406,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
             <p>
               <code>artshelf ui --json</code>, <code>ui dashboard --json</code>, <code>ui detail --json</code>,
               <code>ui serve --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
-              <code>ui bundle --json</code>, and <code>ui end --json</code> emit compact UI packets.
+              <code>ui bundle --json</code>, <code>ui execute --json</code>, and <code>ui end --json</code> emit compact UI packets.
               <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
               It names the relevant health, prune counts, dispose plan status, or record recommendation, classifications, blockers, approval targets where applicable, and the command

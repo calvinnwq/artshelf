@@ -52,6 +52,7 @@ src/
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
   session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
   ui-server.ts        loopback browser server for dashboard/detail/bundle pages and handoff capture
+  ui-execute.ts       agent-side approved-bundle execution: revalidate -> execute -> verify loop plus per-target receipts
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger, cleanup, disposal, reconcile, registry, and UI contracts
@@ -102,14 +103,16 @@ Each public command has a discoverable module named after the CLI surface:
 these files must contain real command-family implementation code.
 
 The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
-`ui poll`, `ui reply`, `ui bundle`, `ui end`) is the agent-mediated AXI surface over
+`ui poll`, `ui reply`, `ui bundle`, `ui execute`, `ui end`) is the agent-mediated AXI surface over
 `session.ts` plus the read-only review data surface over `dashboard.ts`,
 `artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
 sessions, serves token-protected loopback dashboard/detail/bundle pages, returns
-compact `--json` review and bundle snapshots, and runs the poll/reply/end agent
+compact `--json` review and bundle snapshots, and runs the poll/reply/execute/end agent
 loop. The browser captures human triage intents and approval bundles but never
-mutates ledgers, files, trash, or plans directly - the agent executes existing
-approval-gated commands and replies with receipts.
+mutates ledgers, files, trash, or plans directly - the agent executes an approved
+bundle through `ui execute` (the one mutating `ui` subcommand), which revalidates
+live state, runs the existing approval-gated paths for exact targets only, verifies
+live state after, and replies per-target receipts.
 
 ### Domain files
 
@@ -154,11 +157,18 @@ Current root ownership:
   per request, appends exact-target intents through the token-bound `/intents` endpoint, records
   revised approval selections through token-bound `/approve`, refuses every other mutating method,
   and never embeds file contents or scripts
+- `ui-execute.ts`: agent-side approved-bundle execution (NGX-540) - the one mutating UI path. It
+  loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
+  bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
+  exact valid targets through the existing approval-gated `dispose.ts` plan-id paths, verifies live
+  state after each command instead of trusting the command exit, and records one of four per-target
+  outcomes (`executed`/`skipped_stale`/`failed`/`needs_manual_review`) plus receipts back to the
+  session by advancing the bundle's `approval_bundle_submitted` event
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
 - `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, UI session/event/approval,
-  and registry-adjacent domain contracts
+  UI bundle execution outcome/receipt, and registry-adjacent domain contracts
 
 ### `adapters/`
 

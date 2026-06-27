@@ -157,6 +157,7 @@ artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--led
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
+artshelf ui execute <session-id> <bundle-id> [--scope user|repo] [--json]
 artshelf ui end <session-id> [--scope user|repo] [--json]
 artshelf update [--json]
 artshelf cleanup --dry-run [--all]
@@ -179,7 +180,8 @@ or `artshelf help <command>` for focused details. Nested commands such as
 `--json`; `artshelf ui --json` is a compact single-line session packet,
 `ui dashboard --json` and `ui detail --json` emit compact read-only review
 snapshots, `ui serve --json` prints a compact launch packet before the foreground
-server waits, `ui bundle` lists or loads approval bundles, and
+server waits, `ui bundle` lists or loads approval bundles, `ui execute` runs an
+approved bundle and replies per-target receipts, and
 `ui poll`/`ui reply`/`ui end` use the same compact agent loop format.
 `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` also take `--agent` for a compact
@@ -249,6 +251,9 @@ Set `ARTSHELF_UI_HOME` only for tests or controlled hosts that need to move that
 The browser side records exact-target triage intents and approval bundle submissions into the session log; agents poll with `artshelf ui poll <session-id> --json`, run the existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.
 `artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution, and with no bundle id it lists the session's approved bundles.
 It only reads approval records - never executes a bundle or mutates ledgers, files, trash, or plans.
+`artshelf ui execute <session-id> <bundle-id> --json` is the agent's mutating path and the one `ui` subcommand that changes live state: it loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths and replies per-target receipts plus the aggregate result to the session.
+Execution is exact-target only - a stale, missing, mismatched, or unapproved target is refused or skipped, never force-applied - and the agent verifies live state after each command rather than trusting the command exit; there is no `ui execute --all` and no browser-direct execution.
+Each selected target gets one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state, and a clean run exits 0 while a partial or refused run exits non-zero with every receipt still recorded.
 The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly.
 The session token printed by `artshelf ui` and `artshelf ui serve` is a same-machine browser capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes and served dashboard/detail/bundle access while keeping the audit trail.
 Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; otherwise the command prints a host-local instruction instead of a dead localhost link.
