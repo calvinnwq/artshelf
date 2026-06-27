@@ -61,7 +61,7 @@ function handleUiStart(parsed: ParsedArgs, json: boolean): number {
   const scope = resolveScope(stringFlag(parsed, "scope"));
   const ledgerPath = stringFlag(parsed, "ledger") ?? null;
   const home = resolveUiHome({ scope, cwd: process.cwd() });
-  const session = startOrResumeSession({ home, scope, ledgerPath });
+  const session = startOrResumeSession({ home, scope, ledgerPath, cwd: process.cwd() });
   const link = buildLink(session);
   const scopeHint = session.scope === "user" ? "" : ` --scope ${session.scope}`;
   const pollHint = `artshelf ui poll ${session.id}${scopeHint} --json`;
@@ -375,7 +375,7 @@ async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number>
   const ledgerPath = stringFlag(parsed, "ledger");
   const scope = resolveScope(stringFlag(parsed, "scope"));
   const home = resolveUiHome({ scope, cwd: process.cwd() });
-  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null });
+  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, cwd: process.cwd() });
   const options: StartUiServerOptions = { uiHome: home, sessionId: session.id };
   if (port !== undefined) options.port = port;
   if (registryPath !== undefined) options.registryPath = registryPath;

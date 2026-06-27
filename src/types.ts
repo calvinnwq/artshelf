@@ -351,6 +351,7 @@ export type UiSession = {
   // Explicit single-ledger target captured at start, or null for the multi-ledger
   // default. A non-null value narrows resume matching and the (later) dashboard scope.
   ledgerPath: string | null;
+  repoRoot: string | null;
   // Unguessable capability token gating browser event writes for this session.
   token: string;
 };

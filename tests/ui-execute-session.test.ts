@@ -327,6 +327,34 @@ test("executeApprovedBundle refuses selected targets outside a repo-scoped sessi
   assert.equal(submitted?.replies.length, 0);
 });
 
+test("executeApprovedBundle accepts repo-scoped sessions stored in a custom UI home", () => {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-custom-home-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const home = join(mkdtempSync(join(tmpdir(), "artshelf-exec-custom-home-")), "ui-home");
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "backup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [record("shf_a", subject)]);
+  const startInput = { home, scope: "repo" as const, cwd: repo };
+  const session = startOrResumeSession(startInput);
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: [target("shf_a", ledger, subject)],
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+  appendEvent(home, session.id, {
+    type: "approval_bundle_submitted",
+    target: { bundleId: snapshot.id },
+    payload: approvalEventPayload(snapshot)
+  });
+
+  const outcome = executeApprovedBundle(home, session.id, snapshot.id, () => ({ outcome: "executed", detail: "ok" }));
+
+  assert.equal(outcome.execution.status, "executed");
+  assert.equal(outcome.reply.status, "completed");
+});
+
 test("executeApprovedBundle resumes a matching in_progress approval bundle event", () => {
   const home = freshHome();
   const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
@@ -374,26 +402,23 @@ test("executeApprovedBundle resumes in_progress execution after a terminal targe
   assert.deepEqual(after?.replies.map((reply) => reply.status), ["in_progress", "completed"]);
 });
 
-test("executeApprovedBundle does not append a completion reply when the event stops being pending", () => {
+test("executeApprovedBundle appends final receipts when a claimed event is cancelled mid-execution", () => {
   const home = freshHome();
   const ledger = ledgerWith([record("shf_a", "/subjects/a")]);
   const { sessionId, snapshot } = sessionWithBundle(home, [target("shf_a", ledger, "/subjects/a")], ["shf_a"]);
   const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
   if (!submitted) throw new Error("expected approval_bundle_submitted event");
 
-  assert.throws(
-    () =>
-      executeApprovedBundle(home, sessionId, snapshot.id, () => {
-        replyToEvent(home, sessionId, submitted.event.id, { status: "cancelled", payload: { reason: "competing executor" } });
-        return { outcome: "executed", detail: "x" };
-      }),
-    /expected in_progress/i
-  );
+  const outcome = executeApprovedBundle(home, sessionId, snapshot.id, () => {
+    replyToEvent(home, sessionId, submitted.event.id, { status: "cancelled", payload: { reason: "competing executor" } });
+    return { outcome: "executed", detail: "x" };
+  });
+
+  assert.equal(outcome.reply.status, "completed");
   const after = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
-  assert.equal(after?.event.status, "cancelled");
-  assert.equal(after?.replies.length, 2);
-  assert.equal(after?.replies[0]?.status, "in_progress");
-  assert.equal(after?.replies[1]?.status, "cancelled");
+  assert.equal(after?.event.status, "completed");
+  assert.deepEqual(after?.replies.map((reply) => reply.status), ["in_progress", "cancelled", "completed"]);
+  assert.equal(receiptsOf(after!.replies[2]!.payload)[0]?.outcome, "executed");
 });
 
 test("executeApprovedBundle replies failed when a target execution fails", () => {

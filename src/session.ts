@@ -51,6 +51,7 @@ export type StartSessionInput = {
   home: string;
   scope: UiSessionScope;
   ledgerPath?: string | null;
+  cwd?: string;
 };
 
 export type AppendEventInput = {
@@ -169,10 +170,17 @@ export function resolveUiHome(input: ResolveUiHomeInput = {}): string {
 export function startOrResumeSession(input: StartSessionInput): UiSession {
   const home = input.home;
   const ledgerPath = input.ledgerPath ? resolve(input.ledgerPath) : null;
+  const repoRoot = input.scope === "repo" ? resolveSessionRepoRoot(input.cwd) : null;
   const lockPath = join(sessionsDir(home), "create");
   return withUiStorageLock(home, lockPath, () => {
     const existing = listSessions(home)
-      .filter((session) => session.status === "active" && session.scope === input.scope && session.ledgerPath === ledgerPath)
+      .filter(
+        (session) =>
+          session.status === "active" &&
+          session.scope === input.scope &&
+          session.ledgerPath === ledgerPath &&
+          session.repoRoot === repoRoot
+      )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
     if (existing) return existing;
 
@@ -186,6 +194,7 @@ export function startOrResumeSession(input: StartSessionInput): UiSession {
       updatedAt: createdAt,
       endedAt: null,
       ledgerPath,
+      repoRoot,
       token: randomBytes(24).toString("hex")
     };
     writeSession(home, session);
@@ -221,8 +230,15 @@ export function readSession(home: string, sessionId: string): UiSession {
     updatedAt: parsed.updatedAt ?? "",
     endedAt: parsed.endedAt ?? null,
     ledgerPath: parsed.ledgerPath ?? null,
+    repoRoot: typeof parsed.repoRoot === "string" ? resolve(parsed.repoRoot) : null,
     token: parsed.token
   };
+}
+
+function resolveSessionRepoRoot(cwd: string | undefined): string | null {
+  if (cwd === undefined) return null;
+  const absolute = resolve(cwd);
+  return findGitRoot(absolute) ?? absolute;
 }
 
 // End a session: revoke the browser write capability and record a session_done event in the

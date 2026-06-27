@@ -539,8 +539,7 @@ export function executeApprovedBundle(
   // submitted event, so every approved target ends with a visible, durable result in the UI session.
   const { event: repliedEvent, reply } = replyToEvent(home, session.id, claim.event.id, {
     status: bundleReplyStatus(execution.status),
-    payload: bundleReplyPayload(execution),
-    expectedStatus: "in_progress"
+    payload: bundleReplyPayload(execution)
   });
   return { execution, event: repliedEvent, reply };
 }
@@ -621,7 +620,7 @@ function validateApprovalSnapshotScope(home: string, session: UiSession, snapsho
   }
 
   if (session.scope !== "repo") return;
-  const sessionRepoRoot = repoRootFromUiHome(home);
+  const sessionRepoRoot = session.repoRoot ? resolve(session.repoRoot) : repoRootFromUiHome(home);
   if (sessionRepoRoot === null) {
     throw new Error(`Artshelf UI session ${session.id} repo scope cannot be resolved from UI home ${resolve(home)}`);
   }
