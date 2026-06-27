@@ -144,7 +144,7 @@ export function executeDisposePlanEntry(ledgerPath: string, planId: string, entr
   const boundEntry = assertDisposePlanEntryExecutable(entry, planId, ledgerPath);
   const receiptPath = disposeReceiptPath(ledgerPath, planId);
   return withPathLock(ledgerPath, () => {
-    const completedReceipt = existsSync(receiptPath) ? readCompletedDisposeReceipt(receiptPath, planId) : null;
+    const completedReceipt = existsSync(receiptPath) ? readCompletedDisposeReceipt(receiptPath, planId, boundEntry) : null;
     if (completedReceipt) {
       registerDisposeReceipt(ledgerPath, receiptPath, planId);
       return {
@@ -160,7 +160,7 @@ export function executeDisposePlanEntry(ledgerPath: string, planId: string, entr
     const record = index >= 0 ? records[index] : undefined;
     if (record?.disposePlanId === planId) {
       const replayReceiptPath = record.disposeReceiptPath ?? receiptPath;
-      const receipt = existsSync(replayReceiptPath) ? readCompletedDisposeReceipt(replayReceiptPath, planId) : null;
+      const receipt = existsSync(replayReceiptPath) ? readCompletedDisposeReceipt(replayReceiptPath, planId, boundEntry) : null;
       const started = receipt ? null : readStartedDisposeReceipt(replayReceiptPath, planId);
       const result = receipt?.result ?? appliedResultFromRecord(boundEntry, record);
       const executedAt = receipt?.executedAt ?? record.disposedAt ?? started?.executedAt ?? toIso(now());
@@ -531,16 +531,20 @@ function writeDisposeReceipt(receiptPath: string, value: unknown): void {
   writeFileSync(receiptPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function readCompletedDisposeReceipt(receiptPath: string, planId: string): { executedAt: string; result: DisposeResult } | null {
+function readCompletedDisposeReceipt(receiptPath: string, planId: string, expected?: Pick<DisposePlanEntry, "id" | "action">): { executedAt: string; result: DisposeResult } | null {
+  let receipt: { planId?: unknown; executedAt?: unknown; status?: unknown; result?: unknown };
   try {
-    const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown; result?: unknown };
-    if (receipt.planId !== planId || receipt.status !== "completed" || typeof receipt.executedAt !== "string" || !isDisposeResult(receipt.result)) {
-      return null;
-    }
-    return { executedAt: receipt.executedAt, result: receipt.result };
+    receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown; result?: unknown };
   } catch {
     return null;
   }
+  if (receipt.planId !== planId || receipt.status !== "completed" || typeof receipt.executedAt !== "string" || !isDisposeResult(receipt.result)) {
+    return null;
+  }
+  if (expected && (receipt.result.id !== expected.id || receipt.result.action !== expected.action)) {
+    throw new Error(`Dispose receipt result mismatch: receipt ${receiptPath} reports ${receipt.result.id}/${receipt.result.action}, expected ${expected.id}/${expected.action}`);
+  }
+  return { executedAt: receipt.executedAt, result: receipt.result };
 }
 
 function readStartedDisposeReceipt(receiptPath: string, planId: string): { executedAt: string } | null {
