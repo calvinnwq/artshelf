@@ -506,3 +506,35 @@ export type UiApprovalRevalidation = {
   // Reviewed facts whose live value differs (changed, added, or removed).
   reviewedKeysDrifted: string[];
 };
+
+// One candidate row in the browser approval workbench (NGX-539 AC4): an exact reviewed target
+// paired with whether the human currently has it selected for approval. Reuses UiApprovalTarget so
+// the row carries the same exact ledger/registry/record/plan context and human label the persisted
+// bundle will store - the workbench never invents target context the snapshot would not preserve.
+export type UiApprovalCandidate = {
+  target: UiApprovalTarget;
+  selected: boolean;
+};
+
+// Candidate rows grouped for the workbench (NGX-539 "grouped rows"). Grouping is by owning ledger so
+// the reviewer reads per-ledger batches of exact targets; `ledgerName` is the human label and
+// `ledgerPath` the exact scope. Cross-ledger approval therefore stays a set of grouped exact-target
+// rows, never a single global "approve ledger X" affordance.
+export type UiApprovalGroup = {
+  ledgerName: string;
+  ledgerPath: string;
+  candidates: UiApprovalCandidate[];
+};
+
+// The browser approval workbench view (NGX-539 AC4). A pure read projection the renderer turns into
+// the scriptless workbench page: `groups` are the grouped candidate rows, `actionType` is the exact
+// bundle action being approved, and `selectedCount`/`totalCount` summarize the deliberate selection
+// so approval can never be expressed as a vague approve-all. The server derives this from live state
+// and decides the selection; the renderer only displays it and never mints its own selection.
+export type UiApprovalWorkbenchView = {
+  sessionId: string;
+  actionType: string;
+  groups: UiApprovalGroup[];
+  selectedCount: number;
+  totalCount: number;
+};
