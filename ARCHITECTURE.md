@@ -252,7 +252,7 @@ Artshelf's public contract is safety-first:
 - cleanup execution stays approval-only and plan-id bound.
 - dispose execution stays approval-only, plan-id bound, scoped to one reviewed
   record, and physically delete-free.
-- `cleanup --execute --all` and `dispose --all` remain refused.
+- `cleanup --execute --all`, `dispose --all`, and `ui execute --all` remain refused.
 - reconcile is approval-gated ledger/registry housekeeping, not cleanup: it never
   creates, moves, or deletes files. Execution stays plan-id bound and scoped to one
   explicit `--ledger`; `reconcile --execute --all` is refused and `--all` is dry-run only.
@@ -264,10 +264,11 @@ Artshelf's public contract is safety-first:
   ledgers still route to a manual re-register/fix.
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, `list`,
   `ui dashboard`, and `ui detail` remain read-only surfaces.
-- `ui` remains non-mutating: session subcommands may create session metadata, append browser events
+- `ui` is non-mutating except for `ui execute`: session subcommands may create session metadata, append browser events
   or agent replies, write approval snapshots, and end sessions; dashboard/detail/bundle may read
-  live ledger, registry, trash, inspect, and approval state. The command family must not execute
-  cleanup, dispose, reconcile, registry-prune, resolve, or purge actions itself.
+  live ledger, registry, trash, inspect, and approval state. `ui execute` may run only an approved
+  bundle through existing approval-gated exact-target paths; the command family must not execute
+  cleanup, reconcile, registry-prune, resolve, purge, browser-direct, or broad `--all` actions itself.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
   update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.

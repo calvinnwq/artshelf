@@ -113,8 +113,8 @@ everyone confirms the next read-only review is quiet.
 
 - **Ledger-first**, not filesystem-scan-first — every artifact is a recorded decision.
 - **Dry-run before mutation**, and execute only from a reviewed plan id.
-- **No daemon, no auto-execute, no global execute** — `--all` is read-only or
-  dry-run reporting; cleanup, dispose, and purge refuse it.
+- **No daemon, no auto-execute, no global execute** - `--all` is read-only or
+  dry-run reporting; cleanup, dispose, purge, and `ui execute` refuse it.
 - **No fresh-plan-then-execute shortcut** — review the plan, then run that plan.
 - **Trash before delete** — `cleanup=delete` stays refused; physical deletion
   needs its own reviewed trash purge. No silent deletion, ever.
@@ -123,7 +123,7 @@ everyone confirms the next read-only review is quiet.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`artshelf ui` never executes or mutates ledgers, files, trash, or plans directly**, with read-only dashboard/detail views plus a session loop where the browser captures human triage intents and approval bundles while the agent polls, executes existing approval-gated commands, and replies with receipts.
+- **`artshelf ui` keeps browser review non-mutating and routes execution through `ui execute`**, with read-only dashboard/detail/bundle views plus a session loop where the browser captures human triage intents and approval bundles while the agent polls, runs the approved bundle through exact-target approval-gated paths, verifies live state, and replies with receipts.
 - **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`,
   `dispose --dry-run`, and `get --inspect`**, a compact, token-efficient decision packet for agents,
   while the default render stays human-scannable.

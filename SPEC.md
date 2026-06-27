@@ -863,9 +863,9 @@ V1 also supports a user-level registry of known ledgers:
   registry validation.
 - Registry-prune artifacts live next to the registry: `registry-prune-plans/`,
   `registry-prune-rollbacks/`, and `registry-prune-receipts/`.
-- `cleanup --execute --all`, `dispose --all`, `reconcile --execute --all`, and
+- `cleanup --execute --all`, `dispose --all`, `reconcile --execute --all`, `ui execute --all`, and
   `trash purge --all` are refused; execution stays scoped to one explicit ledger
-  or registry and one reviewed plan id.
+  or registry plus one reviewed plan id, or to one approved bundle whose selected targets each bind to exact reviewed plan context.
 
 ## Ledger Registry Schema
 
@@ -1038,11 +1038,13 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
   only does work while you are running an `artshelf` command.
 - **No auto-execute.** No command cleans up as a side effect. The only commands
   that move, trash, or delete files are `artshelf cleanup --execute`,
-  `artshelf dispose --execute`, and `artshelf trash purge --execute`, each run
-  by a human against a separately reviewed plan id.
-- **No global execute.** `cleanup --execute --all`, `dispose --all`, and
+  `artshelf dispose --execute`, `artshelf trash purge --execute`, and agent-side
+  `artshelf ui execute` over an approved bundle; each requires separately reviewed
+  exact target context before mutation.
+- **No global execute.** `cleanup --execute --all`, `dispose --all`, `ui execute --all`, and
   `trash purge --all` are refused; `--all` is read-only or dry-run reporting
-  only where supported. Execution is always scoped to a single reviewed plan id.
+  only where supported. Execution is scoped to a reviewed plan id or one approved
+  bundle whose selected targets each bind to exact reviewed plan context.
 - **No fresh-plan-then-execute.** `cleanup --execute` and `dispose --execute`
   refuse to compute a new live set. They act only on plan ids that earlier
   dry-runs produced and a human reviewed; they will not plan and execute in one
@@ -1200,9 +1202,10 @@ for later human review.
 - CLI can run the AXI-style `artshelf ui` command family: start/resume a session,
   show the read-only multi-ledger dashboard and artifact detail drawer, poll
   pending browser events, reply with agent receipts or notes, list or load
-  approval bundles for agent revalidation, and end the session; the browser
-  captures human triage intents and approval bundle submissions but never mutates
-  ledgers, files, trash, or plans directly.
+  approval bundles for agent revalidation, execute an approved bundle through
+  exact-target revalidation plus post-execute verification, and end the session;
+  the browser captures human triage intents and approval bundle submissions but
+  never mutates ledgers, files, trash, or plans directly.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf
@@ -1235,7 +1238,7 @@ for later human review.
   example, and portable renderer script for agent-rendered review reports.
 - All core commands support `--json`; the `artshelf ui` family uses compact
   single-line JSON packets for the read-only dashboard/detail views, serve launch
-  packet, approval-bundle read surface, and session loop.
+  packet, approval-bundle read surface, execution receipt surface, and session loop.
 - `review`, `status`, `doctor`, `ledgers prune --dry-run`, `dispose --dry-run`,
   and `get --inspect` also support `--agent`, a compact single-line JSON decision
   packet for agents that takes precedence over `--json`.

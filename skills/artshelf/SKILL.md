@@ -144,7 +144,7 @@ artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 
 Do not scan arbitrary filesystem locations for ledgers unless the user opted
 into that discovery scope. Scheduled jobs may review registry-prune plans but
-must not execute them. Never schedule cleanup, dispose, registry-prune, or purge execution:
+must not execute them. Never schedule cleanup, dispose, registry-prune, purge, or approved bundle execution:
 
 ```bash
 artshelf cleanup --execute --plan-id <id>
@@ -202,7 +202,7 @@ approve artshelf ledgers prune registry <registry-path> plan <plan-id>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and
-execute it in the same step. After cleanup, dispose, resolve, or registry-prune approval, verify with `artshelf review --all --json` and `artshelf ledgers list --json`; after trash purge approval, also run `artshelf trash list --all --json`.
+execute it in the same step. After cleanup, dispose, resolve, registry-prune, or approved `ui execute` bundle execution, verify with `artshelf review --all --json` and `artshelf ledgers list --json`; after trash purge approval, also run `artshelf trash list --all --json`.
 
 ## Clean
 

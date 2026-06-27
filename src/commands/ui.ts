@@ -29,11 +29,12 @@ import { startUiServer } from "../ui-server.js";
 // side of the v1 boundary: `ui` starts or resumes a durable review session, and the poll/reply/end
 // loop lets the agent drain browser-recorded triage intents and write back receipts. `dashboard` and
 // `detail` are the read-only review surfaces (NGX-535/536/537): they recompute live multi-ledger
-// state and the single-record detail drawer from existing read-only domain cores. The browser
-// records triage intents through the durable session layer; this command never executes a mutating
-// workflow and never reads or previews file contents. The browser's only write path is capturing
-// human triage intents (NGX-538) as pending session events; it never mutates ledgers, files,
-// trash, or plans directly.
+// state and the single-record detail drawer from existing read-only domain cores. `execute` is the
+// only mutating UI subcommand, and it runs approved bundles through existing exact-target
+// approval-gated paths after live revalidation. The browser records triage intents through the
+// durable session layer and never reads or previews file contents. The browser's only write path is
+// capturing human triage intents (NGX-538) as pending session events; it never mutates ledgers,
+// files, trash, or plans directly.
 // Output defaults to a human summary; `--json` emits a compact single-line packet for agents.
 export async function handleUi(parsed: ParsedArgs, json: boolean): Promise<number> {
   const sub = parsed.positionals[0];
