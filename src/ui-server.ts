@@ -189,7 +189,9 @@ async function routeIntentSubmission(options: UiServerOptions, request: any, res
 
   let event;
   try {
-    event = appendEvent(options.uiHome, options.sessionId, buildIntentInput(fields));
+    const intent = buildIntentInput(fields);
+    intent.target = validateIntentTarget(options, intent.target ?? {});
+    event = appendEvent(options.uiHome, options.sessionId, intent);
   } catch (error) {
     sendIntentError(response, error);
     return;
@@ -235,6 +237,35 @@ function buildIntentInput(fields: Record<string, string>): AppendEventInput {
 
 function isBrowserIntentType(value: string): value is UiEventType {
   return (BROWSER_INTENT_TYPES as string[]).includes(value);
+}
+
+// Refuse forged or stale browser targets before the event reaches the durable log. The forms only
+// render from a real detail drawer, but a same-machine client with the token could still POST by
+// hand; the server therefore verifies that the record exists in a ledger inside this served scope and
+// enriches the compact target with the human-readable ledger name when the registry knows one.
+function validateIntentTarget(options: UiServerOptions, target: Record<string, unknown>): Record<string, unknown> {
+  const recordId = typeof target.recordId === "string" ? target.recordId : "";
+  const requestedLedgerPath = typeof target.ledgerPath === "string" ? target.ledgerPath : "";
+  if (!isNonBlank(recordId)) throw intentError(400, "Invalid Artshelf UI event target.recordId; expected a non-empty string");
+  if (!isNonBlank(requestedLedgerPath)) {
+    throw intentError(400, "Invalid Artshelf UI event target.ledgerPath; expected a non-empty string");
+  }
+
+  const ledgerPath = scopedDetailLedgerPath(options, requestedLedgerPath);
+  if (ledgerPath === null) {
+    throw intentError(400, "Intent target ledgerPath is outside this served review scope");
+  }
+
+  try {
+    const detailOptions: BuildArtifactDetailOptions = { recordId, ledgerPath };
+    if (options.registryPath !== undefined) detailOptions.registryPath = options.registryPath;
+    const detail = buildArtifactDetail(detailOptions);
+    return detail.ledgerName
+      ? { ...target, recordId: detail.recordId, ledgerPath: detail.ledgerPath, ledgerName: detail.ledgerName }
+      : { ...target, recordId: detail.recordId, ledgerPath: detail.ledgerPath };
+  } catch (error) {
+    throw intentError(400, `Invalid intent target: ${errorMessage(error)}`);
+  }
 }
 
 function isNonBlank(value: string | undefined): value is string {

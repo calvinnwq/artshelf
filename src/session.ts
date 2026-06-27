@@ -436,22 +436,29 @@ function validateEventInput(input: AppendEventInput): Required<AppendEventInput>
 // Per-intent payload/target validators run before the event reaches the durable log, enforcing the
 // NGX-538 rule that every triage intent names the exact record + ledger it concerns and carries a
 // well-formed body - no vague global action events. The record-scoped intents (inspect/comment/
-// decision) are tightened here; dry_run_requested stays on the permissive base validation until its
-// requested-action vocabulary is settled with the approval/execute slices (NGX-539/540), and the
-// session-level types (session_done/session_note_added/etc.) keep the base validation. Event types
-// without an entry accept any plain-object target/payload.
+// decision/dry-run request) are tightened here; session-level types
+// (session_done/session_note_added/etc.) keep the base validation. Event types without an entry
+// accept any plain-object target/payload.
 const UI_EVENT_VALIDATORS: Partial<
   Record<UiEventType, (target: Record<string, unknown>, payload: Record<string, unknown>) => void>
 > = {
   inspect_requested: validateInspectRequest,
   comment_added: validateCommentIntent,
-  decision_submitted: validateDecisionIntent
+  decision_submitted: validateDecisionIntent,
+  dry_run_requested: validateDryRunRequest
 };
 
 // An inspect intent asks the agent to surface the inspect card for one exact record; it carries no
 // body of its own, only the record + ledger it concerns, so a vague "inspect everything" request
 // cannot enter the log.
 function validateInspectRequest(target: Record<string, unknown>): void {
+  requireRecordTarget(target);
+}
+
+// A dry-run request asks the agent to prepare the appropriate reviewed plan for one exact record; it
+// carries no executable authority, but still must name the record + ledger so it cannot become a
+// vague global planning event.
+function validateDryRunRequest(target: Record<string, unknown>): void {
   requireRecordTarget(target);
 }
 

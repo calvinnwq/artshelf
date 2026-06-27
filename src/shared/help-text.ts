@@ -563,9 +563,9 @@ Options:
   --json                   Emit a compact single-line agent packet
 
 Reply appends an agent receipt, result, validation failure, question, or status
-note and advances exactly one event. The browser records decisions; the agent
-replies after running existing approval-gated paths. There is no browser-direct
-execution path.
+note and advances exactly one event. The browser records triage intents; the
+agent replies after running existing approval-gated paths. There is no
+browser-direct execution path.
 `;
   }
 

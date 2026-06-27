@@ -586,6 +586,41 @@ test("appendEvent rejects a decision intent whose optional reason is present but
   assert.equal(pollPendingEvents(home, session.id).length, 0);
 });
 
+test("appendEvent records a dry_run_requested intent against its exact record target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { recordId: "shf_dry_run", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+  });
+
+  assert.equal(event.type, "dry_run_requested");
+  assert.equal(event.status, "pending");
+  assert.equal(event.source, "browser");
+  assert.equal(event.target.recordId, "shf_dry_run");
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
+test("appendEvent rejects a dry-run request missing its exact record or ledger target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "dry_run_requested",
+        target: { ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+      }),
+    /recordId/i
+  );
+  assert.throws(
+    () => appendEvent(home, session.id, { type: "dry_run_requested", target: { recordId: "shf_1" } }),
+    /ledgerPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
 test("appendEvent records an inspect_requested intent against its exact record target", () => {
   const home = freshHome();
   const session = startUserSession(home);
@@ -743,7 +778,10 @@ test("pollPendingEvents serializes pending queue reads against session end", asy
 test("replyToEvent advances event status, clears it from the poll queue, and is durable", () => {
   const home = freshHome();
   const session = startUserSession(home);
-  const event = appendEvent(home, session.id, { type: "dry_run_requested", target: { planId: "plan_a" } });
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { recordId: "shf_plan", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" }
+  });
 
   const { reply } = replyToEvent(home, session.id, event.id, {
     status: "completed",

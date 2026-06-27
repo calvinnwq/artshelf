@@ -119,7 +119,10 @@ test("artshelf ui poll surfaces pending browser events compactly", () => {
 test("artshelf ui reply advances an event and clears it from the poll queue", () => {
   const home = freshHome();
   const session = startSession(home).session;
-  const event = appendEvent(home, session.id, { type: "dry_run_requested", target: { planId: "plan_a" } });
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { recordId: "shf_plan", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" }
+  });
 
   const reply = JSON.parse(
     ui(home, [

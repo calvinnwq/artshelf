@@ -627,6 +627,7 @@ test("POST /intents records a browser comment intent that lands as a pending pol
     assert.equal(event.status, "pending");
     assert.equal(event.target.recordId, "shf_1");
     assert.equal(event.target.ledgerPath, ledgerPath);
+    assert.equal(event.target.ledgerName, "primary");
     assert.equal(event.payload.text, "looks stale, please inspect");
   });
 });
@@ -685,6 +686,38 @@ test("POST /intents drops a blank decision reason so validation still accepts th
     const event = pending[0]!;
     assert.equal(event.payload.decision, "keep");
     assert.equal("reason" in event.payload, false, "a blank reason must be dropped, never stored");
+  });
+});
+
+test("POST /intents rejects an intent with a target outside the served review scope and records nothing", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const outsideLedgerPath = join(dir, "outside.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [baseRecord({})]);
+  writeLedgerFile(outsideLedgerPath, [baseRecord({ id: "shf_outside" })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, { type: "dry_run_requested", recordId: "shf_outside", ledgerPath: outsideLedgerPath });
+
+    assert.equal(response.status, 400);
+    const html = await response.text();
+    assert.match(html, /outside this served review scope/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "an out-of-scope target must never enter the log");
+  });
+});
+
+test("POST /intents rejects an unknown record target and records nothing", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({})]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, { type: "inspect_requested", recordId: "shf_missing", ledgerPath });
+
+    assert.equal(response.status, 400);
+    const html = await response.text();
+    assert.match(html, /not found/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "an unknown record target must never enter the log");
   });
 });
 

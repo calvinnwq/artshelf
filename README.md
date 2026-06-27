@@ -123,7 +123,7 @@ everyone confirms the next read-only review is quiet.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`artshelf ui` never executes or mutates ledgers/files directly**, with read-only dashboard/detail views plus a session loop where the browser captures human triage intents while the agent polls, executes existing approval-gated commands, and replies with receipts.
+- **`artshelf ui` never executes or mutates ledgers, files, trash, or plans directly**, with read-only dashboard/detail views plus a session loop where the browser captures human triage intents while the agent polls, executes existing approval-gated commands, and replies with receipts.
 - **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`,
   `dispose --dry-run`, and `get --inspect`**, a compact, token-efficient decision packet for agents,
   while the default render stays human-scannable.

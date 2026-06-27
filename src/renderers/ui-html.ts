@@ -15,9 +15,10 @@ import type { UiEvent, UiReply, UiSessionHistoryEntry } from "../types.js";
 // Read-only HTML rendering for the Artshelf UI v1 browser surface (NGX-535 dashboard, NGX-536
 // detail drawer, NGX-537 needs-context presentation). These are pure functions: they take the
 // existing read-only domain snapshots and return a self-contained HTML document with inline styles
-// and no scripts. The browser is a display surface only - the rendered pages carry no executable
-// code, embed no file contents, and expose no mutation affordance, matching the v1 contract's
-// non-negotiable boundaries. The loopback server (src/ui-server.ts) wires these to live state.
+// and no scripts. The dashboard is display-only; detail pages carry no executable code or file
+// contents and expose only token-bound triage-intent forms, never
+// direct ledger/file/trash/plan mutation affordances. The loopback server (src/ui-server.ts) wires
+// these to live state.
 
 // Escape the five HTML metacharacters so record-supplied text (reasons, paths, ids) is always
 // rendered as text, never markup. Every dynamic value in these pages routes through here.
@@ -103,7 +104,7 @@ dl.fields dd { margin: 0; word-break: break-word; }
 `;
 
 const REVIEW_SURFACE_NOTE =
-  "Review surface - metadata only, never file contents, and never mutates files or ledgers directly; open a record to capture a triage intent for the agent.";
+  "Review surface - metadata only, never file contents, and never mutates ledgers, files, trash, or plans directly; open a record to capture a triage intent for the agent.";
 
 // Contract bucket order for the count summary. The literal hyphenated keys double as the
 // machine-precise lane labels in the first viewport.
@@ -338,7 +339,7 @@ function intentForms(recordId: string, ledgerPath: string, token: string): strin
     `<input type="hidden" name="token" value="${escapeHtml(token)}">`;
   return `<section class="intents">
 <h2>Record a triage intent</h2>
-<p class="muted">Intents are queued for the agent to act on. The browser records the decision; it executes nothing and changes no ledger, file, or trash.</p>
+<p class="muted">Intents are queued for the agent to act on. The browser records the decision; it executes nothing and changes no ledger, file, trash, or plan.</p>
 <form method="post" action="/intents" class="intent">
 <input type="hidden" name="type" value="inspect_requested">${targetFields}
 <button type="submit">Request inspect card</button>
