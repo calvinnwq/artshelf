@@ -440,7 +440,9 @@ export type UiSessionHistoryEntry = {
 
 // One exact target inside an approval snapshot. Cross-ledger action is always a bundle of
 // exact per-target actions, so every target carries its own ledger/registry/record/plan
-// context plus the human-facing label shown at approval time - never a global execute.
+// context plus the human-facing label shown at approval time - never a global execute. A
+// selected target must name a concrete subject (recordPath, planId, or registryPath) in
+// addition to its owning ledger, so "approve everything on ledger X" can never be encoded.
 export type UiApprovalTarget = {
   targetId: string;
   ledgerPath: string;
@@ -453,19 +455,25 @@ export type UiApprovalTarget = {
 };
 
 // Immutable reviewed approval snapshot persisted at
-// `<ui-home>/sessions/<id>/bundles/<bundle-id>.json`. Slice 1 only defines the storage
-// model and fingerprint; the full review/execute flow lands in later slices. The
-// `fingerprint` is a deterministic digest over the selected targets and key reviewed
-// facts so a later agent can detect drift and refuse a stale or tampered bundle before
-// executing any exact target.
+// `<ui-home>/sessions/<id>/bundles/<bundle-id>.json` (NGX-539). `targets` is the full
+// reviewed candidate pool (the grouped rows shown in the approval workbench, selected and
+// unselected alike); `selectedTargetIds` is the deliberate human selection - a non-empty
+// subset of those target ids. Persisting both lets the workbench and the agent distinguish
+// what was offered from what was approved. The `fingerprint` is a deterministic digest over
+// the *selected* targets and key reviewed facts, so deselecting a row or any drift in the
+// reviewed facts changes the bundle identity and a later agent can refuse a stale or tampered
+// bundle before executing any exact target.
 export type UiApprovalSnapshot = {
   id: string; // bundle_<id>
   sessionId: string; // session_<id>
   createdAt: string;
   actionType: string;
+  // Full reviewed candidate pool (selected + unselected rows), persisted intact.
   targets: UiApprovalTarget[];
+  // Deliberate human selection: a non-empty, duplicate-free subset of `targets` ids.
+  selectedTargetIds: string[];
   // Reviewed snapshot of the key plan facts captured at approval time.
   reviewed: Record<string, unknown>;
-  // Deterministic fingerprint over `targets` + `reviewed`.
+  // Deterministic fingerprint over the *selected* targets + `reviewed`.
   fingerprint: string;
 };

@@ -65,7 +65,10 @@ export type ReplyInput = {
 
 export type ApprovalSnapshotInput = {
   actionType: string;
+  // Full reviewed candidate pool (selected + unselected rows shown in the workbench).
   targets: UiApprovalTarget[];
+  // Deliberate human selection: a non-empty, duplicate-free subset of `targets` ids.
+  selectedTargetIds: string[];
   reviewed?: Record<string, unknown>;
 };
 
@@ -357,19 +360,25 @@ export function readReplies(home: string, sessionId: string): UiReply[] {
     .map(({ kind: _kind, ...reply }) => reply);
 }
 
-// Persist an immutable, fingerprinted approval snapshot for the session. Slice 1 only
-// defines the storage and fingerprint; the review/execute flow lands in later slices.
+// Persist an immutable, fingerprinted approval snapshot for the session (NGX-539). The
+// reviewed candidate pool and the deliberate selection are both validated and persisted, and
+// the fingerprint is taken over the *selected* targets + reviewed facts so the bundle identity
+// reflects exactly what the human approved. Approval is an approval record, never an execution:
+// this only writes the snapshot.
 export function writeApprovalSnapshot(home: string, sessionId: string, input: ApprovalSnapshotInput): UiApprovalSnapshot {
   const session = readSession(home, sessionId);
+  validateApprovalSnapshotInput(input);
   const reviewed = input.reviewed ?? {};
+  const selectedTargets = resolveSelectedTargets(input.targets, input.selectedTargetIds);
   const snapshot: UiApprovalSnapshot = {
     id: makeId("bundle"),
     sessionId: session.id,
     createdAt: toIso(now()),
     actionType: input.actionType,
     targets: input.targets,
+    selectedTargetIds: input.selectedTargetIds,
     reviewed,
-    fingerprint: approvalSnapshotFingerprint(input.targets, reviewed)
+    fingerprint: approvalSnapshotFingerprint(selectedTargets, reviewed)
   };
   const path = bundleFile(home, sessionId, snapshot.id);
   withUiStorageLock(home, path, () => {
@@ -377,6 +386,100 @@ export function writeApprovalSnapshot(home: string, sessionId: string, input: Ap
     atomicWriteFileSync(path, `${JSON.stringify(snapshot, null, 2)}\n`);
   });
   return snapshot;
+}
+
+// Resolve a bundle's deliberate selection back to its exact target rows, in selection order.
+// Used both at write time (to fingerprint the selected subset) and by readers/agents that need
+// the approved per-target context without re-implementing the pool lookup.
+export function selectedApprovalTargets(snapshot: UiApprovalSnapshot): UiApprovalTarget[] {
+  return resolveSelectedTargets(snapshot.targets, snapshot.selectedTargetIds);
+}
+
+function resolveSelectedTargets(targets: UiApprovalTarget[], selectedTargetIds: string[]): UiApprovalTarget[] {
+  const byId = new Map(targets.map((target) => [target.targetId, target]));
+  return selectedTargetIds
+    .map((id) => byId.get(id))
+    .filter((target): target is UiApprovalTarget => target !== undefined);
+}
+
+// Enforce the NGX-539 approval boundary at the storage seam: a bundle must carry a non-empty
+// reviewed candidate pool of well-formed exact targets, and the selection must be a deliberate,
+// duplicate-free, non-empty subset of that pool whose every member names an exact subject. This
+// is where "no vague approve-all" and "exact target context for every selected item" become
+// impossible to express, before the snapshot is ever fingerprinted or persisted.
+function validateApprovalSnapshotInput(input: ApprovalSnapshotInput): void {
+  if (!isNonEmptyString(input.actionType)) {
+    throw new Error("Invalid Artshelf UI approval bundle actionType; expected a non-empty string");
+  }
+  if (!Array.isArray(input.targets) || input.targets.length === 0) {
+    throw new Error("Invalid Artshelf UI approval bundle; expected at least one reviewed target in the candidate pool");
+  }
+
+  const poolIds = new Set<string>();
+  for (const target of input.targets) {
+    validateApprovalTarget(target);
+    if (poolIds.has(target.targetId)) {
+      throw new Error(`Duplicate Artshelf UI approval target id in the candidate pool: ${target.targetId}`);
+    }
+    poolIds.add(target.targetId);
+  }
+
+  if (!Array.isArray(input.selectedTargetIds) || input.selectedTargetIds.length === 0) {
+    throw new Error(
+      "Invalid Artshelf UI approval selection; approval requires at least one deliberately selected target (no vague approve-all)"
+    );
+  }
+  const selectedIds = new Set<string>();
+  for (const id of input.selectedTargetIds) {
+    if (selectedIds.has(id)) {
+      throw new Error(`Duplicate Artshelf UI approval selection id: ${id}`);
+    }
+    selectedIds.add(id);
+    if (!poolIds.has(id)) {
+      throw new Error(`Artshelf UI approval selection id not in the reviewed candidate pool: ${id}`);
+    }
+  }
+
+  // Every *selected* row must name an exact subject; an unselected candidate is only context.
+  for (const target of input.targets) {
+    if (selectedIds.has(target.targetId)) {
+      requireExactTargetSubject(target);
+    }
+  }
+}
+
+// Structural well-formedness of one candidate row, independent of whether it is selected: the
+// identity, owning ledger, action, and human label must all be present, and the optional subject
+// pointers must be either a non-empty string or explicit null (never blank).
+function validateApprovalTarget(target: UiApprovalTarget): void {
+  if (!isPlainRecord(target)) {
+    throw new Error("Invalid Artshelf UI approval target; expected a JSON object");
+  }
+  for (const field of ["targetId", "ledgerPath", "actionType", "label"] as const) {
+    if (!isNonEmptyString(target[field])) {
+      throw new Error(`Invalid Artshelf UI approval target.${field}; expected a non-empty string`);
+    }
+  }
+  for (const field of ["registryPath", "recordPath", "planId"] as const) {
+    const value = target[field];
+    if (value !== null && !isNonEmptyString(value)) {
+      throw new Error(`Invalid Artshelf UI approval target.${field}; expected a non-empty string or null`);
+    }
+  }
+}
+
+// A selected target must point at an exact subject - a record, a reviewed plan, or a registry
+// entry - so cross-ledger approval stays a bundle of exact per-target actions and can never
+// collapse into "approve everything on ledger X".
+function requireExactTargetSubject(target: UiApprovalTarget): void {
+  const hasSubject =
+    isNonEmptyString(target.recordPath) || isNonEmptyString(target.planId) || isNonEmptyString(target.registryPath);
+  if (!hasSubject) {
+    throw new Error(
+      `Invalid Artshelf UI approval target ${target.targetId}; a selected target must name an exact subject ` +
+        "(recordPath, planId, or registryPath) - no vague global approval"
+    );
+  }
 }
 
 export function readApprovalSnapshot(home: string, sessionId: string, bundleId: string): UiApprovalSnapshot {

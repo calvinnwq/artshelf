@@ -795,7 +795,7 @@ sessions/<session-id>/bundles/<bundle-id>.json
 `session.json` stores versioned metadata, the scope, lifecycle status, timestamps, optional ledger path, and the same-machine browser capability token.
 The token authorizes browser event writes only while the session is active; ending the session revokes writes without deleting audit history.
 `events.jsonl` is append-only and stores exact-target browser triage intents plus agent replies as separate log lines, with read-side projections folding replies into the current event status and preserving reply payloads for record history.
-Approval snapshots under `bundles/` are immutable JSON documents with exact per-target ledger or registry context and a deterministic fingerprint over the selected targets and reviewed facts.
+Approval snapshots under `bundles/` are immutable JSON documents that persist the full reviewed candidate pool, the deliberate selection (a non-empty, duplicate-free subset of those targets, never a vague approve-all), exact per-target ledger or registry context for every selected target, and a deterministic fingerprint over the selected targets and reviewed facts.
 A later executor can use that fingerprint to detect drift or tampering before running an approval-gated command.
 
 The storage layer must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions.

@@ -18,6 +18,7 @@ import {
   readSessionHistory,
   replyToEvent,
   resolveUiHome,
+  selectedApprovalTargets,
   startOrResumeSession,
   UI_DECISION_INTENTS,
   validateBrowserToken,
@@ -189,6 +190,7 @@ test("session storage uses owner-only directory and token file permissions", () 
     bundleId = writeApprovalSnapshot(home, session.id, {
       actionType: "trash-resolve",
       targets: sampleTargets(),
+      selectedTargetIds: ["shf_a", "shf_b"],
       reviewed: { planId: "plan_a" }
     }).id;
   } finally {
@@ -847,14 +849,236 @@ test("writeApprovalSnapshot persists a fingerprinted bundle that readApprovalSna
   const snapshot = writeApprovalSnapshot(home, session.id, {
     actionType: "trash-resolve",
     targets,
+    selectedTargetIds: ["shf_a", "shf_b"],
     reviewed: { planId: "plan_a", total: 2 }
   });
 
   assert.match(snapshot.id, /^bundle_/);
   assert.equal(snapshot.sessionId, session.id);
+  assert.deepEqual(snapshot.selectedTargetIds, ["shf_a", "shf_b"]);
   assert.equal(snapshot.fingerprint, approvalSnapshotFingerprint(targets, { planId: "plan_a", total: 2 }));
 
   const persisted = join(home, "sessions", session.id, "bundles", `${snapshot.id}.json`);
   assert.equal(existsSync(persisted), true);
   assert.deepEqual(readApprovalSnapshot(home, session.id, snapshot.id), snapshot);
+});
+
+test("writeApprovalSnapshot persists the full candidate pool and the partial selected subset", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+
+  // The reviewed candidate pool (selected + unselected rows) is persisted intact so the
+  // approval workbench can distinguish what was offered from what the human approved.
+  assert.deepEqual(snapshot.targets, targets);
+  assert.deepEqual(snapshot.selectedTargetIds, ["shf_a"]);
+  // The fingerprint covers only the selected target, so a partial selection produces a
+  // different bundle identity than approving both rows.
+  assert.equal(snapshot.fingerprint, approvalSnapshotFingerprint([targets[0]!], { planId: "plan_a", total: 2 }));
+  assert.notEqual(snapshot.fingerprint, approvalSnapshotFingerprint(targets, { planId: "plan_a", total: 2 }));
+  assert.deepEqual(readApprovalSnapshot(home, session.id, snapshot.id), snapshot);
+});
+
+test("deselecting a target changes the persisted bundle fingerprint", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const both = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: {}
+  });
+  const onlyA = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+
+  assert.notEqual(onlyA.fingerprint, both.fingerprint);
+});
+
+test("selectedTargetIds order does not change the persisted bundle fingerprint", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const ab = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a", "shf_b"],
+    reviewed: {}
+  });
+  const ba = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_b", "shf_a"],
+    reviewed: {}
+  });
+
+  assert.equal(ab.fingerprint, ba.fingerprint);
+});
+
+test("selectedApprovalTargets resolves the selected subset in selection order", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_b"],
+    reviewed: {}
+  });
+
+  assert.deepEqual(selectedApprovalTargets(snapshot), [targets[1]]);
+});
+
+test("writeApprovalSnapshot refuses an empty selection so approval cannot be a vague approve-all", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: sampleTargets(),
+        selectedTargetIds: []
+      }),
+    /at least one|deliberate|select/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a blank bundle actionType", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "  ",
+        targets: sampleTargets(),
+        selectedTargetIds: ["shf_a"]
+      }),
+    /actionType/i
+  );
+});
+
+test("writeApprovalSnapshot refuses an empty candidate pool", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: [],
+        selectedTargetIds: []
+      }),
+    /target/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a selection that names a target outside the pool", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: sampleTargets(),
+        selectedTargetIds: ["shf_a", "shf_missing"]
+      }),
+    /shf_missing/
+  );
+});
+
+test("writeApprovalSnapshot refuses duplicate selected target ids", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: sampleTargets(),
+        selectedTargetIds: ["shf_a", "shf_a"]
+      }),
+    /duplicate/i
+  );
+});
+
+test("writeApprovalSnapshot refuses duplicate target ids in the candidate pool", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+  targets[1]!.targetId = "shf_a";
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets,
+        selectedTargetIds: ["shf_a"]
+      }),
+    /duplicate/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a selected target with no exact subject context (no vague global approval)", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const vague: UiApprovalTarget = {
+    targetId: "shf_vague",
+    ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl",
+    registryPath: null,
+    recordPath: null,
+    planId: null,
+    actionType: "trash-resolve",
+    label: "everything on ledger a"
+  };
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: [vague],
+        selectedTargetIds: ["shf_vague"]
+      }),
+    /exact|context|recordPath|planId|registryPath/i
+  );
+});
+
+test("writeApprovalSnapshot refuses a target missing its owning ledger path", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const noLedger: UiApprovalTarget = {
+    targetId: "shf_x",
+    ledgerPath: "",
+    registryPath: null,
+    recordPath: "/tmp/x",
+    planId: null,
+    actionType: "trash-resolve",
+    label: "missing ledger"
+  };
+
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: "trash-resolve",
+        targets: [noLedger],
+        selectedTargetIds: ["shf_x"]
+      }),
+    /ledgerPath/i
+  );
 });
