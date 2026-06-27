@@ -3,7 +3,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import { resolveRepoRoot } from "./provenance.js";
-import { listRegisteredLedgers } from "./registry.js";
+import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import {
   approvalSnapshotFingerprint,
   readApprovalSnapshot,
@@ -668,7 +668,15 @@ function approvalRegistryPath(session: UiSession, event: UiEvent): string | null
     }
     return sessionRegistryPath;
   }
-  if (isNonEmptyString(eventRegistryPath)) return resolve(eventRegistryPath);
+  if (isNonEmptyString(eventRegistryPath)) {
+    const defaultRegistryPath = normalizeRegistryPath();
+    if (!samePath(eventRegistryPath, defaultRegistryPath)) {
+      throw new Error(
+        `Artshelf UI session ${session.id} approval event registry does not match the session registry scope: expected ${defaultRegistryPath}, found ${resolve(eventRegistryPath)}`
+      );
+    }
+    return defaultRegistryPath;
+  }
   return null;
 }
 

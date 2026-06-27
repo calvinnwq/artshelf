@@ -384,6 +384,52 @@ test("executeApprovedBundle refuses event registry overrides for a registry-scop
   assert.equal(submitted?.replies.length, 0);
 });
 
+test("executeApprovedBundle refuses event registry overrides for a default-registry session", () => {
+  const home = freshHome();
+  const scopedLedger = ledgerWith([record("shf_scope", "/subjects/scoped")]);
+  const outsideLedger = ledgerWith([record("shf_outside", "/subjects/outside")]);
+  const allowedRegistry = join(mkdtempSync(join(tmpdir(), "artshelf-exec-default-registry-")), "ledgers.json");
+  const eventRegistry = join(mkdtempSync(join(tmpdir(), "artshelf-exec-event-registry-")), "ledgers.json");
+  writeRegistryFile(allowedRegistry, [scopedLedger]);
+  writeRegistryFile(eventRegistry, [outsideLedger]);
+  const originalRegistry = process.env.ARTSHELF_REGISTRY;
+  process.env.ARTSHELF_REGISTRY = allowedRegistry;
+  try {
+    const session = startOrResumeSession({ home, scope: "user" });
+    const snapshot = writeApprovalSnapshot(home, session.id, {
+      actionType: "trash-resolve",
+      targets: [target("shf_outside", outsideLedger, "/subjects/outside")],
+      selectedTargetIds: ["shf_outside"],
+      reviewed: {}
+    });
+    appendEvent(home, session.id, {
+      type: "approval_bundle_submitted",
+      target: { bundleId: snapshot.id },
+      payload: { ...approvalEventPayload(snapshot), registryPath: eventRegistry }
+    });
+
+    let executions = 0;
+    assert.throws(
+      () =>
+        executeApprovedBundle(home, session.id, snapshot.id, () => {
+          executions += 1;
+          return { outcome: "executed", detail: "x" };
+        }),
+      /registry.*session.*scope/i
+    );
+    assert.equal(executions, 0);
+    const submitted = readSessionHistory(home, session.id).find((h) => h.event.type === "approval_bundle_submitted");
+    assert.equal(submitted?.event.status, "pending");
+    assert.equal(submitted?.replies.length, 0);
+  } finally {
+    if (originalRegistry === undefined) {
+      delete process.env.ARTSHELF_REGISTRY;
+    } else {
+      process.env.ARTSHELF_REGISTRY = originalRegistry;
+    }
+  }
+});
+
 test("executeApprovedBundle accepts repo-scoped sessions stored in a custom UI home", () => {
   const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-custom-home-repo-"));
   mkdirSync(join(repo, ".git"), { recursive: true });

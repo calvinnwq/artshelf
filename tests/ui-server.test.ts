@@ -130,9 +130,9 @@ type TestSession = {
   token: string;
 };
 
-function createTestSession(): TestSession {
+function createTestSession(registryPath?: string): TestSession {
   const home = join(fixtureDir(), "ui");
-  const session = startOrResumeSession({ home, scope: "user", ledgerPath: null });
+  const session = startOrResumeSession({ home, scope: "user", ledgerPath: null, registryPath: registryPath ?? null });
   return { home, sessionId: session.id, token: session.token };
 }
 
@@ -151,7 +151,7 @@ async function withServer(
 }
 
 async function startTestServer(options: { registryPath: string; ledgerPath?: string }): Promise<ServerHandle> {
-  const session = createTestSession();
+  const session = createTestSession(options.registryPath);
   try {
     const serverOptions = {
       port: 0,

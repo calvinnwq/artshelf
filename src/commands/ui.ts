@@ -3,6 +3,7 @@ import { buildArtifactDetail } from "../artifact-detail.js";
 import { uiLinkBaseUrl } from "../config/env.js";
 import type { BuildDashboardOptions, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
 import { buildDashboard } from "../dashboard.js";
+import { normalizeRegistryPath } from "../registry.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
   endSession,
@@ -375,10 +376,11 @@ async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number>
   const ledgerPath = stringFlag(parsed, "ledger");
   const scope = resolveScope(stringFlag(parsed, "scope"));
   const home = resolveUiHome({ scope, cwd: process.cwd() });
-  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, registryPath: registryPath ?? null, cwd: process.cwd() });
+  const sessionRegistryPath = ledgerPath === undefined ? normalizeRegistryPath(registryPath) : registryPath ?? null;
+  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, registryPath: sessionRegistryPath, cwd: process.cwd() });
   const options: StartUiServerOptions = { uiHome: home, sessionId: session.id };
   if (port !== undefined) options.port = port;
-  if (registryPath !== undefined) options.registryPath = registryPath;
+  if (session.registryPath !== null) options.registryPath = session.registryPath;
   if (ledgerPath !== undefined) options.ledgerPath = ledgerPath;
 
   const handle = await startUiServer(options);
