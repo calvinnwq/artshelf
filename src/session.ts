@@ -428,6 +428,12 @@ export function writeApprovalSnapshot(home: string, sessionId: string, input: Ap
 // Used both at write time (to fingerprint the selected subset) and by readers/agents that need
 // the approved per-target context without re-implementing the pool lookup.
 export function selectedApprovalTargets(snapshot: UiApprovalSnapshot): UiApprovalTarget[] {
+  validateApprovalSnapshotInput({
+    actionType: snapshot.actionType,
+    targets: snapshot.targets,
+    selectedTargetIds: snapshot.selectedTargetIds,
+    reviewed: snapshot.reviewed
+  });
   return resolveSelectedTargets(snapshot.targets, snapshot.selectedTargetIds);
 }
 

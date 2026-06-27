@@ -229,15 +229,15 @@ test("executeApprovalBundle refuses a malformed bundle whose selection resolves 
   const malformed: UiApprovalSnapshot = { ...snapshot, selectedTargetIds: ["shf_missing"], fingerprint: approvalSnapshotFingerprint([], {}) };
 
   const calls: string[] = [];
-  const result = executeApprovalBundle(malformed, { targets: sampleTargets(), reviewed: {} }, (target) => {
-    calls.push(target.targetId);
-    return { outcome: "executed", detail: "should not execute" };
-  });
-
+  assert.throws(
+    () =>
+      executeApprovalBundle(malformed, { targets: sampleTargets(), reviewed: {} }, (target) => {
+        calls.push(target.targetId);
+        return { outcome: "executed", detail: "should not execute" };
+      }),
+    /shf_missing/
+  );
   assert.deepEqual(calls, []);
-  assert.equal(result.status, "refused");
-  assert.equal(result.receipts.length, 0);
-  assert.deepEqual(result.counts, { executed: 0, skipped_stale: 0, failed: 0, needs_manual_review: 0 });
 });
 
 test("executeApprovalBundle isolates a failing target so a partial run shows both the failure and the success", () => {

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -26,6 +26,42 @@ function ui(home: string, args: string[], env: Record<string, string> = {}): { s
     env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_UI_HOME: home, ...env }
   });
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
+}
+
+function serveSession(home: string, args: string[] = [], env: Record<string, string> = {}): Promise<any> {
+  const child = spawn(process.execPath, [CLI.pathname, "ui", "serve", "--port", "0", ...args, "--json"], {
+    env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_UI_HOME: home, ...env }
+  });
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+  return new Promise((resolve, reject) => {
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      fn();
+    };
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`ui serve timed out before launch packet: ${stderr}`)));
+    }, 5000);
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      const line = stdout.split("\n").find((entry) => entry.trim().length > 0);
+      if (!line) return;
+      finish(() => resolve(JSON.parse(line)));
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", (error: Error) => finish(() => reject(error)));
+    child.on("exit", (code: number | null) => {
+      if (!settled) finish(() => reject(new Error(`ui serve exited before launch packet (${code}): ${stderr}`)));
+    });
+  });
 }
 
 function startSession(home: string, args: string[] = [], env: Record<string, string> = {}): any {
@@ -83,6 +119,21 @@ test("artshelf ui resumes the active session instead of creating a second one", 
   const second = startSession(home);
 
   assert.equal(second.session.id, first.session.id);
+  assert.equal(readdirSync(join(home, "sessions")).length, 1);
+});
+
+test("artshelf ui and ui serve share the default registry-scoped session", async () => {
+  const home = freshHome();
+  const registryPath = join(mkdtempSync(join(tmpdir(), "artshelf-ui-cmd-registry-")), "ledgers.json");
+  mkdirSync(dirname(registryPath), { recursive: true });
+  writeFileSync(registryPath, `${JSON.stringify({ version: 1, ledgers: [] })}\n`);
+  const env = { ARTSHELF_REGISTRY: registryPath };
+
+  const started = startSession(home, [], env);
+  assert.equal(started.session.registryPath, registryPath);
+  const served = await serveSession(home, [], env);
+
+  assert.equal(served.session.id, started.session.id);
   assert.equal(readdirSync(join(home, "sessions")).length, 1);
 });
 

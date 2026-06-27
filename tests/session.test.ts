@@ -945,6 +945,21 @@ test("selectedApprovalTargets resolves the selected subset in selection order", 
   assert.deepEqual(selectedApprovalTargets(snapshot), [targets[1]]);
 });
 
+test("selectedApprovalTargets rejects loaded snapshots with corrupt selections", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+
+  assert.throws(() => selectedApprovalTargets({ ...snapshot, selectedTargetIds: ["shf_a", "shf_missing"] }), /shf_missing/);
+  assert.throws(() => selectedApprovalTargets({ ...snapshot, selectedTargetIds: ["shf_a", "shf_a"] }), /duplicate/i);
+});
+
 test("writeApprovalSnapshot refuses an empty selection so approval cannot be a vague approve-all", () => {
   const home = freshHome();
   const session = startUserSession(home);

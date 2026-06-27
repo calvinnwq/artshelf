@@ -62,7 +62,8 @@ function handleUiStart(parsed: ParsedArgs, json: boolean): number {
   const scope = resolveScope(stringFlag(parsed, "scope"));
   const ledgerPath = stringFlag(parsed, "ledger") ?? null;
   const home = resolveUiHome({ scope, cwd: process.cwd() });
-  const session = startOrResumeSession({ home, scope, ledgerPath, cwd: process.cwd() });
+  const registryPath = ledgerPath === null ? normalizeRegistryPath() : null;
+  const session = startOrResumeSession({ home, scope, ledgerPath, registryPath, cwd: process.cwd() });
   const link = buildLink(session);
   const scopeHint = session.scope === "user" ? "" : ` --scope ${session.scope}`;
   const pollHint = `artshelf ui poll ${session.id}${scopeHint} --json`;
