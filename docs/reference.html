@@ -203,7 +203,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               <code>ui</code> is the agent-mediated browser review shell plus read-only
               review data surface, token-bound intent capture, and approval-bundle capture. <code>ui dashboard</code> recomputes a multi-ledger snapshot
               with needs-review, needs-context, cleanup, resolve, trash, purge-candidates,
-              registry/reconcile, and recent-receipts buckets. <code>ui detail</code> shows one
+              registry/reconcile, and recent-receipts buckets. The purge-candidate lane groups rows by source, shows per-source totals, and carries no-recovery warning copy. <code>ui detail</code> shows one
               record's metadata, path label, original reason, provenance, audit trail,
               existence facts, inspect-card recommendation, needs-context badge, and last
               action. Both views are read-only and never preview file contents. <code>ui serve</code> hosts those views plus the approval-bundle workbench
@@ -212,7 +212,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               token printed in the serve URL, serves no script and embeds no file contents,
               accepts safe GET/HEAD reads plus token-bound posts that record human triage intents
               (inspect, comment, keep/trash/resolve/defer, dry-run request) and approval bundle submissions as pending session events,
-              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C. The served pages also expose <code>GET /bundle/&lt;bundle-id&gt;</code>: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets versus the merely reviewed rows plus the exact action. With the active token, its scriptless form can submit a revised non-empty subset through <code>POST /approve</code>, creating a new immutable approval snapshot and pending event without editing the original bundle or executing a workflow. The approval form carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle instead of trusting hidden browser target JSON.
+              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C. The served pages also expose <code>GET /bundle/&lt;bundle-id&gt;</code>: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets versus the merely reviewed rows plus the exact action. With the active token, its scriptless form can submit a revised non-empty subset through <code>POST /approve</code>, creating a new immutable approval snapshot and pending event without editing the original bundle or executing a workflow. The approval form carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle instead of trusting hidden browser target JSON. For a <code>trash-purge</code> bundle, the workbench repeats the no-recovery warning and starts from the deliberately selected subset, never a default-selected global purge.
               The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
@@ -233,7 +233,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               <code>ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read
               surface over persisted approval bundles. With a bundle id it loads one immutable
               reviewed snapshot plus its resolved deliberate selection - the agent-facing JSON used
-              to revalidate live ledger, registry, record, and plan state before any exact-target
+              to revalidate live ledger, registry, record, plan, and trash-fact state before any exact-target
               execution. With no bundle id it lists the session's approved bundles as a compact
               discovery summary. It only reads approval records - it never executes a bundle or
               mutates ledgers, files, trash, or plans - and it is a deliberate-approval surface, so
@@ -245,7 +245,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               mutating path and the one <code>ui</code> subcommand that changes live state. It
               loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state,
               then runs a revalidate -&gt; execute -&gt; verify loop through the existing
-              approval-gated dispose paths and replies the per-target receipts plus aggregate
+              approval-gated dispose paths or the exact-target one-way-door purge path and replies the per-target receipts plus aggregate
               result to the session by advancing the bundle's
               <code>approval_bundle_submitted</code> event. Execution is exact-target only: a
               stale, missing, mismatched, or unapproved target is refused or skipped, never
@@ -253,7 +253,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               trusting the command exit. Dispose-backed targets also bind approval to the
               reviewed plan entry digest, so missing or unreadable reviewed plans, subject content
               drift, or same-id plan rewrites become stale before receipts instead of changing
-              reason, subject, target, or retention semantics. If an earlier execution claimed the
+              reason, subject, target, or retention semantics. Purge-backed targets use the <code>trash-purge</code> action, bind to the exact live trash facts by digest, and permanently delete only the reviewed trashed artifact with no recovery path; stale, missing, changed, unsafe, or out-of-scope purge targets are skipped or marked for manual review rather than force-applied. If an earlier execution claimed the
               approval event as <code>in_progress</code> and stopped before final receipts, rerunning
               the same session and bundle resumes that claim. There is no <code>ui execute --all</code> and no
               browser-direct execution. Each selected target receives one of four visible
@@ -474,7 +474,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
             <p>
               Executed records move out of the active cleanup flow but stay visible in
               <code>artshelf list</code> for audit. Manual resolution becomes <code>resolved</code>.
-              Trash moves stay in Artshelf quarantine until a reviewed purge plan runs for that ledger.
+              Trash moves stay in Artshelf quarantine until a reviewed purge plan or exact approved trash-purge bundle runs for that ledger.
             </p>
           </section>
 
@@ -492,7 +492,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               or <code>&lt;repo&gt;/.artshelf/ui</code> for repo scope, with
               <code>sessions/&lt;session-id&gt;/session.json</code>,
               <code>events.jsonl</code>, and immutable approval bundles under
-              <code>bundles/</code>. Session metadata records ledger, registry, and repo scope when present, backfills missing registry/repo metadata on legacy active sessions that resume the same scope, and approval execution rechecks that selected targets remain inside that scope. The event log stores exact-target browser triage intents and approval bundle submissions
+              <code>bundles/</code>. Session metadata records ledger, registry, and repo scope when present, backfills missing registry/repo metadata on legacy active sessions that resume the same scope, and approval execution rechecks that selected targets remain inside that scope and that purge targets still match the reviewed trash facts before the one-way-door deletion. The event log stores exact-target browser triage intents and approval bundle submissions
               plus agent replies, preserving reply payloads for record history. Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed

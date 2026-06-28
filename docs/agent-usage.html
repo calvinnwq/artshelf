@@ -80,13 +80,13 @@
               <a class="ledger-row" href="agent-purge.html">
                 <span class="n">4.5</span>
                 <span class="stage">Purge</span>
-                <span class="what"><span class="cmdline">artshelf trash purge --execute --plan-id &lt;id&gt;</span>Clear old trash through its own separately reviewed purge plan. Physical deletion never piggybacks on the cleanup plan that trashed the file.</span>
+                <span class="what"><span class="cmdline">artshelf trash purge --execute --plan-id &lt;id&gt;</span>Clear old trash through its own separately reviewed purge plan or an exact approved <code>trash-purge</code> bundle. Physical deletion never piggybacks on the cleanup plan that trashed the file.</span>
               </a>
             </div>
             <p>
               Clean trashes; Purge deletes. Cleanup quarantines artifacts into Artshelf
-              trash, and only a separate, separately reviewed purge plan removes them for
-              good — a second approval boundary before destructive deletion.
+              trash, and only a separately reviewed purge plan or exact approved <code>trash-purge</code> bundle removes them for
+              good - a second approval boundary before destructive deletion.
             </p>
           </section>
 
@@ -161,7 +161,7 @@
               agent's mutating path and the one <code>ui</code> subcommand that changes live
               state: it loads the immutable reviewed snapshot, re-reads live
               ledger/registry/trash state, then runs a revalidate -&gt; execute -&gt; verify loop
-              through the existing approval-gated dispose paths and replies per-target receipts
+              through the existing approval-gated dispose or one-way-door purge paths and replies per-target receipts
               plus the aggregate result to the session. Execution is exact-target only - a stale,
               missing, mismatched, or unapproved target is refused or skipped, never
               force-applied - and the agent verifies live state after each command rather than
@@ -169,7 +169,14 @@
               dispose-plan entry contents, so missing or unreadable reviewed plans, subject content
               drift, or changing a same-id plan artifact after approval makes the bundle stale
               before any dispose receipt is written instead of changing reason, subject, target, or
-              retention semantics. If an earlier execution claimed the approval event as
+              retention semantics. A purge-backed bundle uses the <code>trash-purge</code> action and
+              routes each target through the one-way-door purge executor, which permanently deletes
+              the trashed artifact with no recovery path - distinct from the reversible dispose path;
+              the dashboard purge lane groups candidates by source with a per-group total and a
+              no-recovery warning, the approval workbench restates that warning for a purge bundle, and
+              the purge approval is bound to the exact live trash facts via a digest so any drift
+              between approval and execution makes the target stale before the irreversible deletion.
+              If an earlier execution claimed the approval event as
               <code>in_progress</code> and stopped before final receipts, rerunning the same session
               and bundle resumes that claim; there is no <code>ui execute --all</code> and no
               browser-direct execution. Each selected target receives one of four visible

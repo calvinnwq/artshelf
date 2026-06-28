@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Purge · Agent usage · Artshelf</title>
-    <meta name="description" content="How agents purge Artshelf trash: physical deletion only from a separate, separately reviewed purge plan.">
+    <meta name="description" content="How agents purge Artshelf trash: physical deletion only from a separately reviewed purge plan or exact approved trash-purge bundle.">
     <script>(function(){var stored=null;try{stored=localStorage.getItem("artshelf-docs-theme");}catch(e){}var dark=false;try{dark=matchMedia("(prefers-color-scheme: dark)").matches;}catch(e){}document.documentElement.dataset.theme=stored||(dark?"dark":"light");})();</script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -38,9 +38,9 @@
           <h1>Delete for real, from its own reviewed plan.</h1>
           <p class="lede">
             Purge is the only stage that physically deletes. Clean trashes; purge
-            empties the trash — and only from a separate plan a human reviewed and
-            approved. Trashed records stay discoverable until you deliberately
-            remove them.
+            empties the trash - only from a separate plan a human reviewed and
+            approved, or from an exact approved <code>trash-purge</code> bundle that binds each target to live trash facts. Trashed records stay discoverable until you deliberately
+            remove them, and the UI purge path states there is no recovery path.
           </p>
 
           <section>
@@ -52,18 +52,18 @@
               </li>
               <li>
                 <span class="stamp approval">Needs approval</span>
-                <span><code>trash purge --execute --plan-id</code> for one reviewed purge plan, on one ledger.</span>
+                <span><code>trash purge --execute --plan-id</code> for one reviewed purge plan on one ledger, or <code>ui execute</code> for an exact approved <code>trash-purge</code> bundle.</span>
               </li>
               <li>
                 <span class="stamp refused">Refused</span>
-                <span>No global purge — <code>--all</code> is not supported for purge — and no piggybacking on the cleanup plan that trashed the file.</span>
+                <span>No global purge - <code>--all</code> is not supported for purge - and no piggybacking on the cleanup plan that trashed the file.</span>
               </li>
             </ul>
             <div class="callout" data-kind="boundary">
               <span class="callout-label">Hard boundary</span>
               <p>
                 The purge plan is always separate from the cleanup plan and separately
-                reviewed. Physical deletion never happens as a side effect of cleanup.
+                reviewed. UI purge bundles are also separate approvals over exact selected trash targets. Physical deletion never happens as a side effect of cleanup.
               </p>
             </div>
           </section>
@@ -83,8 +83,9 @@ artshelf trash purge --older-than 7d --dry-run --ledger &lt;ledger-path&gt; --js
 
 <span class="c"># delete for real, only with the reviewed purge plan id</span>
 artshelf trash purge --execute --plan-id &lt;purge-plan-id&gt; --ledger &lt;ledger-path&gt; --json</code></pre>
-            <p>The approval wording for a purge:</p>
+            <p>The approval wording for the CLI purge path:</p>
             <pre><code>approve artshelf trash purge ledger &lt;ledger-path&gt; plan &lt;purge-plan-id&gt;</code></pre>
+            <p>For browser review, approve a <code>trash-purge</code> bundle only after checking the grouped purge lane and its no-recovery warning. Nothing is selected by default; the agent deletes only the exact selected targets through <code>ui execute</code>.</p>
           </section>
 
           <section>

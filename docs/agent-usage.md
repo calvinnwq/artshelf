@@ -32,8 +32,8 @@ Underneath, those four moves are five mechanical stages around agent work:
    packet with exact approval targets.
 4. **Clean**: execute approved cleanup and dispose plans, resolve confirmed ids,
    then verify quiet.
-5. **Purge**: clear old trash only from a separate, separately reviewed purge
-   plan; physical deletion never piggybacks on the cleanup plan.
+5. **Purge**: clear old trash only from a separately reviewed purge plan or
+   exact approved `trash-purge` bundle; physical deletion never piggybacks on the cleanup plan.
 
 This maps to the product loop: **Create -> Monitor -> Review -> Clean -> Purge**.
 
@@ -99,9 +99,12 @@ The browser records exact-target triage intents and approval bundle submissions,
 The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly.
 `artshelf ui bundle <session-id> [<bundle-id>] --json` is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles.
 It never executes a bundle.
-`artshelf ui execute <session-id> <bundle-id> --json` is the agent's mutating path and the one `ui` subcommand that changes live state: it loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths and replies per-target receipts plus the aggregate result to the session.
+`artshelf ui execute <session-id> <bundle-id> --json` is the agent's mutating path and the one `ui` subcommand that changes live state: it loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose or one-way-door purge paths and replies per-target receipts plus the aggregate result to the session.
 Execution is exact-target only - a stale, missing, mismatched, or unapproved target is refused or skipped, never force-applied - and the agent verifies live state after each command rather than trusting the command exit; there is no `ui execute --all` and no browser-direct execution.
 For dispose-backed targets, approval also binds to the reviewed dispose-plan entry contents, so a missing or unreadable reviewed plan, subject content drift, or changing a same-id plan artifact's reason, subject snapshot, target, or retention after approval makes the bundle stale before any dispose receipt is written.
+A purge-backed bundle uses the `trash-purge` action and routes each target through the one-way-door purge executor, which permanently deletes the trashed artifact with no recovery path - distinct from the reversible dispose path.
+The dashboard purge lane groups purge candidates by source/ledger with a per-group total and renders a no-recovery warning, and the approval workbench restates that warning for a purge bundle; nothing is preselected, so the agent purges only an exact, grouped selection a human approves.
+The purge approval is bound to the exact live trash facts (record id, ledger, trashed artifact path, and cleanup provenance) via a digest, so any drift between approval and execution makes the target stale before the irreversible deletion runs.
 If an earlier execution claimed the approval event as `in_progress` and stopped before final receipts, rerunning the same session and bundle resumes that claim.
 Each selected target receives one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state, and a clean run exits 0 while a partial or refused run exits non-zero with every receipt still recorded.
 Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard/detail/bundle access while keeping the audit trail readable.

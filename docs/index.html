@@ -97,7 +97,7 @@ artshelf review --json</code></pre>
               <a class="ledger-row" href="agent-purge.html">
                 <span class="n">4.5</span>
                 <span class="stage">Purge</span>
-                <span class="what"><span class="cmdline">artshelf trash purge --execute --plan-id &lt;id&gt;</span>Permanently remove old trashed artifacts through a separate, separately reviewed purge plan. Physical deletion never piggybacks on the cleanup plan.</span>
+                <span class="what"><span class="cmdline">artshelf trash purge --execute --plan-id &lt;id&gt;</span>Permanently remove old trashed artifacts through a separately reviewed purge plan or exact approved trash-purge bundle. Physical deletion never piggybacks on the cleanup plan.</span>
               </a>
             </div>
           </section>
@@ -112,7 +112,7 @@ artshelf review --json</code></pre>
               </li>
               <li>
                 <span class="stamp refused">Refused</span>
-                <span><code>cleanup --execute --all</code> does not exist. <code>ui execute --all</code> does not exist. Execution names one reviewed plan id or one approved exact-target bundle, and UI dispose targets bind to reviewed plan entry contents.</span>
+                <span><code>cleanup --execute --all</code> does not exist. <code>ui execute --all</code> does not exist. Execution names one reviewed plan id or one approved exact-target bundle; UI dispose targets bind to reviewed plan entry contents, and UI purge targets bind to exact trash facts with no recovery path.</span>
               </li>
               <li>
                 <span class="stamp refused">Refused</span>
@@ -120,7 +120,7 @@ artshelf review --json</code></pre>
               </li>
               <li>
                 <span class="stamp refused">Refused</span>
-                <span>Delete is refused in v1. <code>cleanup=trash</code> quarantines; physical deletion needs a separate reviewed purge plan.</span>
+                <span>Delete is refused in v1. <code>cleanup=trash</code> quarantines; physical deletion needs a separate reviewed purge plan or an exact approved <code>trash-purge</code> bundle.</span>
               </li>
               <li>
                 <span class="stamp approval">Approval</span>

@@ -304,7 +304,7 @@ or default ledger path, selected or global registry path, registered ledger heal
 (stale/missing/invalid), and the cleanup safety posture. Execute is scoped to one
 selected or default ledger and still requires a reviewed plan id; --all execute
 and cleanup=delete are refused, while physical trash purge requires a separate
-reviewed purge plan.
+reviewed purge plan or exact approved trash-purge bundle.
 
 Render modes:
   (default)  Human summary of machine health and cleanup safety.
@@ -603,15 +603,19 @@ Options:
 Execute is the agent's mutating path for an approved bundle, and the one ui
 subcommand that changes live state. It loads the immutable reviewed snapshot,
 re-reads live ledger/registry/trash state, then runs the revalidate -> execute ->
-verify loop through the existing approval-gated dispose paths, and replies the
-per-target receipts and aggregate result to the session by advancing the bundle's
+verify loop through the existing approval-gated dispose paths or the exact-target
+one-way-door purge path, and replies the per-target receipts and aggregate result
+to the session by advancing the bundle's
 approval_bundle_submitted event. Execution is exact-target only: a stale, missing,
 mismatched, or unapproved target is refused or skipped, never force-applied, and
 the agent confirms live state rather than trusting the command exit. Dispose
 targets also bind to the reviewed plan entry digest, so missing or unreadable
 plans, subject content drift, or same-id plan rewrites make the bundle stale
 before receipts instead of changing reason, subject, target, or retention
-semantics. Matching in_progress approval-event claims can be resumed by rerunning
+semantics. Purge targets bind to reviewed trash facts by digest, permanently
+delete only the exact approved trashed artifact with no recovery path, and skip
+stale, missing, changed, unsafe, or out-of-scope targets for human re-review.
+Matching in_progress approval-event claims can be resumed by rerunning
 the same session and bundle. There is no ui execute --all and no
 browser-direct execution.
 

@@ -247,8 +247,9 @@ function targetSubject(target: UiApprovalTarget): string {
 // `artshelf ui execute <session-id> <bundle-id> [--scope user|repo] [--json]` - the agent's mutating
 // execution path for an approved bundle (NGX-540), and the one `ui` subcommand that changes live
 // state. It loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, runs the
-// revalidate -> execute -> verify loop through the existing approval-gated dispose paths, and replies
-// per-target receipts plus aggregate state to the session by advancing the bundle's
+// revalidate -> execute -> verify loop through the existing approval-gated dispose paths or the
+// exact-target one-way-door purge path, and replies per-target receipts plus aggregate state to the
+// session by advancing the bundle's
 // approval_bundle_submitted event. Execution is exact-target only: a stale, missing, mismatched, or
 // unapproved target is refused or skipped, never force-applied, and the agent confirms live state
 // rather than trusting the command exit. A clean run (every selected target executed) exits 0; a

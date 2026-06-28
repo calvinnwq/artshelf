@@ -190,6 +190,43 @@ test("reconstructs the audit trail oldest-first and reports the last action with
   assert.equal(detail.lastAction?.reason, "trashed by reviewed plan");
 });
 
+test("projects a one-way-door purge as a no-recovery receipt event at the end of the audit trail (NGX-541 AC6)", () => {
+  // A record trashed by a reviewed cleanup plan, then permanently purged through the one-way-door
+  // path. A real purge stamps the resolve and purge fields at the same instant, so the oldest-first
+  // trail ends with the irreversible purge carrying its explicit no-recovery receipt.
+  const { registryPath, ledgerPath } = singleLedger([
+    baseRecord({
+      id: "shf_purged",
+      status: "resolved",
+      path: "/orig/secret.log",
+      targetPath: "/trash/plan_a/secret.log",
+      createdAt: CREATED,
+      cleanedAt: "2026-06-10T00:00:00.000Z",
+      receiptPath: "/x/cleanup-receipt.json",
+      cleanupReason: "trashed by reviewed plan",
+      cleanupPlanId: "plan_a",
+      resolvedAt: "2026-06-15T00:00:00.000Z",
+      resolutionReason: "trash purge completed",
+      purgedAt: "2026-06-15T00:00:00.000Z",
+      purgePlanId: "purge_a",
+      purgeReceiptPath: "/x/purge-receipt.json"
+    })
+  ]);
+
+  const detail = buildArtifactDetail({ ledgerPath, recordId: "shf_purged", registryPath });
+
+  // The one-way-door purge is the final event in the oldest-first audit trail.
+  assert.deepEqual(
+    detail.audit.map((event) => event.kind),
+    ["created", "cleanup", "resolve", "purge"]
+  );
+  const purge = detail.audit.find((event) => event.kind === "purge");
+  assert.ok(purge, "the purge must be projected into the detail audit trail");
+  // The receipt explicitly states there is no recovery path and carries the purge receipt.
+  assert.equal(purge!.detail, "no recovery path");
+  assert.equal(purge!.receiptPath, "/x/purge-receipt.json");
+});
+
 test("a missing artifact path yields a resolve-only card with a missing-path due reason", () => {
   const { registryPath, ledgerPath } = singleLedger([
     baseRecord({ id: "shf_gone", path: "/missing/artifact.bin", retention: { mode: "ttl", ttl: "1d" }, retainUntil: PAST_DUE, cleanup: "trash" })

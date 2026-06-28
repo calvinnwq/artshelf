@@ -537,6 +537,9 @@ function validateApprovalTarget(target: UiApprovalTarget): void {
   if (target.planEntryDigest !== undefined && target.planEntryDigest !== null && !isNonEmptyString(target.planEntryDigest)) {
     throw new Error("Invalid Artshelf UI approval target.planEntryDigest; expected a non-empty string or null");
   }
+  if (target.recordId !== undefined && !isNonEmptyString(target.recordId)) {
+    throw new Error("Invalid Artshelf UI approval target.recordId; expected a non-empty string");
+  }
 }
 
 // A selected target must point at an exact subject - a record, a reviewed plan, or a registry

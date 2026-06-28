@@ -91,6 +91,20 @@ function dueCleanupRecord(dir: string, over: Record<string, unknown> = {}): Reco
   });
 }
 
+// An already-trashed record, eligible for the purge-candidate lane. The target path is a plain
+// fixture path: the dashboard purge preview only needs trash provenance, never a file on disk.
+function trashedRecord(id: string, planId: string): Record<string, unknown> {
+  return baseRecord({
+    id,
+    status: "trashed",
+    path: `/orig/${id}.txt`,
+    targetPath: `/trash/${planId}/${id}.txt`,
+    cleanedAt: "2026-06-10T00:00:00.000Z",
+    receiptPath: `/receipts/${planId}.json`,
+    cleanupPlanId: planId
+  });
+}
+
 // A single-ledger registry rooted in a fresh temp dir holding exactly the given records.
 function singleLedger(records: Array<Record<string, unknown>>): { registryPath: string; ledgerPath: string; dir: string } {
   const dir = fixtureDir();
@@ -354,6 +368,54 @@ test("GET / renders the eight buckets, ledger health, and a row that links to it
   });
 });
 
+// Isolate the rendered purge-candidate lane: from its lane heading up to the next lane heading,
+// so assertions about purge grouping and warning copy never collide with the plain trash lane
+// (trashed records appear in both lanes).
+function purgeLaneHtml(html: string): string {
+  const start = html.indexOf('id="lane-purge-candidates"');
+  assert.ok(start >= 0, "dashboard should render the purge-candidates lane");
+  const rest = html.slice(start);
+  const next = rest.indexOf('id="lane-registry-reconcile"');
+  return next >= 0 ? rest.slice(0, next) : rest;
+}
+
+test("GET / renders the purge lane grouped by source with one-way-door warning copy (NGX-541)", async () => {
+  const dir = fixtureDir();
+  const primaryLedger = join(dir, "primary", "ledger.jsonl");
+  const secondaryLedger = join(dir, "secondary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  // Two sources so the lane must group by ledger and show a per-source total.
+  writeLedgerFile(primaryLedger, [trashedRecord("shf_a1", "plan_a"), trashedRecord("shf_a2", "plan_a")]);
+  writeLedgerFile(secondaryLedger, [trashedRecord("shf_b1", "plan_b")]);
+  writeRegistry(registryPath, [
+    { name: "primary", path: primaryLedger },
+    { name: "secondary", path: secondaryLedger }
+  ]);
+
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request("/")).text();
+    const lane = purgeLaneHtml(html);
+
+    // One-way-door safety copy: irreversibility, no recovery, and nothing preselected.
+    assert.match(lane, /one-way door/i, "purge lane should warn it is a one-way door");
+    assert.match(lane, /no recovery/i, "purge lane should state there is no recovery path");
+    assert.match(lane, /selected by default/i, "purge lane should state nothing is preselected");
+
+    // Grouped by source with a per-group total, exact targets shown.
+    assert.match(lane, /primary/, "purge lane should name the primary source group");
+    assert.match(lane, /secondary/, "purge lane should name the secondary source group");
+    assert.match(lane, /2 candidate/, "primary group should show its total of 2");
+    assert.match(lane, /1 candidate/, "secondary group should show its total of 1");
+    assert.match(lane, /shf_a1/);
+    assert.match(lane, /shf_b1/);
+    assert.match(lane, new RegExp("/trash/plan_a/shf_a1\\.txt"), "exact purge target path is shown before approval");
+
+    // Read-only lane: nothing preselected and no browser-direct purge affordance.
+    assert.doesNotMatch(lane, /<input/i, "purge lane must not preselect or expose direct execution controls");
+    assert.doesNotMatch(lane, /checked/i, "no purge candidate is selected by default");
+  });
+});
+
 test("GET / routes a weak-reason record into needs-context and out of the cleanup lane (NGX-537)", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
@@ -392,6 +454,35 @@ test("GET /detail/<id> renders the minimum human-judgment fields with a back lin
     assert.match(html, new RegExp(`href="/\\?token=${server.token}"`), "drawer should link back to the authorized dashboard URL");
     // No file contents: the artifact is a one-byte "x" file; it must never appear.
     assert.doesNotMatch(html, /\bcontents?\s*:\s*x\b/i);
+  });
+});
+
+test("GET /detail/<id> displays a purged record's no-recovery receipt in its audit trail (NGX-541 AC6)", async () => {
+  // A record permanently purged through the one-way-door path. The detail drawer must surface the
+  // purge in its audit trail, explicitly stating there is no recovery path and carrying the receipt,
+  // so the irreversible deletion is visible in detail history.
+  const { registryPath, ledgerPath } = singleLedger([
+    baseRecord({
+      id: "shf_purged",
+      status: "resolved",
+      path: "/orig/secret.log",
+      targetPath: "/trash/plan_a/secret.log",
+      cleanedAt: "2026-06-10T00:00:00.000Z",
+      receiptPath: "/receipts/plan_a.json",
+      cleanupPlanId: "plan_a",
+      resolvedAt: "2026-06-15T00:00:00.000Z",
+      resolutionReason: "trash purge completed",
+      purgedAt: "2026-06-15T00:00:00.000Z",
+      purgePlanId: "purge_a",
+      purgeReceiptPath: "/receipts/purge_a.json"
+    })
+  ]);
+
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request(`/detail/shf_purged?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+    assert.match(html, /purge/, "the audit trail should show the purge event");
+    assert.match(html, /no recovery path/i, "the receipt must explicitly state there is no recovery path");
+    assert.match(html, new RegExp("/receipts/purge_a\\.json"), "the no-recovery purge receipt path is shown");
   });
 });
 

@@ -1,7 +1,9 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
+import { PURGE_APPROVAL_ACTION, purgeCandidateDigest } from "./dashboard.js";
+import type { PurgeCandidateFacts } from "./dashboard.js";
 import { disposePlanEntryDigest, disposePlanEntrySubjectStaleForExecute, executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
-import { readLedger } from "./ledger.js";
+import { approvedTrashPurgePlanId, executeApprovedTrashPurge, readLedger, trashProvenance } from "./ledger.js";
 import { resolveRepoRoot } from "./provenance.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import {
@@ -114,6 +116,229 @@ export function disposeBackedTargetExecutor(target: UiApprovalTarget): UiBundleT
     return { outcome: "failed", detail: `failed: live state did not reflect the executed ${result.action}: ${verified.detail}`, evidence };
   }
   return { outcome: "executed", detail: `executed ${result.action}: ${verified.detail}`, evidence };
+}
+
+// The real purge-backed target executor (NGX-541 execute slice). Purge is the one-way-door action: a
+// fresh, exactly-approved purge target was bound to its live trash facts via purgeCandidateDigest, so
+// this RE-READS the live ledger row and re-binds those exact facts (defense-in-depth against any drift
+// between the gate's revalidation and this execution) before deleting anything. It then runs the
+// exact-target, approval-gated deletion through executeApprovedTrashPurge - never a broad `--all` path -
+// and INDEPENDENTLY re-reads the live ledger + filesystem to confirm the trashed artifact is actually
+// gone and the row is stamped purged, rather than trusting the command's reported result.
+// Outcome mapping:
+//   needs_manual_review - not a purge target, missing the reviewed trash-fact digest, or the live row
+//                         drifted from the approval (no longer trashed, provenance gone, digest/path
+//                         mismatch) or the purge engine refused (skipped) the entry; a human decides.
+//   failed              - the purge errored, produced no result, did not complete, or the independent
+//                         live re-query did not confirm the deletion + purge stamp.
+//   executed            - the trashed artifact was permanently deleted (no recovery path) and the live
+//                         ledger row confirms this purge's stamp.
+export function purgeBackedTargetExecutor(target: UiApprovalTarget): UiBundleTargetExecution {
+  if (!isPurgeAction(target.actionType)) {
+    return purgeManualReview(target, `unsupported approved purge action ${target.actionType}; re-review the target`);
+  }
+  if (!isNonEmptyString(target.planEntryDigest)) {
+    return purgeManualReview(target, "approved purge target lacks the reviewed trash-fact digest; re-run the dry-run and re-approve");
+  }
+  if (!isNonEmptyString(target.recordPath)) {
+    return purgeManualReview(target, "approved purge target has no trashed artifact path to delete; re-review the target");
+  }
+
+  const completed = completedApprovedPurgeExecution(target);
+  if (completed !== null) return completed;
+
+  const binding = bindApprovedPurgeTarget(target);
+  if (!binding.ok) return binding.execution;
+  const facts = binding.facts;
+
+  let outcome: ReturnType<typeof executeApprovedTrashPurge>;
+  try {
+    outcome = executeApprovedTrashPurge(target.ledgerPath, {
+      id: facts.recordId,
+      targetPath: facts.targetPath,
+      cleanedAt: facts.cleanedAt,
+      receiptPath: facts.receiptPath,
+      cleanupPlanId: facts.cleanupPlanId
+    });
+  } catch (error) {
+    return { outcome: "failed", detail: `failed: trash purge --execute errored: ${(error as Error).message}`, evidence: purgeTargetEvidence(target) };
+  }
+
+  const result = outcome.result;
+  const evidence: Record<string, unknown> = {
+    ...purgeTargetEvidence(target),
+    purgePlanId: outcome.purgePlanId,
+    purgeReceiptPath: outcome.receiptPath,
+    purgeResult: result
+  };
+  if (result === null) {
+    return { outcome: "failed", detail: "failed: trash purge produced no result for the approved target", evidence };
+  }
+  // The purge loop refuses (skips) a drifted/conflicting/out-of-trash entry rather than deleting it, so
+  // a human decides - mirroring the dispose path's skipped -> needs_manual_review.
+  if (result.status === "skipped") {
+    return { outcome: "needs_manual_review", detail: `needs_manual_review: trash purge refused the approved target: ${result.reason ?? "no reason given"}`, evidence };
+  }
+  if (result.status !== "purged") {
+    return { outcome: "failed", detail: `failed: trash purge did not complete (status ${result.status}${result.reason ? `: ${result.reason}` : ""})`, evidence };
+  }
+
+  // Verify live state, not the command's word alone: the trashed artifact must be gone and the live row
+  // stamped with THIS purge.
+  const verified = verifyPurgeLive(target.ledgerPath, facts.recordId, facts.targetPath, outcome.purgePlanId, outcome.receiptPath);
+  const verifiedEvidence = { ...evidence, live: verified.live };
+  if (!verified.ok) {
+    return { outcome: "failed", detail: `failed: live state did not reflect the purge: ${verified.detail}`, evidence: verifiedEvidence };
+  }
+  return {
+    outcome: "executed",
+    detail: `executed trash-purge: ${facts.targetPath} permanently deleted with no recovery path`,
+    evidence: verifiedEvidence
+  };
+}
+
+// The default per-target executor: routes a one-way-door purge target to the purge executor and every
+// dispose triage target to the dispose executor. A bundle's gate (bundleActionRefusal) already
+// guarantees every selected target shares the bundle's action, so this per-target dispatch is exact.
+export function defaultBundleTargetExecutor(target: UiApprovalTarget): UiBundleTargetExecution {
+  if (isPurgeAction(target.actionType)) return purgeBackedTargetExecutor(target);
+  return disposeBackedTargetExecutor(target);
+}
+
+type PurgeTargetBinding =
+  | { ok: true; facts: PurgeCandidateFacts }
+  | { ok: false; execution: UiBundleTargetExecution };
+
+// Re-bind one approved purge target to its EXACT live trash facts immediately before the one-way-door
+// deletion. The approval gate already revalidated, but this is the defense-in-depth re-read at the
+// moment of execution: it resolves the live ledger row, requires it to still be trashed with intact
+// provenance, recomputes the trash-fact digest, and refuses unless that digest and the trashed artifact
+// path both still match exactly what the human approved. Any drift -> needs_manual_review, never a
+// deletion of something other than the reviewed artifact.
+function bindApprovedPurgeTarget(target: UiApprovalTarget): PurgeTargetBinding {
+  let record: ArtshelfRecord | undefined;
+  const recordId = approvalRecordId(target);
+  try {
+    record = readLedger(target.ledgerPath).find((entry) => entry.id === recordId);
+  } catch (error) {
+    return {
+      ok: false,
+      execution: { outcome: "failed", detail: `failed: could not re-read the live ledger before purge: ${(error as Error).message}`, evidence: purgeTargetEvidence(target) }
+    };
+  }
+  if (record === undefined) {
+    return { ok: false, execution: purgeManualReview(target, "the approved purge subject is no longer in the live ledger; re-review the target") };
+  }
+  if (record.status !== "trashed") {
+    return { ok: false, execution: purgeManualReview(target, `the approved purge subject is ${record.status}, not trashed (already purged or restored); re-review the target`) };
+  }
+  const provenance = trashProvenance(record);
+  const facts = approvedPurgeFacts(target, record, provenance);
+  if (facts === null) {
+    return { ok: false, execution: purgeManualReview(target, "the approved purge subject lost its trash provenance; re-review the target") };
+  }
+  if (purgeCandidateDigest(facts) !== target.planEntryDigest) {
+    return { ok: false, execution: purgeManualReview(target, "the approved purge target drifted from its reviewed trash facts; re-run the dry-run and re-approve") };
+  }
+  if (record.targetPath !== target.recordPath) {
+    return { ok: false, execution: purgeManualReview(target, "the approved purge target path drifted from the reviewed trashed artifact; re-review the target") };
+  }
+  return { ok: true, facts };
+}
+
+function completedApprovedPurgeExecution(target: UiApprovalTarget): UiBundleTargetExecution | null {
+  let record: ArtshelfRecord | undefined;
+  const recordId = approvalRecordId(target);
+  try {
+    record = readLedger(target.ledgerPath).find((entry) => entry.id === recordId);
+  } catch (error) {
+    return { outcome: "failed", detail: `failed: could not re-read the live ledger before purge: ${(error as Error).message}`, evidence: purgeTargetEvidence(target) };
+  }
+  if (record === undefined) return null;
+  const completed = approvedCompletedPurge(target, record);
+  if (completed === null) return null;
+  const verified = verifyPurgeLive(target.ledgerPath, completed.facts.recordId, completed.facts.targetPath, completed.purgePlanId, completed.receiptPath);
+  const evidence = {
+    ...purgeTargetEvidence(target),
+    purgePlanId: completed.purgePlanId,
+    purgeReceiptPath: completed.receiptPath,
+    live: verified.live
+  };
+  if (!verified.ok) {
+    return { outcome: "failed", detail: `failed: live state did not reflect the purge: ${verified.detail}`, evidence };
+  }
+  return {
+    outcome: "executed",
+    detail: `executed trash-purge: ${completed.facts.targetPath} permanently deleted with no recovery path`,
+    evidence
+  };
+}
+
+// Live purge facts re-derived straight from the on-disk ledger row and filesystem, independent of
+// whatever the purge command reported.
+type LivePurgeFacts = {
+  recordStatus: ArtshelfStatus | "absent";
+  targetPresent: boolean;
+  purgePlanId: string | null;
+  purgeReceiptPath: string | null;
+  purgedAt: string | null;
+};
+
+type LivePurgeVerification = { ok: boolean; detail: string; live: LivePurgeFacts };
+
+// The post-purge verification loop: re-read the live ledger + filesystem and confirm the one-way-door
+// deletion actually took effect - the trashed artifact is physically gone AND the live row carries THIS
+// purge's stamp (status resolved, this plan id, this receipt, a purgedAt). A mismatch means the
+// command's reported success cannot be trusted, so the target is failed rather than executed.
+function verifyPurgeLive(
+  ledgerPath: string,
+  recordId: string,
+  targetPath: string,
+  purgePlanId: string,
+  receiptPath: string
+): LivePurgeVerification {
+  let record: ArtshelfRecord | undefined;
+  try {
+    record = readLedger(ledgerPath).find((entry) => entry.id === recordId);
+  } catch (error) {
+    return { ok: false, detail: `could not re-read the live ledger: ${(error as Error).message}`, live: absentPurgeLive(targetPath) };
+  }
+  const targetPresent = existsSync(targetPath);
+  if (record === undefined) {
+    return { ok: false, detail: `record ${recordId} is no longer in the live ledger`, live: { recordStatus: "absent", targetPresent, purgePlanId: null, purgeReceiptPath: null, purgedAt: null } };
+  }
+  const live: LivePurgeFacts = {
+    recordStatus: record.status,
+    targetPresent,
+    purgePlanId: record.purgePlanId ?? null,
+    purgeReceiptPath: record.purgeReceiptPath ?? null,
+    purgedAt: record.purgedAt ?? null
+  };
+  if (targetPresent) return { ok: false, detail: `trashed artifact ${targetPath} still exists after purge`, live };
+  if (record.status !== "resolved") return { ok: false, detail: `live status is ${record.status}, expected resolved`, live };
+  if (record.purgePlanId !== purgePlanId) return { ok: false, detail: `live row is not stamped with this purge plan (found ${record.purgePlanId ?? "none"})`, live };
+  if (record.purgeReceiptPath !== receiptPath) return { ok: false, detail: `live row purge receipt is ${record.purgeReceiptPath ?? "none"}, expected ${receiptPath}`, live };
+  if (!isNonEmptyString(record.purgedAt)) return { ok: false, detail: "live row has no purgedAt stamp", live };
+  return { ok: true, detail: "trashed artifact deleted and row stamped purged", live };
+}
+
+function absentPurgeLive(targetPath: string): LivePurgeFacts {
+  return { recordStatus: "absent", targetPresent: existsSync(targetPath), purgePlanId: null, purgeReceiptPath: null, purgedAt: null };
+}
+
+function purgeManualReview(target: UiApprovalTarget, reason: string): UiBundleTargetExecution {
+  return { outcome: "needs_manual_review", detail: `needs_manual_review: ${reason}`, evidence: purgeTargetEvidence(target) };
+}
+
+function purgeTargetEvidence(target: UiApprovalTarget): Record<string, unknown> {
+  return {
+    ledgerPath: target.ledgerPath,
+    targetId: target.targetId,
+    recordId: approvalRecordId(target),
+    recordPath: target.recordPath,
+    approvedPurgeDigest: target.planEntryDigest ?? null,
+    actionType: target.actionType
+  };
 }
 
 const APPROVED_DISPOSE_ACTIONS: ReadonlyMap<string, DisposeAction> = new Map([
@@ -349,13 +574,20 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function approvalRecordId(target: UiApprovalTarget): string {
+  return target.recordId ?? target.targetId;
+}
+
 // Re-read the live ledger/record facts an executor revalidates an approved bundle against before
 // running anything (NGX-540). Approval persisted an immutable snapshot; revalidateApprovalSnapshot
 // then compares the *selected* per-target context (and reviewed basis) the human approved against
 // what live state now reports. This produces that live re-read: for each selected target it resolves
-// the live ledger row (matched by record id - the targetId is the record id) straight from disk and
+// the live ledger row straight from disk and
 // reflects the SPEC drift signals so a drifted target never executes:
 //   - record gone, or its ledger unreadable/absent: omitted, so revalidation marks it missing.
+//   - a purge target (one-way-door, NGX-541): handled by reReadLivePurgeTarget, which - unlike the
+//     dispose rules below - KEEPS a still-trashed candidate and revalidates it against its live trash
+//     facts, since a purge subject is expected to be terminal (already trashed).
 //   - status already terminal (trashed/resolved): the target is dropped unless it is already stamped
 //     with the approved dispose plan, which lets an in-progress resume replay verification.
 //   - subject remapped (the live row's path no longer matches the reviewed recordPath): echoed with
@@ -383,8 +615,10 @@ function reReadLiveTarget(
   target: UiApprovalTarget,
   ledgerCache: Map<string, Map<string, ArtshelfRecord>>
 ): UiApprovalTarget | null {
-  const record = liveRecordById(target.ledgerPath, target.targetId, ledgerCache);
+  const recordId = isPurgeAction(target.actionType) ? approvalRecordId(target) : target.targetId;
+  const record = liveRecordById(target.ledgerPath, recordId, ledgerCache);
   if (record === undefined) return null; // subject gone, or the ledger could not be re-read
+  if (isPurgeAction(target.actionType)) return reReadLivePurgeTarget(target, record);
   if (isTerminalStatus(record.status)) return recordMatchesApprovedDispose(target, record) ? target : null;
   if (isNonEmptyString(target.planId) && liveDisposeStampChanged(target, record)) {
     return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:live-dispose-stamp-mismatch` };
@@ -411,6 +645,65 @@ function reReadLiveTarget(
     }
   }
   return target;
+}
+
+// Re-read one approved purge target against its live ledger row (NGX-541 AC5/AC7). Purge is the one
+// case where the approved subject is *expected* to be terminal (already trashed), so unlike the
+// dispose path this keeps a still-trashed candidate instead of dropping it. The approval is bound to
+// the exact trash facts via purgeCandidateDigest; this recomputes that digest from the live row so the
+// revalidation gate decides whether the one-way-door deletion is still exactly what the human approved:
+//   - record no longer trashed (already purged -> resolved, or restored to active): no longer a purge
+//     candidate, so omitted -> revalidation marks it missing and it is skipped_stale. This also makes
+//     re-running an already-purged target a safe no-op, never a double deletion.
+//   - still trashed but its trash provenance/targetPath is gone or drifted: echo the recomputed
+//     (mismatching) digest so exactly one field diverges and revalidation marks it changed -> skipped.
+//   - still trashed with the exact approved trash facts: echoed verbatim -> revalidates unchanged.
+function reReadLivePurgeTarget(target: UiApprovalTarget, record: ArtshelfRecord): UiApprovalTarget | null {
+  if (record.status === "resolved" && approvedCompletedPurge(target, record) !== null) return target;
+  if (record.status !== "trashed") return null;
+  const provenance = trashProvenance(record);
+  const facts = approvedPurgeFacts(target, record, provenance);
+  if (facts === null) {
+    // Still trashed, but no longer a valid purge candidate (provenance gone): flag drift, never purge.
+    return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:trash-provenance-missing` };
+  }
+  const liveDigest = purgeCandidateDigest(facts);
+  if (liveDigest !== target.planEntryDigest) return { ...target, planEntryDigest: liveDigest };
+  return target;
+}
+
+function approvedPurgeFacts(target: UiApprovalTarget, record: ArtshelfRecord, provenance: ReturnType<typeof trashProvenance>): PurgeCandidateFacts | null {
+  if (provenance === null || !isNonEmptyString(record.targetPath)) return null;
+  const facts: PurgeCandidateFacts = {
+    recordId: record.id,
+    ledgerPath: target.ledgerPath,
+    targetPath: record.targetPath,
+    cleanedAt: provenance.cleanedAt,
+    cleanupPlanId: provenance.cleanupPlanId,
+    receiptPath: provenance.receiptPath
+  };
+  return facts;
+}
+
+function approvedCompletedPurge(
+  target: UiApprovalTarget,
+  record: ArtshelfRecord
+): { facts: PurgeCandidateFacts; purgePlanId: string; receiptPath: string } | null {
+  if (record.status !== "resolved" || record.resolutionReason !== "trash purge completed") return null;
+  const facts = approvedPurgeFacts(target, record, trashProvenance(record));
+  if (facts === null) return null;
+  if (purgeCandidateDigest(facts) !== target.planEntryDigest) return null;
+  if (record.targetPath !== target.recordPath) return null;
+  const purgePlanId = approvedTrashPurgePlanId(target.ledgerPath, {
+    id: facts.recordId,
+    targetPath: facts.targetPath,
+    cleanedAt: facts.cleanedAt,
+    receiptPath: facts.receiptPath,
+    cleanupPlanId: facts.cleanupPlanId
+  });
+  if (record.purgePlanId !== purgePlanId) return null;
+  if (!isNonEmptyString(record.purgeReceiptPath) || !existsSync(record.purgeReceiptPath)) return null;
+  return { facts, purgePlanId, receiptPath: record.purgeReceiptPath };
 }
 
 function liveDisposeStampChanged(target: UiApprovalTarget, record: ArtshelfRecord): boolean {
@@ -537,6 +830,16 @@ export function executeApprovalBundle(
 }
 
 function bundleActionRefusal(snapshot: UiApprovalSnapshot, selected: UiApprovalTarget[]): string | null {
+  // Purge is a distinct one-way-door action (NGX-541) routed through the purge executor, not the
+  // dispose path. A purge bundle is accepted only when every selected target is itself a purge target,
+  // so a destructive bundle can never smuggle a non-purge action past the gate.
+  if (isPurgeAction(snapshot.actionType)) {
+    const mismatch = selected.find((target) => !isPurgeAction(target.actionType));
+    if (mismatch) {
+      return `approval bundle refused: bundle action ${PURGE_APPROVAL_ACTION} does not match selected target ${mismatch.targetId} action ${mismatch.actionType}; re-review`;
+    }
+    return null;
+  }
   const action = approvedDisposeAction(snapshot.actionType);
   if (action === null) {
     return `approval bundle refused: unsupported bundle action ${snapshot.actionType}; re-review`;
@@ -546,6 +849,12 @@ function bundleActionRefusal(snapshot: UiApprovalSnapshot, selected: UiApprovalT
     return `approval bundle refused: bundle action ${action} does not match selected target ${mismatch.targetId} action ${mismatch.actionType}; re-review`;
   }
   return null;
+}
+
+// NGX-541: whether an approved action routes through the one-way-door purge executor. Purge is the
+// established `trash-purge` operation; any other value is a dispose triage action (or unsupported).
+function isPurgeAction(value: string): boolean {
+  return value === PURGE_APPROVAL_ACTION;
 }
 
 // A live fingerprint that disagrees with the persisted one without any per-target or reviewed-fact
@@ -626,13 +935,14 @@ export type UiBundleExecutionReply = {
 // per-target receipts and aggregate state back to the session. This is the session-scoped, I/O-bound
 // orchestration wrapper around the pure executeApprovalBundle core: it owns loading the bundle,
 // resolving the event to reply to, and persisting the receipts, while the safety gate and per-target
-// classification stay in the pure core. The dispose-backed executor is the default; tests inject a
+// classification stay in the pure core. The default executor routes each target by action - purge
+// targets to the one-way-door purge executor, dispose targets to the dispose executor; tests inject a
 // fake one to exercise the orchestration without the real mutating path.
 export function executeApprovedBundle(
   home: string,
   sessionId: string,
   bundleId: string,
-  executeTarget: UiBundleTargetExecutor = disposeBackedTargetExecutor
+  executeTarget: UiBundleTargetExecutor = defaultBundleTargetExecutor
 ): UiBundleExecutionReply {
   // Validate the session exists and load the immutable reviewed bundle. readSession throws on a
   // missing session; readApprovalSnapshot throws on a missing or malformed bundle id.

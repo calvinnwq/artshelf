@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -94,13 +94,18 @@ export type TrashedRecord = {
   age: string;
 };
 
-type TrashProvenance = {
+export type TrashProvenance = {
   cleanedAt: string;
   receiptPath: string;
   cleanupPlanId: string;
 };
 
-function trashProvenance(record: ArtshelfRecord): TrashProvenance | null {
+// The cleanup/dispose provenance that makes a trashed record a purge candidate: when it was cleaned,
+// the originating receipt, and the plan id. Exported so the agent purge execute path (NGX-541) can
+// re-derive the exact live trash facts a purge approval is fingerprint-bound to and revalidate them
+// before the one-way-door deletion. Returns null for a trashed row whose provenance is incomplete -
+// such a row is not a valid purge candidate (the purge planner skips it too).
+export function trashProvenance(record: ArtshelfRecord): TrashProvenance | null {
   if (record.cleanedAt && record.receiptPath && record.cleanupPlanId) {
     return { cleanedAt: record.cleanedAt, receiptPath: record.receiptPath, cleanupPlanId: record.cleanupPlanId };
   }
@@ -405,8 +410,48 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
 
   const planPath = trashPurgePlanPath(ledgerPath, purgePlanId);
   if (!existsSync(planPath)) throw new Error(`Trash purge plan not found: ${purgePlanId}`);
-  const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
   const plan = JSON.parse(readFileSync(planPath, "utf8")) as TrashPurgePlan;
+  return runTrashPurgePlan(ledgerPath, purgePlanId, plan);
+}
+
+export function executeApprovedTrashPurge(
+  ledgerPath: string,
+  entry: { id: string; targetPath: string; cleanedAt: string; receiptPath: string; cleanupPlanId: string }
+): {
+  purgePlanId: string;
+  receiptPath: string;
+  result: { id: string; status: string; targetPath: string; reason?: string } | null;
+} {
+  const generatedAt = now();
+  const purgePlanId = approvedTrashPurgePlanId(ledgerPath, entry);
+  const plan: TrashPurgePlan = {
+    purgePlanId,
+    generatedAt: toIso(generatedAt),
+    ledgerPath,
+    olderThan: "0d",
+    cutoff: toIso(generatedAt),
+    entries: [entry],
+    skipped: [],
+    planPath: null
+  };
+  const { receiptPath, results } = runTrashPurgePlan(ledgerPath, purgePlanId, plan);
+  return { purgePlanId, receiptPath, result: results.find((result) => result.id === entry.id) ?? null };
+}
+
+// The shared trash-purge execution core: the resumable, receipt-staged, ledger-stamping delete loop,
+// driven by an already-loaded plan. executeTrashPurgePlan loads the plan from disk for the CLI path;
+// executeApprovedTrashPurge passes a single exact in-memory entry for the agent path. Both run this
+// identical loop, so the purge safety checks live in exactly one place.
+function runTrashPurgePlan(
+  ledgerPath: string,
+  purgePlanId: string,
+  plan: TrashPurgePlan
+): {
+  purgePlanId: string;
+  receiptPath: string;
+  results: Array<{ id: string; status: string; targetPath: string; reason?: string }>;
+} {
+  const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
   return withLedgerLock(ledgerPath, () => {
     const existingReceipt = existsSync(receiptPath) ? readTrashPurgeReceipt(receiptPath) : null;
     if (existingReceipt?.completedAt) throw new Error(`Trash purge receipt already exists: ${purgePlanId}`);
@@ -1184,6 +1229,22 @@ function makePlanId(date: Date): string {
 
 function makePurgePlanId(date: Date): string {
   return `purge_${toIso(date).replace(/[-:]/g, "").replace("T", "_").replace("Z", "")}_${randomBytes(2).toString("hex")}`;
+}
+
+export function approvedTrashPurgePlanId(
+  ledgerPath: string,
+  entry: { id: string; targetPath: string; cleanedAt: string; receiptPath: string; cleanupPlanId: string }
+): string {
+  const canonical = JSON.stringify({
+    ledgerPath: resolve(ledgerPath),
+    id: entry.id,
+    targetPath: entry.targetPath,
+    cleanedAt: entry.cleanedAt,
+    receiptPath: entry.receiptPath,
+    cleanupPlanId: entry.cleanupPlanId
+  });
+  const digest = createHash("sha256").update(canonical).digest("hex").slice(0, 32);
+  return `purge_exact_${digest}`;
 }
 
 function cleanupPlanPath(ledgerPath: string, planId: string): string {

@@ -119,7 +119,7 @@ export function printDoctor(report: DoctorReport): void {
     process.stdout.write(`  ${attentionGlyph(ledger.status !== "ok")} ${ledger.status} ${ledger.name} ${ledger.path}\n`);
     for (const message of ledger.errors) process.stdout.write(`    error: ${message}\n`);
   }
-  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; cleanup=delete is refused; physical trash purge requires a separate reviewed purge plan\n");
+  process.stdout.write("cleanup safety: execute requires a reviewed plan id against a single ledger; --all execute is refused; cleanup=delete is refused; physical trash purge requires a separate reviewed purge plan or exact approved trash-purge bundle\n");
   if (!report.ok) {
     for (const message of report.errors) process.stdout.write(`error: ${message}\n`);
   }

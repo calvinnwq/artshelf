@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { buildInspectReport } from "./inspect.js";
 import type { InspectExistence, InspectRecommendation } from "./inspect.js";
@@ -16,6 +17,7 @@ import type {
   Retention,
   UiApprovalGroup,
   UiApprovalSnapshot,
+  UiApprovalTarget,
   UiApprovalWorkbenchView
 } from "./types.js";
 
@@ -83,17 +85,38 @@ export type DashboardArtifactRow = {
   lastAction: DashboardLastAction | null;
 };
 
-// A trash / purge-candidate row. Same projection the `trash list` surface uses, plus the
-// owning ledger so the multi-ledger lane stays target-exact.
-export type DashboardTrashRow = {
+// The exact trash facts a purge approval is fingerprint-bound to (NGX-541). These are precisely the
+// facts the purge executor revalidates against before the one-way-door deletion: record identity, the
+// owning ledger, the trashed artifact path, and the originating cleanup provenance. DashboardTrashRow
+// is a superset, so the dashboard side passes a row directly while the agent execute side reconstructs
+// these from the live ledger row - both through the same purgeCandidateDigest, so the approval binding
+// can never drift between approval and execution.
+export type PurgeCandidateFacts = {
   recordId: string;
-  ledgerName: string;
   ledgerPath: string;
   targetPath: string;
   cleanedAt: string;
-  age: string;
   cleanupPlanId: string;
   receiptPath: string;
+};
+
+// A trash / purge-candidate row. Same projection the `trash list` surface uses, plus the
+// owning ledger so the multi-ledger lane stays target-exact. It is a superset of the exact
+// PurgeCandidateFacts the purge approval digest is taken over.
+export type DashboardTrashRow = PurgeCandidateFacts & {
+  ledgerName: string;
+  age: string;
+};
+
+// A purge-candidate group: every purge candidate that belongs to one source/ledger, gathered under
+// that ledger with a group total. Purge is a one-way-door operation (NGX-541), so its lane shows
+// these per-source group totals and the exact rows in each group before any approval, and the agent
+// reads the same grouping to build an exact, source-scoped purge bundle.
+export type DashboardPurgeGroup = {
+  ledgerName: string;
+  ledgerPath: string;
+  total: number;
+  candidates: DashboardTrashRow[];
 };
 
 // A registry/reconcile problem row. `source` distinguishes a path-drift finding (reconcile)
@@ -321,6 +344,86 @@ export function buildApprovalWorkbenchView(
     selectedCount: snapshot.targets.filter((target) => selected.has(target.targetId)).length,
     totalCount: snapshot.targets.length
   };
+}
+
+// Group purge candidates by their owning source/ledger, preserving first-seen ledger order so the
+// one-way-door purge lane (NGX-541) can show a per-source group total and the exact rows in each
+// group before approval. Rows are keyed by normalized ledger path so the same source always lands in
+// one group; the human-facing ledger name and path come from the first row seen for that source.
+// Pure projection: it reads only the rows it is given and mutates, executes, or previews nothing.
+export function groupPurgeCandidates(rows: DashboardTrashRow[]): DashboardPurgeGroup[] {
+  const groups: DashboardPurgeGroup[] = [];
+  const groupsByLedger = new Map<string, DashboardPurgeGroup>();
+  for (const row of rows) {
+    const key = normalizeLedgerPath(row.ledgerPath);
+    let group = groupsByLedger.get(key);
+    if (!group) {
+      group = { ledgerName: row.ledgerName, ledgerPath: row.ledgerPath, total: 0, candidates: [] };
+      groupsByLedger.set(key, group);
+      groups.push(group);
+    }
+    group.candidates.push(row);
+    group.total += 1;
+  }
+  return groups;
+}
+
+// NGX-541: the exact bundle action for a purge approval. Purge is a one-way-door operation, so its
+// approval bundle is a distinct action from the dispose triage actions - the agent execute/verify
+// path keys off this action so a purge bundle routes through the purge executor, never the dispose
+// path. Kept as the established `trash-purge` operation/receipt name so the bundle, its receipts, and
+// the recent-receipt lane all read consistently.
+export const PURGE_APPROVAL_ACTION = "trash-purge";
+
+// Deterministic digest over the exact trash facts a purge approval is bound to. These are precisely
+// the facts the purge executor revalidates a plan entry against before deleting anything (record
+// identity, owning ledger, the trashed artifact path, and the originating cleanup provenance), so any
+// drift in them changes the digest - and therefore the bundle fingerprint - and a stale or tampered
+// purge approval is refused before the irreversible deletion. The fact set is a flat string record,
+// so a fixed-key-order literal already canonicalizes it for hashing.
+export function purgeCandidateDigest(facts: PurgeCandidateFacts): string {
+  const canonical = JSON.stringify({
+    recordId: facts.recordId,
+    ledgerPath: facts.ledgerPath,
+    targetPath: facts.targetPath,
+    cleanedAt: facts.cleanedAt,
+    cleanupPlanId: facts.cleanupPlanId,
+    receiptPath: facts.receiptPath
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+// Turn the grouped purge candidates into the exact per-target rows of a purge approval bundle
+// (NGX-541). Every target names the exact trashed artifact it would delete (recordPath = the trash
+// targetPath) and carries the trash-fact digest, so a purge approval is always a bundle of exact,
+// fingerprint-bound targets - never a vague "purge everything" - and the agent can revalidate each
+// target against live trash state before the one-way-door deletion. Targets are emitted in grouped
+// order (per-source, then first-seen row order) so the bundle matches the order the one-way-door lane
+// showed the human. This builds only the candidate pool; the deliberate, non-empty human selection
+// (nothing is preselected) and persistence are the caller's, via writeApprovalSnapshot.
+export function purgeApprovalTargets(groups: DashboardPurgeGroup[]): UiApprovalTarget[] {
+  const targets: UiApprovalTarget[] = [];
+  for (const group of groups) {
+    for (const row of group.candidates) {
+      targets.push({
+        targetId: purgeApprovalTargetId(row),
+        recordId: row.recordId,
+        ledgerPath: row.ledgerPath,
+        registryPath: null,
+        recordPath: row.targetPath,
+        planId: null,
+        planEntryDigest: purgeCandidateDigest(row),
+        actionType: PURGE_APPROVAL_ACTION,
+        label: `purge ${row.targetPath} (cleaned ${row.cleanedAt})`
+      });
+    }
+  }
+  return targets;
+}
+
+function purgeApprovalTargetId(row: DashboardTrashRow): string {
+  const ledgerDigest = createHash("sha256").update(row.ledgerPath).digest("hex").slice(0, 16);
+  return `purge:${ledgerDigest}:${row.recordId}`;
 }
 
 function scopedReviewLedgers(registeredLedgers: LedgerRegistryEntry[], ledgerPath: string): LedgerRegistryEntry[] {
