@@ -410,8 +410,56 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
 
   const planPath = trashPurgePlanPath(ledgerPath, purgePlanId);
   if (!existsSync(planPath)) throw new Error(`Trash purge plan not found: ${purgePlanId}`);
-  const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
   const plan = JSON.parse(readFileSync(planPath, "utf8")) as TrashPurgePlan;
+  return runTrashPurgePlan(ledgerPath, purgePlanId, plan);
+}
+
+// Agent-mediated, exact-target one-way-door purge (NGX-541). Unlike executeTrashPurgePlan it neither
+// scans the ledger nor reads a plan file from disk: the agent passes the single exact trash entry the
+// human approved - already digest-bound and revalidated against live state by the approval gate - so
+// this mints a fresh purge plan id for the receipt/ledger stamp and runs the very same battle-tested
+// purge loop over that one entry. The loop still independently re-validates the entry against the live
+// ledger record (status === trashed, intact provenance, trash-root containment) before deleting, so
+// the destructive action stays exact-target and approval-gated with no broad `--all` path. Returns the
+// single per-target result (null only if the entry produced none) alongside the minted plan/receipt ids.
+export function executeApprovedTrashPurge(
+  ledgerPath: string,
+  entry: { id: string; targetPath: string; cleanedAt: string; receiptPath: string; cleanupPlanId: string }
+): {
+  purgePlanId: string;
+  receiptPath: string;
+  result: { id: string; status: string; targetPath: string; reason?: string } | null;
+} {
+  const generatedAt = now();
+  const purgePlanId = makePurgePlanId(generatedAt);
+  const plan: TrashPurgePlan = {
+    purgePlanId,
+    generatedAt: toIso(generatedAt),
+    ledgerPath,
+    olderThan: "0d",
+    cutoff: toIso(generatedAt),
+    entries: [entry],
+    skipped: [],
+    planPath: null
+  };
+  const { receiptPath, results } = runTrashPurgePlan(ledgerPath, purgePlanId, plan);
+  return { purgePlanId, receiptPath, result: results.find((result) => result.id === entry.id) ?? null };
+}
+
+// The shared trash-purge execution core: the resumable, receipt-staged, ledger-stamping delete loop,
+// driven by an already-loaded plan. executeTrashPurgePlan loads the plan from disk for the CLI path;
+// executeApprovedTrashPurge passes a single exact in-memory entry for the agent path. Both run this
+// identical loop, so the purge safety checks live in exactly one place.
+function runTrashPurgePlan(
+  ledgerPath: string,
+  purgePlanId: string,
+  plan: TrashPurgePlan
+): {
+  purgePlanId: string;
+  receiptPath: string;
+  results: Array<{ id: string; status: string; targetPath: string; reason?: string }>;
+} {
+  const receiptPath = trashPurgeReceiptPath(ledgerPath, purgePlanId);
   return withLedgerLock(ledgerPath, () => {
     const existingReceipt = existsSync(receiptPath) ? readTrashPurgeReceipt(receiptPath) : null;
     if (existingReceipt?.completedAt) throw new Error(`Trash purge receipt already exists: ${purgePlanId}`);
