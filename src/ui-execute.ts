@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
-import { disposePlanEntryDigest, executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
+import { disposePlanEntryDigest, disposePlanEntrySubjectDrifted, executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import { resolveRepoRoot } from "./provenance.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
@@ -385,7 +385,7 @@ function reReadLiveTarget(
 ): UiApprovalTarget | null {
   const record = liveRecordById(target.ledgerPath, target.targetId, ledgerCache);
   if (record === undefined) return null; // subject gone, or the ledger could not be re-read
-  if (isTerminalStatus(record.status) && !recordMatchesApprovedDispose(target, record)) return null;
+  if (isTerminalStatus(record.status)) return recordMatchesApprovedDispose(target, record) ? target : null;
   if (isNonEmptyString(target.planId) && record.disposePlanId === target.planId && !recordMatchesApprovedDispose(target, record)) {
     return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:live-record-mismatch` };
   }
@@ -394,17 +394,27 @@ function reReadLiveTarget(
     return { ...target, recordPath: record.path };
   }
   if (isNonEmptyString(target.planId) && isNonEmptyString(target.planEntryDigest)) {
-    const digest = liveDisposePlanEntryDigest(target);
-    if (digest !== null && digest !== target.planEntryDigest) {
-      return { ...target, planEntryDigest: digest };
+    const planEntry = liveDisposePlanEntryState(target);
+    if (planEntry === null) {
+      return { ...target, planEntryDigest: `${target.planEntryDigest}:missing-reviewed-plan` };
+    }
+    if (planEntry.digest !== target.planEntryDigest) {
+      return { ...target, planEntryDigest: planEntry.digest };
+    }
+    if (planEntry.subjectDrifted) {
+      return { ...target, planEntryDigest: `${target.planEntryDigest}:subject-drifted` };
     }
   }
   return target;
 }
 
-function liveDisposePlanEntryDigest(target: UiApprovalTarget): string | null {
+function liveDisposePlanEntryState(target: UiApprovalTarget): { digest: string; subjectDrifted: boolean } | null {
   try {
-    return disposePlanEntryDigest(readDisposePlanEntry(target.ledgerPath, target.planId as string));
+    const entry = readDisposePlanEntry(target.ledgerPath, target.planId as string);
+    return {
+      digest: disposePlanEntryDigest(entry),
+      subjectDrifted: disposePlanEntrySubjectDrifted(entry)
+    };
   } catch {
     return null;
   }

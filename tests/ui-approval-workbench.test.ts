@@ -21,6 +21,7 @@ function target(overrides: Partial<UiApprovalTarget> & { targetId: string }): Ui
 function workbench(): UiApprovalWorkbenchView {
   return {
     sessionId: "session_x",
+    bundleId: "bundle_20260625_120000_abcdef01",
     actionType: "dispose",
     groups: [
       {
@@ -97,6 +98,8 @@ test("renderApprovalWorkbenchPage offers a deliberate approval submit and never 
 
   assert.match(html, /<form[^>]*method="post"[^>]*action="\/approve"/, "the approval form posts to /approve");
   assert.match(html, /name="token" value="tok_abc"/, "the capability token is carried on the form");
+  assert.match(html, /name="sourceBundleId" value="bundle_20260625_120000_abcdef01"/, "approval posts the source immutable bundle id");
+  assert.doesNotMatch(html, /name="target"/, "approval never posts hidden target JSON");
   assert.match(html, /Approve 2 selected/, "the submit names the exact count being approved");
   assert.ok(!/approve all/i.test(html), "the workbench must not offer approve-all");
   assert.ok(!/select all/i.test(html), "the workbench must not offer select-all");
@@ -105,6 +108,7 @@ test("renderApprovalWorkbenchPage offers a deliberate approval submit and never 
 test("renderApprovalWorkbenchPage blocks approval when nothing is selected", () => {
   const view: UiApprovalWorkbenchView = {
     sessionId: "session_x",
+    bundleId: "bundle_20260625_120000_abcdef01",
     actionType: "dispose",
     groups: [
       {
@@ -125,7 +129,14 @@ test("renderApprovalWorkbenchPage blocks approval when nothing is selected", () 
 
 test("renderApprovalWorkbenchPage renders an explicit empty state with no form when there are no candidates", () => {
   const html = renderApprovalWorkbenchPage(
-    { sessionId: "session_x", actionType: "dispose", groups: [], selectedCount: 0, totalCount: 0 },
+    {
+      sessionId: "session_x",
+      bundleId: "bundle_20260625_120000_abcdef01",
+      actionType: "dispose",
+      groups: [],
+      selectedCount: 0,
+      totalCount: 0
+    },
     TOKEN
   );
 
@@ -145,6 +156,7 @@ test("renderApprovalWorkbenchPage without a token is read-only with no form or s
 test("renderApprovalWorkbenchPage escapes candidate-supplied label and path text", () => {
   const view: UiApprovalWorkbenchView = {
     sessionId: "session_x",
+    bundleId: "bundle_20260625_120000_abcdef01",
     actionType: "dispose",
     groups: [
       {

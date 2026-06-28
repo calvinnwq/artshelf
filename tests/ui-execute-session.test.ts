@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -754,6 +754,55 @@ test("executeApprovedBundle refuses a same-id reviewed dispose plan whose entry 
   assert.equal(receiptsOf(outcome.reply.payload)[0]?.outcome, "skipped_stale");
   assert.equal(readLedger(ledger).find((r) => r.id === "shf_backup")?.status, "active");
   assert.equal(existsSync(subject), true, "the changed plan entry was not executed");
+});
+
+test("executeApprovedBundle treats a missing reviewed dispose plan as stale before execution", () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-session-missing-plan-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "backup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [record("shf_backup", subject)]);
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const approved = reviewedTarget("shf_backup", ledger, subject, plan.planId);
+  const { sessionId, snapshot } = sessionWithBundle(home, [approved], ["shf_backup"]);
+  rmSync(plan.planPath as string);
+
+  const outcome = executeApprovedBundle(home, sessionId, snapshot.id);
+
+  assert.equal(outcome.execution.status, "refused");
+  assert.equal(outcome.reply.status, "stale");
+  assert.equal(receiptsOf(outcome.reply.payload)[0]?.outcome, "skipped_stale");
+  assert.equal(readLedger(ledger).find((r) => r.id === "shf_backup")?.status, "active");
+  assert.equal(existsSync(subject), true, "missing plan files force re-review before mutation");
+});
+
+test("executeApprovedBundle treats reviewed subject content drift as stale before writing dispose receipts", () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-session-subject-drift-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "backup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [record("shf_backup", subject)]);
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const approved = reviewedTarget("shf_backup", ledger, subject, plan.planId);
+  const { sessionId, snapshot } = sessionWithBundle(home, [approved], ["shf_backup"]);
+  writeFileSync(subject, "changed");
+
+  const outcome = executeApprovedBundle(home, sessionId, snapshot.id);
+
+  assert.equal(outcome.execution.status, "refused");
+  assert.equal(outcome.reply.status, "stale");
+  assert.equal(receiptsOf(outcome.reply.payload)[0]?.outcome, "skipped_stale");
+  assert.equal(readLedger(ledger).find((r) => r.id === "shf_backup")?.status, "active");
+  assert.equal(existsSync(subject), true, "drifted subjects force re-review before mutation");
+  assert.equal(
+    existsSync(join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`)),
+    false,
+    "pre-execute stale checks do not write dispose receipts"
+  );
 });
 
 test("executeApprovedBundle refuses a same-id executed dispose plan whose reviewed semantics changed before approval", () => {

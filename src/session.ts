@@ -181,11 +181,11 @@ export function startOrResumeSession(input: StartSessionInput): UiSession {
           session.status === "active" &&
           session.scope === input.scope &&
           session.ledgerPath === ledgerPath &&
-          session.registryPath === registryPath &&
-          session.repoRoot === repoRoot
+          sessionRegistryMatchesStart(session, registryPath) &&
+          sessionRepoRootMatchesStart(session, repoRoot)
       )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-    if (existing) return existing;
+    if (existing) return updateLegacySessionStartMetadata(home, existing, registryPath, repoRoot);
 
     const createdAt = toIso(now());
     const session: UiSession = {
@@ -204,6 +204,28 @@ export function startOrResumeSession(input: StartSessionInput): UiSession {
     writeSession(home, session);
     return session;
   });
+}
+
+function sessionRegistryMatchesStart(session: UiSession, registryPath: string | null): boolean {
+  if (session.registryPath === registryPath) return true;
+  return session.registryPath === null && registryPath !== null && session.ledgerPath === null;
+}
+
+function sessionRepoRootMatchesStart(session: UiSession, repoRoot: string | null): boolean {
+  if (session.repoRoot === repoRoot) return true;
+  return session.scope === "repo" && session.repoRoot === null && repoRoot !== null;
+}
+
+function updateLegacySessionStartMetadata(home: string, session: UiSession, registryPath: string | null, repoRoot: string | null): UiSession {
+  if (session.registryPath === registryPath && session.repoRoot === repoRoot) return session;
+  const updated = {
+    ...session,
+    registryPath,
+    repoRoot,
+    updatedAt: toIso(now())
+  };
+  writeSession(home, updated);
+  return updated;
 }
 
 export function listSessions(home: string): UiSession[] {

@@ -499,6 +499,7 @@ test("buildApprovalWorkbenchView projects a persisted bundle into grouped, parti
   const view = buildApprovalWorkbenchView(snapshot, { registryPath });
 
   assert.equal(view.sessionId, snapshot.sessionId);
+  assert.equal(view.bundleId, snapshot.id);
   assert.equal(view.actionType, "trash-resolve");
   assert.equal(view.totalCount, 3);
   assert.equal(view.selectedCount, 2);

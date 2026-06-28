@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { createDisposePlan } from "../src/dispose.js";
+import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
 import {
@@ -265,22 +265,43 @@ function postIntent(
   });
 }
 
-function approvalBody(fields: { token?: string; actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> }): string {
+function approvalBody(fields: {
+  token?: string;
+  sourceBundleId: string;
+  selectedTargetIds: string[];
+  actionType?: string;
+  targets?: Array<Record<string, unknown>>;
+  reviewed?: Record<string, unknown>;
+}): string {
   const params = new URLSearchParams();
   if (fields.token !== undefined) params.append("token", fields.token);
-  params.append("actionType", fields.actionType);
-  params.append("reviewed", JSON.stringify(fields.reviewed ?? {}));
-  for (const target of fields.targets) params.append("target", JSON.stringify(target));
+  params.append("sourceBundleId", fields.sourceBundleId);
+  if (fields.actionType !== undefined) params.append("actionType", fields.actionType);
+  if (fields.reviewed !== undefined) params.append("reviewed", JSON.stringify(fields.reviewed));
+  for (const target of fields.targets ?? []) params.append("target", JSON.stringify(target));
   for (const id of fields.selectedTargetIds) params.append("targetId", id);
   return params.toString();
 }
 
 function postApproval(
   server: ServerHandle,
-  fields: { actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> },
+  fields: {
+    sourceBundleId: string;
+    selectedTargetIds: string[];
+    actionType?: string;
+    targets?: Array<Record<string, unknown>>;
+    reviewed?: Record<string, unknown>;
+  },
   options: { noToken?: boolean } = {}
 ): Promise<TestResponse> {
-  const bodyFields: { token?: string; actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> } = {
+  const bodyFields: {
+    token?: string;
+    sourceBundleId: string;
+    selectedTargetIds: string[];
+    actionType?: string;
+    targets?: Array<Record<string, unknown>>;
+    reviewed?: Record<string, unknown>;
+  } = {
     ...fields
   };
   if (!options.noToken) bodyFields.token = server.token;
@@ -980,6 +1001,8 @@ test("GET /bundle/<id> renders a persisted approval bundle with token-gated part
     assert.match(body, /Selected/, "the selected row carries its state badge");
     assert.match(body, /Not selected/, "the merely-reviewed row is clearly distinguished");
     assert.match(body, /<form[^>]*method="post"[^>]*action="\/approve"/, "the token-gated bundle page can record a revised partial approval");
+    assert.match(body, new RegExp(`name="sourceBundleId" value="${snapshot.id}"`), "approval posts only the source bundle id");
+    assert.doesNotMatch(body, /name="target"/, "the workbench never posts hidden target JSON");
     assert.match(body, /type="checkbox"/, "selection inputs let the reviewer deselect rows before approval");
     assert.match(body, /Approve 1 selected/, "the submit names the exact selected count");
   });
@@ -1009,12 +1032,16 @@ test("POST /approve records a selected approval bundle and pending agent event",
         label: "trash skip me"
       }
     ];
-
-    const response = await postApproval(server, {
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
       actionType: "trash-resolve",
       targets,
       selectedTargetIds: ["t_keep"],
       reviewed: { planId: "plan_x", total: 2 }
+    });
+
+    const response = await postApproval(server, {
+      sourceBundleId: source.id,
+      selectedTargetIds: ["t_keep"]
     });
 
     assert.equal(response.status, 303);
@@ -1027,7 +1054,7 @@ test("POST /approve records a selected approval bundle and pending agent event",
     assert.deepEqual(snapshot.selectedTargetIds, ["t_keep"]);
     assert.deepEqual(snapshot.targets, targets);
     assert.deepEqual(snapshot.reviewed, { planId: "plan_x", total: 2 });
-    assert.deepEqual(listApprovalSnapshots(server.home, server.sessionId).map((bundle) => bundle.id), [bundleId]);
+    assert.deepEqual(new Set(listApprovalSnapshots(server.home, server.sessionId).map((bundle) => bundle.id)), new Set([source.id, bundleId]));
 
     const events = readSessionEvents(server.home, server.sessionId);
     assert.equal(events.length, 1);
@@ -1037,6 +1064,66 @@ test("POST /approve records a selected approval bundle and pending agent event",
     assert.equal(events[0]!.payload.bundleId, bundleId);
     assert.equal(events[0]!.payload.selectedCount, 1);
     assert.equal(events[0]!.payload.targetCount, 2);
+  });
+});
+
+test("POST /approve rehydrates targets from the stored source bundle instead of trusting hidden target JSON", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+  const outsider = singleLedger([baseRecord({ id: "shf_outside", path: "/tmp/outside" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const reviewedTargets = [
+      {
+        targetId: "t_keep",
+        ledgerPath: ledger.ledgerPath,
+        registryPath: null,
+        recordPath: "/tmp/keep",
+        planId: null,
+        actionType: "trash",
+        label: "trash keep me"
+      },
+      {
+        targetId: "t_skip",
+        ledgerPath: ledger.ledgerPath,
+        registryPath: null,
+        recordPath: "/tmp/skip",
+        planId: null,
+        actionType: "trash",
+        label: "trash skip me"
+      }
+    ];
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-resolve",
+      targets: reviewedTargets,
+      selectedTargetIds: ["t_keep"],
+      reviewed: { planId: "plan_x", total: 2 }
+    });
+
+    const forgedTarget = {
+      targetId: "shf_outside",
+      ledgerPath: outsider.ledgerPath,
+      registryPath: null,
+      recordPath: "/tmp/outside",
+      planId: "dispose_forged",
+      actionType: "trash-resolve",
+      label: "forged target"
+    };
+    const response = await postApproval(server, {
+      sourceBundleId: source.id,
+      selectedTargetIds: ["t_keep"],
+      actionType: "purge",
+      targets: [forgedTarget],
+      reviewed: { forged: true }
+    });
+
+    assert.equal(response.status, 303);
+    const location = response.headers.get("location") ?? "";
+    const bundleId = location.slice("/bundle/".length, location.indexOf("?"));
+    const snapshot = readApprovalSnapshot(server.home, server.sessionId, bundleId);
+    assert.equal(snapshot.actionType, "trash-resolve", "the stored source action wins over posted form fields");
+    assert.deepEqual(snapshot.targets, reviewedTargets, "the posted target JSON is ignored");
+    assert.deepEqual(snapshot.reviewed, { planId: "plan_x", total: 2 }, "the stored reviewed facts win over posted form fields");
+    assert.deepEqual(snapshot.selectedTargetIds, ["t_keep"]);
   });
 });
 
@@ -1102,10 +1189,7 @@ test("browser approves a bundle, the agent executes it, and the receipt lands in
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
   await withServer({ registryPath }, async (server) => {
-    // Hop 1 - the human approves exactly this one target through the real browser write path. reviewed
-    // stays empty so the live re-read gates purely on exact-target liveness rather than refusing the
-    // whole bundle on a reviewed-fact mismatch.
-    const approveResponse = await postApproval(server, {
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
       actionType: "trash-resolve",
       targets: [
         {
@@ -1114,10 +1198,19 @@ test("browser approves a bundle, the agent executes it, and the receipt lands in
           registryPath: null,
           recordPath: subject,
           planId: plan.planId,
+          planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(ledgerPath, plan.planId)),
           actionType: "trash-resolve",
           label: "trash backup.tar"
         }
       ],
+      selectedTargetIds: ["shf_backup"],
+      reviewed: {}
+    });
+    // Hop 1 - the human approves exactly this one target through the real browser write path. reviewed
+    // stays empty so the live re-read gates purely on exact-target liveness rather than refusing the
+    // whole bundle on a reviewed-fact mismatch.
+    const approveResponse = await postApproval(server, {
+      sourceBundleId: source.id,
       selectedTargetIds: ["shf_backup"]
     });
     assert.equal(approveResponse.status, 303);
@@ -1178,7 +1271,7 @@ test("browser-approved bundles cannot execute ledgers outside the served registr
   writeRegistry(registryPath, [{ name: "primary", path: allowedLedger }]);
 
   await withServer({ registryPath }, async (server) => {
-    const approveResponse = await postApproval(server, {
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
       actionType: "trash-resolve",
       targets: [
         {
@@ -1187,10 +1280,16 @@ test("browser-approved bundles cannot execute ledgers outside the served registr
           registryPath: null,
           recordPath: outsiderSubject,
           planId: outsiderPlan.planId,
+          planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(outsiderLedger, outsiderPlan.planId)),
           actionType: "trash-resolve",
           label: "trash outside"
         }
       ],
+      selectedTargetIds: ["shf_outside"],
+      reviewed: {}
+    });
+    const approveResponse = await postApproval(server, {
+      sourceBundleId: source.id,
       selectedTargetIds: ["shf_outside"]
     });
     assert.equal(approveResponse.status, 303);

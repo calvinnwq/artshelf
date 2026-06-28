@@ -206,6 +206,10 @@ export function disposePlanEntryDigest(entry: DisposePlanEntry): string {
   return createHash("sha256").update(canonicalJson(entry)).digest("hex");
 }
 
+export function disposePlanEntrySubjectDrifted(entry: DisposePlanEntry): boolean {
+  return subjectDrifted(entry.subject, snapshotSubject(entry.subjectPath));
+}
+
 type DisposeAudit = { planId: string; receiptPath: string; executedAt: string };
 
 // `records` is the mutated ledger to persist, or null when the entry was refused (no write).

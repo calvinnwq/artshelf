@@ -538,6 +538,9 @@ export type UiApprovalGroup = {
 // and decides the selection; the renderer only displays it and never mints its own selection.
 export type UiApprovalWorkbenchView = {
   sessionId: string;
+  // Source immutable bundle backing this workbench. The browser may submit only this id plus a
+  // selected target-id subset; the server rehydrates action/reviewed/target context from storage.
+  bundleId: string;
   actionType: string;
   reviewed?: Record<string, unknown>;
   groups: UiApprovalGroup[];
