@@ -124,7 +124,9 @@ process-global state except where legacy behavior already requires it.
 Current root ownership:
 
 - `ledger.ts`: ledger record lifecycle and validation, due classification,
-  cleanup and trash plan/receipt rules
+  cleanup and trash plan/receipt rules, and the exact-target one-way-door purge executor
+  (`executeApprovedTrashPurge`) plus the exported `trashProvenance` helper the agent purge path
+  re-derives live trash facts from (NGX-541)
 - `registry.ts`: registry-backed all-ledger reads and registrations
 - `registry-prune.ts`: read-only registry-prune classification (missing/duplicate
   registrations), the approval-gated dry-run plan layer that writes a reviewed
@@ -140,8 +142,11 @@ Current root ownership:
 - `dashboard.ts`: read-only multi-ledger UI dashboard aggregation (NGX-535/NGX-537) over
   registered ledgers, trash, purge candidates, registry/reconcile problems, recent receipts, and
   needs-context classification, plus the read-only approval-workbench view projection (NGX-539) that
-  groups a persisted approval bundle's candidate rows by owning ledger. It must not mutate ledgers,
-  registries, plans, or artifacts, and it must not preview file contents
+  groups a persisted approval bundle's candidate rows by owning ledger, and the one-way-door purge
+  projection (NGX-541) that groups purge candidates by source/ledger, fingerprints the exact live trash
+  facts each purge approval is bound to (`purgeCandidateDigest`), and builds the exact digest-bound
+  `trash-purge` approval targets. It must not mutate ledgers, registries, plans, or artifacts, and it
+  must not preview file contents
 - `artifact-detail.ts`: read-only single-record UI detail drawer (NGX-536/NGX-537) composing the
   inspect decision card, provenance, audit trail, last action, and needs-context badge without
   file content previews
@@ -159,12 +164,14 @@ Current root ownership:
   per request, appends exact-target intents through the token-bound `/intents` endpoint, records
   revised approval selections through token-bound `/approve`, refuses every other mutating method,
   and never embeds file contents or scripts
-- `ui-execute.ts`: agent-side approved-bundle execution (NGX-540) - the one mutating UI path. It
+- `ui-execute.ts`: agent-side approved-bundle execution (NGX-540/NGX-541) - the one mutating UI path. It
   loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
   bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
-  exact valid targets through the existing approval-gated `dispose.ts` plan-id paths, binds those
-  targets to the reviewed dispose-plan entry digest so missing or unreadable reviewed plans, subject
-  content drift, or same-id plan rewrites cannot change reason, subject, target, or retention
+  exact valid targets through the existing approval-gated paths - dispose triage targets through the
+  `dispose.ts` plan-id paths, one-way-door purge targets through the exact-target `executeApprovedTrashPurge`
+  path in `ledger.ts` - binds those targets to the reviewed per-target digest (dispose-plan entry digest
+  for dispose targets, live trash-fact digest for purge targets) so missing or unreadable reviewed plans,
+  subject content drift, or same-id plan rewrites cannot change reason, subject, target, or retention
   semantics after approval, verifies live state after each command instead of trusting the command
   exit, resumes matching `in_progress` approval-event claims, and records one of four per-target outcomes
   (`executed`/`skipped_stale`/`failed`/`needs_manual_review`) plus receipts back to the session by
@@ -272,8 +279,13 @@ Artshelf's public contract is safety-first:
 - `ui` is non-mutating except for `ui execute`: session subcommands may create session metadata, append browser events
   or agent replies, write approval snapshots, and end sessions; dashboard/detail/bundle may read
   live ledger, registry, trash, inspect, and approval state. `ui execute` may run only an approved
-  bundle through existing approval-gated exact-target paths; the command family must not execute
-  cleanup, reconcile, registry-prune, resolve, purge, browser-direct, or broad `--all` actions itself.
+  bundle through existing approval-gated exact-target paths: dispose triage targets through the
+  `dispose.ts` plan-id paths and one-way-door purge targets through the exact-target
+  `executeApprovedTrashPurge` path in `ledger.ts` (NGX-541), each revalidated against live state and
+  bound to its reviewed per-target digest before any mutation. The command family must not execute
+  cleanup, reconcile, registry-prune, the standalone `resolve` command, browser-direct, or broad
+  `--all` actions itself; purge via `ui execute` is allowed only as the exact-target, approval-gated,
+  no-recovery one-way-door path above, never as hidden/global/`--all` or browser-direct deletion.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
   update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.

@@ -169,7 +169,14 @@
               dispose-plan entry contents, so missing or unreadable reviewed plans, subject content
               drift, or changing a same-id plan artifact after approval makes the bundle stale
               before any dispose receipt is written instead of changing reason, subject, target, or
-              retention semantics. If an earlier execution claimed the approval event as
+              retention semantics. A purge-backed bundle uses the <code>trash-purge</code> action and
+              routes each target through the one-way-door purge executor, which permanently deletes
+              the trashed artifact with no recovery path - distinct from the reversible dispose path;
+              the dashboard purge lane groups candidates by source with a per-group total and a
+              no-recovery warning, the approval workbench restates that warning for a purge bundle, and
+              the purge approval is bound to the exact live trash facts via a digest so any drift
+              between approval and execution makes the target stale before the irreversible deletion.
+              If an earlier execution claimed the approval event as
               <code>in_progress</code> and stopped before final receipts, rerunning the same session
               and bundle resumes that claim; there is no <code>ui execute --all</code> and no
               browser-direct execution. Each selected target receives one of four visible
