@@ -1,5 +1,5 @@
 import type { ArtifactAuditEvent, ArtifactDetail, ArtifactProvenanceView } from "../artifact-detail.js";
-import { groupPurgeCandidates } from "../dashboard.js";
+import { PURGE_APPROVAL_ACTION, groupPurgeCandidates } from "../dashboard.js";
 import type {
   DashboardArtifactRow,
   DashboardBucketKey,
@@ -259,6 +259,13 @@ function trashLane(key: string, title: string, rows: DashboardTrashRow[]): strin
 const PURGE_LANE_NOTE =
   "Purge is a one-way door: it permanently deletes these trashed artifacts and there is no recovery path. Nothing here is selected by default - the agent purges only an exact, grouped selection you approve.";
 
+// One-way-door safety copy for the approval flow (NGX-541). The contract requires the no-recovery
+// warning in the lane AND the approval flow: the workbench is the last point before the human commits
+// an irreversible selection, so a purge bundle restates the irreversibility right at the moment of
+// approval. Only the one-way-door purge action carries this; reversible trash/dispose bundles do not.
+const PURGE_APPROVAL_NOTE =
+  "Purge is a one-way door: approving this bundle lets the agent permanently delete the exact targets you select below, with no recovery path. Approve only the targets you intend to destroy.";
+
 // The purge-candidate lane: a read-only display grouped by source/ledger with a per-group total and
 // the exact target rows, fronted by the one-way-door warning. It exposes no checkbox or execution
 // control - selecting an exact subset and approving it happens in the dedicated purge approval flow,
@@ -504,10 +511,18 @@ export function renderApprovalWorkbenchPage(view: UiApprovalWorkbenchView, token
 <div class="meta">${summary}</div>
 </header>
 <p class="banner">${APPROVAL_SURFACE_NOTE}</p>
-<main>
+${approvalWorkbenchWarning(view)}<main>
 ${approvalWorkbenchMain(view, token)}
 </main>`;
   return page("Artshelf approval workbench", body);
+}
+
+// NGX-541: a one-way-door purge bundle restates the no-recovery warning in the approval flow itself,
+// so the irreversibility copy is present in the lane AND at the moment of approval. Keyed off the exact
+// purge action so reversible (trash/dispose) bundles carry no such banner.
+function approvalWorkbenchWarning(view: UiApprovalWorkbenchView): string {
+  if (view.actionType !== PURGE_APPROVAL_ACTION) return "";
+  return `<p class="banner danger">${PURGE_APPROVAL_NOTE}</p>\n`;
 }
 
 // The candidate body. With no candidates it is an explicit empty state (never a blank panel). With a

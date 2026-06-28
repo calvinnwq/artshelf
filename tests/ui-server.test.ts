@@ -457,6 +457,35 @@ test("GET /detail/<id> renders the minimum human-judgment fields with a back lin
   });
 });
 
+test("GET /detail/<id> displays a purged record's no-recovery receipt in its audit trail (NGX-541 AC6)", async () => {
+  // A record permanently purged through the one-way-door path. The detail drawer must surface the
+  // purge in its audit trail, explicitly stating there is no recovery path and carrying the receipt,
+  // so the irreversible deletion is visible in detail history.
+  const { registryPath, ledgerPath } = singleLedger([
+    baseRecord({
+      id: "shf_purged",
+      status: "resolved",
+      path: "/orig/secret.log",
+      targetPath: "/trash/plan_a/secret.log",
+      cleanedAt: "2026-06-10T00:00:00.000Z",
+      receiptPath: "/receipts/plan_a.json",
+      cleanupPlanId: "plan_a",
+      resolvedAt: "2026-06-15T00:00:00.000Z",
+      resolutionReason: "trash purge completed",
+      purgedAt: "2026-06-15T00:00:00.000Z",
+      purgePlanId: "purge_a",
+      purgeReceiptPath: "/receipts/purge_a.json"
+    })
+  ]);
+
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request(`/detail/shf_purged?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+    assert.match(html, /purge/, "the audit trail should show the purge event");
+    assert.match(html, /no recovery path/i, "the receipt must explicitly state there is no recovery path");
+    assert.match(html, new RegExp("/receipts/purge_a\\.json"), "the no-recovery purge receipt path is shown");
+  });
+});
+
 test("GET / shows last action receipt metadata on review rows", async () => {
   const { registryPath } = singleLedger([
     baseRecord({

@@ -67,6 +67,27 @@ test("renderApprovalWorkbenchPage is a full scriptless HTML document summarizing
   assert.match(html, /dispose/, "the bundle action being approved is shown");
 });
 
+test("renderApprovalWorkbenchPage restates the one-way-door no-recovery warning when approving a purge bundle (NGX-541)", () => {
+  // The safety copy must live in the approval flow, not just the dashboard lane: the workbench is the
+  // last point before the human commits an irreversible selection, so it restates that purge is a
+  // one-way door with no recovery path.
+  const view: UiApprovalWorkbenchView = { ...workbench(), actionType: "trash-purge" };
+
+  const html = renderApprovalWorkbenchPage(view, TOKEN);
+
+  assert.match(html, /one-way door/i, "the purge approval flow warns it is a one-way door");
+  assert.match(html, /no recovery/i, "the purge approval flow states there is no recovery path");
+});
+
+test("renderApprovalWorkbenchPage shows no one-way-door warning for a reversible non-purge bundle (NGX-541)", () => {
+  // A trash/dispose bundle is reversible (the artifact still sits in trash), so the approval flow must
+  // not carry the purge-only one-way-door / no-recovery copy - the warning is exact to purge.
+  const html = renderApprovalWorkbenchPage(workbench(), TOKEN);
+
+  assert.doesNotMatch(html, /one-way door/i, "a non-purge bundle must not show the purge one-way-door warning");
+  assert.doesNotMatch(html, /no recovery/i, "a non-purge bundle must not claim there is no recovery path");
+});
+
 test("renderApprovalWorkbenchPage groups candidates by ledger and shows each row's label and exact target", () => {
   const html = renderApprovalWorkbenchPage(workbench(), TOKEN);
 

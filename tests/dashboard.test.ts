@@ -372,6 +372,37 @@ test("recent receipts are newest-first and capped by the limit", () => {
   assert.equal(snapshot.buckets.recentReceipts[0]!.receiptKind, "reconcile");
 });
 
+test("a trash-purge receipt record lands in the recent-receipts lane as a one-way-door purge (NGX-541 AC6)", () => {
+  // The agent-mediated purge registers a `trash-purge-receipt` artifact on the ledger; the dashboard
+  // must surface it in the recent-receipts lane keyed as a one-way-door `trash-purge`, so a completed
+  // no-recovery purge is visible in dashboard history rather than silently disappearing.
+  const dir = fixture();
+  const present = realFile(dir, "purge-receipt.json");
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    baseRecord({
+      id: "shf_purge_receipt",
+      path: present,
+      owner: "artshelf",
+      labels: ["artshelf", "trash-purge-receipt", "purge_a"],
+      reason: "Artshelf trash purge receipt for plan purge_a",
+      createdAt: "2026-06-22T00:00:00.000Z",
+      retention: { mode: "ttl", ttl: "365d" },
+      retainUntil: FUTURE_HOLD,
+      cleanup: "review"
+    })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  const snapshot = buildDashboard({ registryPath });
+
+  assert.equal(snapshot.buckets.recentReceipts.length, 1);
+  const row = snapshot.buckets.recentReceipts[0]!;
+  assert.equal(row.recordId, "shf_purge_receipt");
+  assert.equal(row.receiptKind, "trash-purge");
+});
+
 test("a record with a missing reason is pulled out of the review lanes into needs-context (NGX-537)", () => {
   const dir = fixture();
   const present = realFile(dir, "no-reason.txt");
