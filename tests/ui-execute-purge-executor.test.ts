@@ -6,9 +6,9 @@ import { test } from "node:test";
 import { groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../src/dashboard.js";
 import type { DashboardTrashRow } from "../src/dashboard.js";
 import { executeApprovedTrashPurge, readLedger } from "../src/ledger.js";
-import { revalidateApprovalSnapshot, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
+import { appendEvent, readSessionHistory, replyToEvent, revalidateApprovalSnapshot, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalSnapshot } from "../src/types.js";
-import { collectApprovalLiveFacts, defaultBundleTargetExecutor, executeApprovalBundle, purgeBackedTargetExecutor } from "../src/ui-execute.js";
+import { collectApprovalLiveFacts, defaultBundleTargetExecutor, executeApprovalBundle, executeApprovedBundle, purgeBackedTargetExecutor } from "../src/ui-execute.js";
 
 // NGX-541 execute slice: the REAL one-way-door purge executor. The gate (NGX-541 AC5/AC7, covered by
 // ui-execute-purge.test.ts) decides which approved purge targets are still exactly what the human
@@ -93,7 +93,7 @@ function purgeRow(fx: PurgeFixture): DashboardTrashRow {
 }
 
 function purgeBundle(fx: PurgeFixture): UiApprovalSnapshot {
-  const session = startOrResumeSession({ home: fx.home, scope: "user" });
+  const session = startOrResumeSession({ home: fx.home, scope: "user", ledgerPath: fx.ledger });
   const targets = purgeApprovalTargets(groupPurgeCandidates([purgeRow(fx)]));
   return writeApprovalSnapshot(fx.home, session.id, {
     actionType: PURGE_APPROVAL_ACTION,
@@ -101,6 +101,17 @@ function purgeBundle(fx: PurgeFixture): UiApprovalSnapshot {
     selectedTargetIds: [fx.recordId],
     reviewed: {}
   });
+}
+
+function approvalEventPayload(snapshot: UiApprovalSnapshot): Record<string, unknown> {
+  return {
+    bundleId: snapshot.id,
+    actionType: snapshot.actionType,
+    fingerprint: snapshot.fingerprint,
+    selectedTargetIds: snapshot.selectedTargetIds,
+    selectedCount: snapshot.selectedTargetIds.length,
+    targetCount: snapshot.targets.length
+  };
 }
 
 test("purgeBackedTargetExecutor permanently deletes the approved trashed artifact, stamps the ledger, and writes a no-recovery receipt", () => {
@@ -127,6 +138,41 @@ test("purgeBackedTargetExecutor permanently deletes the approved trashed artifac
   assert.ok(record?.purgedAt, "expected a purgedAt stamp");
   assert.ok(record?.purgePlanId, "expected a purgePlanId stamp");
   assert.ok(record?.purgeReceiptPath && existsSync(record.purgeReceiptPath), "expected a written purge receipt");
+});
+
+test("executeApprovedBundle resumes an in-progress purge bundle after the target was already purged", () => {
+  const fx = purgeFixture();
+  const snapshot = purgeBundle(fx);
+  appendEvent(fx.home, snapshot.sessionId, {
+    type: "approval_bundle_submitted",
+    target: { bundleId: snapshot.id },
+    payload: approvalEventPayload(snapshot)
+  });
+  const submitted = readSessionHistory(fx.home, snapshot.sessionId).find((history) => history.event.type === "approval_bundle_submitted");
+  if (!submitted) throw new Error("expected approval_bundle_submitted event");
+  replyToEvent(fx.home, snapshot.sessionId, submitted.event.id, {
+    status: "in_progress",
+    payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint },
+    expectedStatus: "pending"
+  });
+  const entry = {
+    id: fx.recordId,
+    targetPath: fx.targetPath,
+    cleanedAt: fx.cleanedAt,
+    receiptPath: fx.receiptPath,
+    cleanupPlanId: fx.cleanupPlanId
+  };
+  const first = executeApprovedTrashPurge(fx.ledger, entry);
+  assert.equal(first.result?.status, "purged");
+  assert.equal(existsSync(fx.targetPath), false);
+
+  const result = executeApprovedBundle(fx.home, snapshot.sessionId, snapshot.id);
+
+  assert.equal(result.execution.status, "executed");
+  assert.equal(result.reply.status, "completed");
+  assert.equal(result.execution.receipts[0]?.outcome, "executed");
+  assert.match(result.execution.receipts[0]!.detail, /no recovery path/i);
+  assert.equal(readLedger(fx.ledger).find((record) => record.id === fx.recordId)?.purgePlanId, first.purgePlanId);
 });
 
 test("executeApprovedTrashPurge resumes an interrupted exact-target purge receipt", () => {

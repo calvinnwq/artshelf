@@ -3,7 +3,7 @@ import { basename, dirname, relative, resolve } from "node:path";
 import { PURGE_APPROVAL_ACTION, purgeCandidateDigest } from "./dashboard.js";
 import type { PurgeCandidateFacts } from "./dashboard.js";
 import { disposePlanEntryDigest, disposePlanEntrySubjectStaleForExecute, executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
-import { executeApprovedTrashPurge, readLedger, trashProvenance } from "./ledger.js";
+import { approvedTrashPurgePlanId, executeApprovedTrashPurge, readLedger, trashProvenance } from "./ledger.js";
 import { resolveRepoRoot } from "./provenance.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import {
@@ -144,6 +144,9 @@ export function purgeBackedTargetExecutor(target: UiApprovalTarget): UiBundleTar
     return purgeManualReview(target, "approved purge target has no trashed artifact path to delete; re-review the target");
   }
 
+  const completed = completedApprovedPurgeExecution(target);
+  if (completed !== null) return completed;
+
   const binding = bindApprovedPurgeTarget(target);
   if (!binding.ok) return binding.execution;
   const facts = binding.facts;
@@ -229,17 +232,10 @@ function bindApprovedPurgeTarget(target: UiApprovalTarget): PurgeTargetBinding {
     return { ok: false, execution: purgeManualReview(target, `the approved purge subject is ${record.status}, not trashed (already purged or restored); re-review the target`) };
   }
   const provenance = trashProvenance(record);
-  if (provenance === null || !isNonEmptyString(record.targetPath)) {
+  const facts = approvedPurgeFacts(target, record, provenance);
+  if (facts === null) {
     return { ok: false, execution: purgeManualReview(target, "the approved purge subject lost its trash provenance; re-review the target") };
   }
-  const facts: PurgeCandidateFacts = {
-    recordId: record.id,
-    ledgerPath: target.ledgerPath,
-    targetPath: record.targetPath,
-    cleanedAt: provenance.cleanedAt,
-    cleanupPlanId: provenance.cleanupPlanId,
-    receiptPath: provenance.receiptPath
-  };
   if (purgeCandidateDigest(facts) !== target.planEntryDigest) {
     return { ok: false, execution: purgeManualReview(target, "the approved purge target drifted from its reviewed trash facts; re-run the dry-run and re-approve") };
   }
@@ -247,6 +243,33 @@ function bindApprovedPurgeTarget(target: UiApprovalTarget): PurgeTargetBinding {
     return { ok: false, execution: purgeManualReview(target, "the approved purge target path drifted from the reviewed trashed artifact; re-review the target") };
   }
   return { ok: true, facts };
+}
+
+function completedApprovedPurgeExecution(target: UiApprovalTarget): UiBundleTargetExecution | null {
+  let record: ArtshelfRecord | undefined;
+  try {
+    record = readLedger(target.ledgerPath).find((entry) => entry.id === target.targetId);
+  } catch (error) {
+    return { outcome: "failed", detail: `failed: could not re-read the live ledger before purge: ${(error as Error).message}`, evidence: purgeTargetEvidence(target) };
+  }
+  if (record === undefined) return null;
+  const completed = approvedCompletedPurge(target, record);
+  if (completed === null) return null;
+  const verified = verifyPurgeLive(target.ledgerPath, completed.facts.recordId, completed.facts.targetPath, completed.purgePlanId, completed.receiptPath);
+  const evidence = {
+    ...purgeTargetEvidence(target),
+    purgePlanId: completed.purgePlanId,
+    purgeReceiptPath: completed.receiptPath,
+    live: verified.live
+  };
+  if (!verified.ok) {
+    return { outcome: "failed", detail: `failed: live state did not reflect the purge: ${verified.detail}`, evidence };
+  }
+  return {
+    outcome: "executed",
+    detail: `executed trash-purge: ${completed.facts.targetPath} permanently deleted with no recovery path`,
+    evidence
+  };
 }
 
 // Live purge facts re-derived straight from the on-disk ledger row and filesystem, independent of
@@ -628,22 +651,51 @@ function reReadLiveTarget(
 //     (mismatching) digest so exactly one field diverges and revalidation marks it changed -> skipped.
 //   - still trashed with the exact approved trash facts: echoed verbatim -> revalidates unchanged.
 function reReadLivePurgeTarget(target: UiApprovalTarget, record: ArtshelfRecord): UiApprovalTarget | null {
+  if (record.status === "resolved" && approvedCompletedPurge(target, record) !== null) return target;
   if (record.status !== "trashed") return null;
   const provenance = trashProvenance(record);
-  if (provenance === null || !isNonEmptyString(record.targetPath)) {
+  const facts = approvedPurgeFacts(target, record, provenance);
+  if (facts === null) {
     // Still trashed, but no longer a valid purge candidate (provenance gone): flag drift, never purge.
     return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:trash-provenance-missing` };
   }
-  const liveDigest = purgeCandidateDigest({
+  const liveDigest = purgeCandidateDigest(facts);
+  if (liveDigest !== target.planEntryDigest) return { ...target, planEntryDigest: liveDigest };
+  return target;
+}
+
+function approvedPurgeFacts(target: UiApprovalTarget, record: ArtshelfRecord, provenance: ReturnType<typeof trashProvenance>): PurgeCandidateFacts | null {
+  if (provenance === null || !isNonEmptyString(record.targetPath)) return null;
+  const facts: PurgeCandidateFacts = {
     recordId: record.id,
     ledgerPath: target.ledgerPath,
     targetPath: record.targetPath,
     cleanedAt: provenance.cleanedAt,
     cleanupPlanId: provenance.cleanupPlanId,
     receiptPath: provenance.receiptPath
+  };
+  return facts;
+}
+
+function approvedCompletedPurge(
+  target: UiApprovalTarget,
+  record: ArtshelfRecord
+): { facts: PurgeCandidateFacts; purgePlanId: string; receiptPath: string } | null {
+  if (record.status !== "resolved" || record.resolutionReason !== "trash purge completed") return null;
+  const facts = approvedPurgeFacts(target, record, trashProvenance(record));
+  if (facts === null) return null;
+  if (purgeCandidateDigest(facts) !== target.planEntryDigest) return null;
+  if (record.targetPath !== target.recordPath) return null;
+  const purgePlanId = approvedTrashPurgePlanId(target.ledgerPath, {
+    id: facts.recordId,
+    targetPath: facts.targetPath,
+    cleanedAt: facts.cleanedAt,
+    receiptPath: facts.receiptPath,
+    cleanupPlanId: facts.cleanupPlanId
   });
-  if (liveDigest !== target.planEntryDigest) return { ...target, planEntryDigest: liveDigest };
-  return target;
+  if (record.purgePlanId !== purgePlanId) return null;
+  if (!isNonEmptyString(record.purgeReceiptPath) || !existsSync(record.purgeReceiptPath)) return null;
+  return { facts, purgePlanId, receiptPath: record.purgeReceiptPath };
 }
 
 function liveDisposeStampChanged(target: UiApprovalTarget, record: ArtshelfRecord): boolean {

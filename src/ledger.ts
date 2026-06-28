@@ -423,7 +423,7 @@ export function executeApprovedTrashPurge(
   result: { id: string; status: string; targetPath: string; reason?: string } | null;
 } {
   const generatedAt = now();
-  const purgePlanId = makeApprovedPurgePlanId(ledgerPath, entry);
+  const purgePlanId = approvedTrashPurgePlanId(ledgerPath, entry);
   const plan: TrashPurgePlan = {
     purgePlanId,
     generatedAt: toIso(generatedAt),
@@ -1231,7 +1231,7 @@ function makePurgePlanId(date: Date): string {
   return `purge_${toIso(date).replace(/[-:]/g, "").replace("T", "_").replace("Z", "")}_${randomBytes(2).toString("hex")}`;
 }
 
-function makeApprovedPurgePlanId(
+export function approvedTrashPurgePlanId(
   ledgerPath: string,
   entry: { id: string; targetPath: string; cleanedAt: string; receiptPath: string; cleanupPlanId: string }
 ): string {
