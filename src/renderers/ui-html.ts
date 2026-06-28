@@ -1,4 +1,5 @@
 import type { ArtifactAuditEvent, ArtifactDetail, ArtifactProvenanceView } from "../artifact-detail.js";
+import { groupPurgeCandidates } from "../dashboard.js";
 import type {
   DashboardArtifactRow,
   DashboardBucketKey,
@@ -6,6 +7,7 @@ import type {
   DashboardLedgerStatus,
   DashboardNeedsContext,
   DashboardProblemRow,
+  DashboardPurgeGroup,
   DashboardReceiptRow,
   DashboardSnapshot,
   DashboardTrashRow
@@ -67,6 +69,11 @@ header.top { padding: 16px 20px; background: #1c2733; color: #e8edf2; }
 header.top h1 { margin: 0 0 4px; font-size: 18px; }
 header.top .meta { font-size: 12px; opacity: .8; word-break: break-all; }
 .banner { margin: 0; padding: 8px 20px; background: #fef3c7; color: #5b4708; font-size: 13px; border-bottom: 1px solid #f0d98a; }
+.banner.danger { background: #fdecea; color: #7a271a; border: 1px solid #f5c2bc; border-radius: 6px; margin: 0 0 12px; padding: 10px 12px; font-weight: 600; }
+.purge-group { margin: 0 0 16px; }
+.purge-group > h3 { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 14px; margin: 0 0 8px; }
+.purge-group > h3 .muted { font-size: 12px; font-weight: 400; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.purge-total { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #7a271a; font-weight: 600; }
 main { padding: 16px 20px 48px; max-width: 1100px; margin: 0 auto; }
 .chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 20px; padding: 0; list-style: none; }
 .chip { display: flex; flex-direction: column; min-width: 116px; padding: 10px 12px; background: #fff; border: 1px solid #dfe3e8; border-radius: 8px; }
@@ -162,7 +169,7 @@ ${artifactLane("needs-context", "Needs context", snapshot.buckets.needsContext, 
 ${artifactLane("cleanup", "Cleanup candidates", snapshot.buckets.cleanup, token)}
 ${artifactLane("resolve", "Resolve candidates", snapshot.buckets.resolve, token)}
 ${trashLane("trash", "Trash", snapshot.buckets.trash)}
-${trashLane("purge-candidates", "Purge candidates", snapshot.buckets.purgeCandidates)}
+${purgeLane(snapshot.buckets.purgeCandidates)}
 ${problemLane("registry-reconcile", "Registry / reconcile problems", snapshot.buckets.registryReconcile)}
 ${receiptLane("recent-receipts", "Recent receipts", snapshot.buckets.recentReceipts)}
 </main>`;
@@ -229,10 +236,8 @@ function lastActionField(lastAction: DashboardLastAction | null): string {
   return `<div><dt>last action</dt><dd>${escapeHtml(lastAction.kind)} at ${escapeHtml(lastAction.at)}${escapeHtml(receipt)}</dd></div>`;
 }
 
-function trashLane(key: string, title: string, rows: DashboardTrashRow[]): string {
-  const inner = rows
-    .map(
-      (row) => `<article class="row">
+function trashRowCard(row: DashboardTrashRow): string {
+  return `<article class="row">
 <h4>${escapeHtml(row.recordId)} <span class="status">${escapeHtml(row.ledgerName)}</span></h4>
 <dl class="fields">
 <div><dt>target</dt><dd>${escapeHtml(row.targetPath)}</dd></div>
@@ -240,10 +245,35 @@ function trashLane(key: string, title: string, rows: DashboardTrashRow[]): strin
 <div><dt>plan</dt><dd>${escapeHtml(row.cleanupPlanId)}</dd></div>
 <div><dt>receipt</dt><dd>${escapeHtml(row.receiptPath)}</dd></div>
 </dl>
-</article>`
-    )
-    .join("");
+</article>`;
+}
+
+function trashLane(key: string, title: string, rows: DashboardTrashRow[]): string {
+  const inner = rows.map(trashRowCard).join("");
   return laneSection(key, title, rows.length, inner);
+}
+
+// One-way-door safety copy for the purge lane (NGX-541). Purge permanently deletes the trashed
+// artifact with no recovery path, so the lane states the irreversibility up front, makes clear
+// nothing is preselected, and that an exact, grouped approval is required before the agent purges.
+const PURGE_LANE_NOTE =
+  "Purge is a one-way door: it permanently deletes these trashed artifacts and there is no recovery path. Nothing here is selected by default - the agent purges only an exact, grouped selection you approve.";
+
+// The purge-candidate lane: a read-only display grouped by source/ledger with a per-group total and
+// the exact target rows, fronted by the one-way-door warning. It exposes no checkbox or execution
+// control - selecting an exact subset and approving it happens in the dedicated purge approval flow,
+// never directly from this lane. The warning and groups render only when the lane has candidates.
+function purgeLane(rows: DashboardTrashRow[]): string {
+  const groups = groupPurgeCandidates(rows).map(purgeGroupSection).join("");
+  const inner = `<p class="banner danger">${PURGE_LANE_NOTE}</p>${groups}`;
+  return laneSection("purge-candidates", "Purge candidates", rows.length, inner);
+}
+
+function purgeGroupSection(group: DashboardPurgeGroup): string {
+  const rows = group.candidates.map(trashRowCard).join("");
+  return `<section class="purge-group">
+<h3>${escapeHtml(group.ledgerName)} <span class="muted">${escapeHtml(group.ledgerPath)}</span> <span class="purge-total">${group.total} candidate(s)</span></h3>
+${rows}</section>`;
 }
 
 function problemLane(key: string, title: string, rows: DashboardProblemRow[]): string {

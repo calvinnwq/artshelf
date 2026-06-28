@@ -96,6 +96,17 @@ export type DashboardTrashRow = {
   receiptPath: string;
 };
 
+// A purge-candidate group: every purge candidate that belongs to one source/ledger, gathered under
+// that ledger with a group total. Purge is a one-way-door operation (NGX-541), so its lane shows
+// these per-source group totals and the exact rows in each group before any approval, and the agent
+// reads the same grouping to build an exact, source-scoped purge bundle.
+export type DashboardPurgeGroup = {
+  ledgerName: string;
+  ledgerPath: string;
+  total: number;
+  candidates: DashboardTrashRow[];
+};
+
 // A registry/reconcile problem row. `source` distinguishes a path-drift finding (reconcile)
 // from a stale/duplicate registration (registry prune); both point at exact targets.
 export type DashboardProblemRow = {
@@ -321,6 +332,28 @@ export function buildApprovalWorkbenchView(
     selectedCount: snapshot.targets.filter((target) => selected.has(target.targetId)).length,
     totalCount: snapshot.targets.length
   };
+}
+
+// Group purge candidates by their owning source/ledger, preserving first-seen ledger order so the
+// one-way-door purge lane (NGX-541) can show a per-source group total and the exact rows in each
+// group before approval. Rows are keyed by normalized ledger path so the same source always lands in
+// one group; the human-facing ledger name and path come from the first row seen for that source.
+// Pure projection: it reads only the rows it is given and mutates, executes, or previews nothing.
+export function groupPurgeCandidates(rows: DashboardTrashRow[]): DashboardPurgeGroup[] {
+  const groups: DashboardPurgeGroup[] = [];
+  const groupsByLedger = new Map<string, DashboardPurgeGroup>();
+  for (const row of rows) {
+    const key = normalizeLedgerPath(row.ledgerPath);
+    let group = groupsByLedger.get(key);
+    if (!group) {
+      group = { ledgerName: row.ledgerName, ledgerPath: row.ledgerPath, total: 0, candidates: [] };
+      groupsByLedger.set(key, group);
+      groups.push(group);
+    }
+    group.candidates.push(row);
+    group.total += 1;
+  }
+  return groups;
 }
 
 function scopedReviewLedgers(registeredLedgers: LedgerRegistryEntry[], ledgerPath: string): LedgerRegistryEntry[] {

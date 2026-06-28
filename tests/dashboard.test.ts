@@ -3,7 +3,8 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { buildApprovalWorkbenchView, buildDashboard } from "../src/dashboard.js";
+import { buildApprovalWorkbenchView, buildDashboard, groupPurgeCandidates } from "../src/dashboard.js";
+import type { DashboardTrashRow } from "../src/dashboard.js";
 import type { UiApprovalSnapshot } from "../src/types.js";
 
 // Read-only multi-ledger dashboard aggregation (NGX-535). Fixtures author registry + ledger
@@ -212,6 +213,50 @@ test("trashed records populate both the trash lane and the purge-candidate lane"
   assert.equal(snapshot.buckets.cleanup.length, 0);
   assert.equal(snapshot.buckets.resolve.length, 0);
   assert.equal(snapshot.buckets.needsReview.length, 0);
+});
+
+function purgeCandidateRow(recordId: string, ledgerName: string, ledgerPath: string): DashboardTrashRow {
+  return {
+    recordId,
+    ledgerName,
+    ledgerPath,
+    targetPath: `/trash/plan_a/${recordId}.txt`,
+    cleanedAt: CLEANED_AT,
+    age: "15d",
+    cleanupPlanId: "plan_a",
+    receiptPath: `/receipts/${recordId}.json`
+  };
+}
+
+test("groupPurgeCandidates groups purge candidates by source/ledger with a group total", () => {
+  // Interleaved across two ledgers to prove rows are gathered into their owning source group
+  // rather than left in arrival order (the one-way-door lane shows group totals per source).
+  const groups = groupPurgeCandidates([
+    purgeCandidateRow("shf_a1", "primary", "/repo/a/ledger.jsonl"),
+    purgeCandidateRow("shf_b1", "secondary", "/repo/b/ledger.jsonl"),
+    purgeCandidateRow("shf_a2", "primary", "/repo/a/ledger.jsonl")
+  ]);
+
+  assert.equal(groups.length, 2);
+  // First-seen ledger order is preserved, matching the approval workbench grouping.
+  assert.equal(groups[0]!.ledgerName, "primary");
+  assert.equal(groups[0]!.ledgerPath, "/repo/a/ledger.jsonl");
+  assert.equal(groups[0]!.total, 2);
+  assert.deepEqual(
+    groups[0]!.candidates.map((candidate) => candidate.recordId),
+    ["shf_a1", "shf_a2"]
+  );
+  assert.equal(groups[1]!.ledgerName, "secondary");
+  assert.equal(groups[1]!.ledgerPath, "/repo/b/ledger.jsonl");
+  assert.equal(groups[1]!.total, 1);
+  assert.deepEqual(
+    groups[1]!.candidates.map((candidate) => candidate.recordId),
+    ["shf_b1"]
+  );
+});
+
+test("groupPurgeCandidates returns no groups for an empty candidate list", () => {
+  assert.deepEqual(groupPurgeCandidates([]), []);
 });
 
 test("a missing registered ledger surfaces a registry prune problem and contributes no rows", () => {
