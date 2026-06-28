@@ -406,7 +406,8 @@ export function purgeApprovalTargets(groups: DashboardPurgeGroup[]): UiApprovalT
   for (const group of groups) {
     for (const row of group.candidates) {
       targets.push({
-        targetId: row.recordId,
+        targetId: purgeApprovalTargetId(row),
+        recordId: row.recordId,
         ledgerPath: row.ledgerPath,
         registryPath: null,
         recordPath: row.targetPath,
@@ -418,6 +419,11 @@ export function purgeApprovalTargets(groups: DashboardPurgeGroup[]): UiApprovalT
     }
   }
   return targets;
+}
+
+function purgeApprovalTargetId(row: DashboardTrashRow): string {
+  const ledgerDigest = createHash("sha256").update(row.ledgerPath).digest("hex").slice(0, 16);
+  return `purge:${ledgerDigest}:${row.recordId}`;
 }
 
 function scopedReviewLedgers(registeredLedgers: LedgerRegistryEntry[], ledgerPath: string): LedgerRegistryEntry[] {

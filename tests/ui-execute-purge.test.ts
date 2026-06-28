@@ -68,15 +68,26 @@ function ledgerWith(records: Array<Record<string, unknown>>): string {
   return ledger;
 }
 
-function purgeBundle(home: string, rows: DashboardTrashRow[], selectedTargetIds: string[]): UiApprovalSnapshot {
+function purgeBundle(home: string, rows: DashboardTrashRow[], selectedRecordIds: string[]): UiApprovalSnapshot {
   const session = startOrResumeSession({ home, scope: "user" });
   const targets = purgeApprovalTargets(groupPurgeCandidates(rows));
+  const targetIds = selectedRecordIds.map((recordId) => {
+    const target = targets.find((entry) => entry.recordId === recordId);
+    if (!target) throw new Error(`missing purge target for ${recordId}`);
+    return target.targetId;
+  });
   return writeApprovalSnapshot(home, session.id, {
     actionType: PURGE_APPROVAL_ACTION,
     targets,
-    selectedTargetIds,
+    selectedTargetIds: targetIds,
     reviewed: {}
   });
+}
+
+function approvedTargetId(snapshot: UiApprovalSnapshot, recordId: string): string {
+  const target = snapshot.targets.find((entry) => entry.recordId === recordId);
+  if (!target) throw new Error(`missing approved target for ${recordId}`);
+  return target.targetId;
 }
 
 test("a selected purge candidate still trashed with matching trash facts revalidates fresh and executes", () => {
@@ -85,14 +96,14 @@ test("a selected purge candidate still trashed with matching trash facts revalid
   const snapshot = purgeBundle(home, [purgeRow("shf_a", ledger)], ["shf_a"]);
 
   const live = collectApprovalLiveFacts(snapshot);
-  assert.deepEqual(live.targets.map((entry) => entry.targetId), ["shf_a"]);
+  assert.deepEqual(live.targets.map((entry) => entry.recordId), ["shf_a"]);
   // The approved subject is terminal (trashed) by design, yet the purge gate keeps it and revalidates
   // it fresh because its live trash facts still match the digest the approval was bound to.
   assert.equal(revalidateApprovalSnapshot(snapshot, live).status, "fresh");
 
   const purged: string[] = [];
   const result = executeApprovalBundle(snapshot, live, (target) => {
-    purged.push(target.targetId);
+    purged.push(target.recordId ?? target.targetId);
     return { outcome: "executed", detail: `purged ${target.recordPath}` };
   });
   assert.deepEqual(purged, ["shf_a"]);
@@ -107,21 +118,21 @@ test("a selected purge candidate whose record vanished is skipped_stale, not bro
   const snapshot = purgeBundle(home, [purgeRow("shf_a", ledger), purgeRow("shf_b", ledger)], ["shf_a", "shf_b"]);
 
   const live = collectApprovalLiveFacts(snapshot);
-  assert.deepEqual(live.targets.map((entry) => entry.targetId), ["shf_b"]);
+  assert.deepEqual(live.targets.map((entry) => entry.recordId), ["shf_b"]);
   const verdict = revalidateApprovalSnapshot(snapshot, live);
   assert.equal(verdict.status, "stale");
-  assert.deepEqual(verdict.missingTargetIds, ["shf_a"]);
+  assert.deepEqual(verdict.missingTargetIds, [approvedTargetId(snapshot, "shf_a")]);
 
   const purged: string[] = [];
   const result = executeApprovalBundle(snapshot, live, (target) => {
-    purged.push(target.targetId);
+    purged.push(target.recordId ?? target.targetId);
     return { outcome: "executed", detail: `purged ${target.recordPath}` };
   });
   // The vanished target is skipped with a clear reason while the still-exact one executes.
   assert.deepEqual(purged, ["shf_b"]);
   assert.equal(result.status, "partial");
-  assert.equal(result.receipts.find((entry) => entry.targetId === "shf_a")?.outcome, "skipped_stale");
-  assert.equal(result.receipts.find((entry) => entry.targetId === "shf_b")?.outcome, "executed");
+  assert.equal(result.receipts.find((entry) => entry.targetId === approvedTargetId(snapshot, "shf_a"))?.outcome, "skipped_stale");
+  assert.equal(result.receipts.find((entry) => entry.targetId === approvedTargetId(snapshot, "shf_b"))?.outcome, "executed");
 });
 
 test("a selected purge candidate already purged out-of-band is skipped_stale, never purged twice", () => {
@@ -152,7 +163,7 @@ test("a selected purge candidate whose trash facts drifted is skipped_stale as c
   const live = collectApprovalLiveFacts(snapshot);
   const verdict = revalidateApprovalSnapshot(snapshot, live);
   assert.equal(verdict.status, "stale");
-  assert.deepEqual(verdict.changedTargetIds, ["shf_a"]);
+  assert.deepEqual(verdict.changedTargetIds, [approvedTargetId(snapshot, "shf_a")]);
 
   const result = executeApprovalBundle(snapshot, live, () => {
     throw new Error("a drifted purge target must not be purged");
@@ -169,7 +180,7 @@ test("a selected purge candidate whose trash provenance was stripped is flagged 
   const snapshot = purgeBundle(home, [purgeRow("shf_a", ledger)], ["shf_a"]);
 
   const live = collectApprovalLiveFacts(snapshot);
-  assert.deepEqual(revalidateApprovalSnapshot(snapshot, live).changedTargetIds, ["shf_a"]);
+  assert.deepEqual(revalidateApprovalSnapshot(snapshot, live).changedTargetIds, [approvedTargetId(snapshot, "shf_a")]);
 
   const result = executeApprovalBundle(snapshot, live, () => {
     throw new Error("a purge candidate without intact trash provenance must not be purged");

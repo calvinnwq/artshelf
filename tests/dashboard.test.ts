@@ -629,12 +629,13 @@ test("purgeApprovalTargets builds one exact, digest-bound purge target per group
   // One target per candidate, in grouped order (per-source, then first-seen row order) so the
   // bundle matches the order the one-way-door lane showed the human.
   assert.deepEqual(
-    targets.map((target) => target.targetId),
+    targets.map((target) => target.recordId),
     ["shf_a1", "shf_a2", "shf_b1"]
   );
 
   const first = targets[0]!;
-  assert.equal(first.targetId, "shf_a1");
+  assert.equal(first.recordId, "shf_a1");
+  assert.match(first.targetId, /^purge:[0-9a-f]{16}:shf_a1$/);
   assert.equal(first.ledgerPath, "/repo/a/ledger.jsonl");
   assert.equal(first.registryPath, null);
   // The exact subject is the trashed artifact path that would be deleted - never a vague global purge.
@@ -647,6 +648,35 @@ test("purgeApprovalTargets builds one exact, digest-bound purge target per group
   // The per-target digest binds the exact trash facts the purge executor revalidates against.
   assert.equal(first.planEntryDigest, purgeCandidateDigest(groups[0]!.candidates[0]!));
   assert.match(first.planEntryDigest!, /^[0-9a-f]{64}$/);
+});
+
+test("purgeApprovalTargets ledger-scopes duplicate record ids while preserving execution lookup ids", () => {
+  const home = freshUiHome();
+  const session = startOrResumeSession({ home, scope: "user" });
+  const groups = groupPurgeCandidates([
+    purgeCandidateRow("shf_same", "primary", "/repo/a/ledger.jsonl"),
+    purgeCandidateRow("shf_same", "secondary", "/repo/b/ledger.jsonl")
+  ]);
+
+  const targets = purgeApprovalTargets(groups);
+
+  assert.equal(new Set(targets.map((target) => target.targetId)).size, 2);
+  assert.deepEqual(
+    targets.map((target) => (target as { recordId?: string }).recordId),
+    ["shf_same", "shf_same"]
+  );
+
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: PURGE_APPROVAL_ACTION,
+    targets,
+    selectedTargetIds: targets.map((target) => target.targetId),
+    reviewed: {}
+  });
+
+  assert.deepEqual(
+    selectedApprovalTargets(snapshot).map((target) => (target as { recordId?: string }).recordId),
+    ["shf_same", "shf_same"]
+  );
 });
 
 test("purgeCandidateDigest is stable for identical facts and changes when any exact purge fact drifts", () => {
@@ -693,7 +723,7 @@ test("a deliberate purge selection persists as a fingerprinted bundle and a vagu
   const snapshot = writeApprovalSnapshot(home, session.id, {
     actionType: PURGE_APPROVAL_ACTION,
     targets,
-    selectedTargetIds: ["shf_a1"],
+    selectedTargetIds: [targets[0]!.targetId],
     reviewed: {}
   });
   assert.equal(snapshot.actionType, "trash-purge");
@@ -701,7 +731,7 @@ test("a deliberate purge selection persists as a fingerprinted bundle and a vagu
   assert.notEqual(snapshot.fingerprint, approvalSnapshotFingerprint(targets, {}));
   assert.deepEqual(readApprovalSnapshot(home, session.id, snapshot.id), snapshot);
   assert.deepEqual(
-    selectedApprovalTargets(snapshot).map((target) => target.targetId),
+    selectedApprovalTargets(snapshot).map((target) => target.recordId),
     ["shf_a1"]
   );
 });

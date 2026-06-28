@@ -98,7 +98,7 @@ function purgeBundle(fx: PurgeFixture): UiApprovalSnapshot {
   return writeApprovalSnapshot(fx.home, session.id, {
     actionType: PURGE_APPROVAL_ACTION,
     targets,
-    selectedTargetIds: [fx.recordId],
+    selectedTargetIds: [targets[0]!.targetId],
     reviewed: {}
   });
 }

@@ -447,6 +447,7 @@ export type UiSessionHistoryEntry = {
 // addition to its owning ledger, so "approve everything on ledger X" can never be encoded.
 export type UiApprovalTarget = {
   targetId: string;
+  recordId?: string;
   ledgerPath: string;
   registryPath: string | null;
   recordPath: string | null;

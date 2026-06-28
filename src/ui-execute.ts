@@ -217,8 +217,9 @@ type PurgeTargetBinding =
 // deletion of something other than the reviewed artifact.
 function bindApprovedPurgeTarget(target: UiApprovalTarget): PurgeTargetBinding {
   let record: ArtshelfRecord | undefined;
+  const recordId = approvalRecordId(target);
   try {
-    record = readLedger(target.ledgerPath).find((entry) => entry.id === target.targetId);
+    record = readLedger(target.ledgerPath).find((entry) => entry.id === recordId);
   } catch (error) {
     return {
       ok: false,
@@ -247,8 +248,9 @@ function bindApprovedPurgeTarget(target: UiApprovalTarget): PurgeTargetBinding {
 
 function completedApprovedPurgeExecution(target: UiApprovalTarget): UiBundleTargetExecution | null {
   let record: ArtshelfRecord | undefined;
+  const recordId = approvalRecordId(target);
   try {
-    record = readLedger(target.ledgerPath).find((entry) => entry.id === target.targetId);
+    record = readLedger(target.ledgerPath).find((entry) => entry.id === recordId);
   } catch (error) {
     return { outcome: "failed", detail: `failed: could not re-read the live ledger before purge: ${(error as Error).message}`, evidence: purgeTargetEvidence(target) };
   }
@@ -332,6 +334,7 @@ function purgeTargetEvidence(target: UiApprovalTarget): Record<string, unknown> 
   return {
     ledgerPath: target.ledgerPath,
     targetId: target.targetId,
+    recordId: approvalRecordId(target),
     recordPath: target.recordPath,
     approvedPurgeDigest: target.planEntryDigest ?? null,
     actionType: target.actionType
@@ -571,11 +574,15 @@ function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function approvalRecordId(target: UiApprovalTarget): string {
+  return target.recordId ?? target.targetId;
+}
+
 // Re-read the live ledger/record facts an executor revalidates an approved bundle against before
 // running anything (NGX-540). Approval persisted an immutable snapshot; revalidateApprovalSnapshot
 // then compares the *selected* per-target context (and reviewed basis) the human approved against
 // what live state now reports. This produces that live re-read: for each selected target it resolves
-// the live ledger row (matched by record id - the targetId is the record id) straight from disk and
+// the live ledger row straight from disk and
 // reflects the SPEC drift signals so a drifted target never executes:
 //   - record gone, or its ledger unreadable/absent: omitted, so revalidation marks it missing.
 //   - a purge target (one-way-door, NGX-541): handled by reReadLivePurgeTarget, which - unlike the
@@ -608,7 +615,8 @@ function reReadLiveTarget(
   target: UiApprovalTarget,
   ledgerCache: Map<string, Map<string, ArtshelfRecord>>
 ): UiApprovalTarget | null {
-  const record = liveRecordById(target.ledgerPath, target.targetId, ledgerCache);
+  const recordId = isPurgeAction(target.actionType) ? approvalRecordId(target) : target.targetId;
+  const record = liveRecordById(target.ledgerPath, recordId, ledgerCache);
   if (record === undefined) return null; // subject gone, or the ledger could not be re-read
   if (isPurgeAction(target.actionType)) return reReadLivePurgeTarget(target, record);
   if (isTerminalStatus(record.status)) return recordMatchesApprovedDispose(target, record) ? target : null;
