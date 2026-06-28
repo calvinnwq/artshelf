@@ -143,6 +143,7 @@ export function executeDisposePlan(ledgerPath: string, planId: string): DisposeE
 export function executeDisposePlanEntry(ledgerPath: string, planId: string, entry: DisposePlanEntry): DisposeExecution {
   const boundEntry = assertDisposePlanEntryExecutable(entry, planId, ledgerPath);
   const receiptPath = disposeReceiptPath(ledgerPath, planId);
+  const planEntryDigest = disposePlanEntryDigest(boundEntry);
   return withPathLock(ledgerPath, () => {
     const completedReceipt = existsSync(receiptPath) ? readCompletedDisposeReceipt(receiptPath, planId, boundEntry) : null;
     if (completedReceipt) {
@@ -159,13 +160,14 @@ export function executeDisposePlanEntry(ledgerPath: string, planId: string, entr
     const index = records.findIndex((record) => record.id === boundEntry.id);
     const record = index >= 0 ? records[index] : undefined;
     if (record?.disposePlanId === planId) {
+      assertDisposeRecordMatchesEntry(record, boundEntry, planId);
       const replayReceiptPath = record.disposeReceiptPath ?? receiptPath;
       const receipt = existsSync(replayReceiptPath) ? readCompletedDisposeReceipt(replayReceiptPath, planId, boundEntry) : null;
-      const started = receipt ? null : readStartedDisposeReceipt(replayReceiptPath, planId);
+      const started = receipt ? null : readStartedDisposeReceipt(replayReceiptPath, planId, boundEntry);
       const result = receipt?.result ?? appliedResultFromRecord(boundEntry, record);
       const executedAt = receipt?.executedAt ?? record.disposedAt ?? started?.executedAt ?? toIso(now());
       if (!receipt) {
-        writeDisposeReceipt(replayReceiptPath, { planId, ledgerPath, executedAt, status: "completed", result });
+        writeDisposeReceipt(replayReceiptPath, { planId, ledgerPath, executedAt, status: "completed", planEntryDigest, result });
       }
       registerDisposeReceipt(ledgerPath, replayReceiptPath, planId);
       return {
@@ -176,17 +178,17 @@ export function executeDisposePlanEntry(ledgerPath: string, planId: string, entr
       };
     }
 
-    const started = readStartedDisposeReceipt(receiptPath, planId);
+    const started = readStartedDisposeReceipt(receiptPath, planId, boundEntry);
     const executedAt = started?.executedAt ?? toIso(now());
     const audit: DisposeAudit = { planId, receiptPath, executedAt };
 
     // Announce intent before any mutation so an interrupted move leaves a breadcrumb.
-    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "started", action: boundEntry.action, target: boundEntry.targetPath ?? null });
+    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "started", planEntryDigest, action: boundEntry.action, target: boundEntry.targetPath ?? null });
 
     const outcome = applyDisposeEntry(records, index, boundEntry, audit);
     if (outcome.records) writeLedger(ledgerPath, outcome.records);
 
-    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "completed", result: outcome.result });
+    writeDisposeReceipt(receiptPath, { planId, ledgerPath, executedAt, status: "completed", planEntryDigest, result: outcome.result });
     registerDisposeReceipt(ledgerPath, receiptPath, planId);
     return { planId, receiptPath, executedAt, result: outcome.result };
   }, "Artshelf ledger");
@@ -413,6 +415,31 @@ function appliedResultFromRecord(entry: DisposePlanEntry, record: ArtshelfRecord
   };
 }
 
+function assertDisposeRecordMatchesEntry(record: ArtshelfRecord, entry: DisposePlanEntry, planId: string): void {
+  const mismatches: string[] = [];
+  if (record.disposePlanId !== planId) mismatches.push(`plan ${record.disposePlanId ?? "none"}, expected ${planId}`);
+  if (record.disposeAction !== entry.action) mismatches.push(`action ${record.disposeAction ?? "none"}, expected ${entry.action}`);
+  if (record.disposeReason !== entry.reason) mismatches.push("reason changed");
+  if (record.path !== entry.path || record.path !== entry.subjectPath) mismatches.push(`path ${record.path}, expected ${entry.subjectPath}`);
+  if (entry.action === "trash-resolve") {
+    if (record.status !== "trashed") mismatches.push(`status ${record.status}, expected trashed`);
+    if (record.previousPath !== entry.subjectPath) mismatches.push(`previousPath ${record.previousPath ?? "none"}, expected ${entry.subjectPath}`);
+    if (record.targetPath !== entry.targetPath) mismatches.push(`targetPath ${record.targetPath ?? "none"}, expected ${entry.targetPath ?? "none"}`);
+  } else if (entry.action === "resolve-only") {
+    if (record.status !== "resolved") mismatches.push(`status ${record.status}, expected resolved`);
+    if (record.resolutionReason !== entry.reason) mismatches.push("resolution reason changed");
+  } else if (entry.action === "snooze") {
+    if (record.status !== entry.status) mismatches.push(`status ${record.status}, expected ${entry.status}`);
+    if (canonicalJson(record.retention) !== canonicalJson(entry.retention as Retention)) mismatches.push("retention changed");
+    if (record.retainUntil !== entry.retainUntil) mismatches.push(`retainUntil ${record.retainUntil ?? "none"}, expected ${entry.retainUntil ?? "none"}`);
+  } else if (record.status !== entry.status) {
+    mismatches.push(`status ${record.status}, expected ${entry.status}`);
+  }
+  if (mismatches.length > 0) {
+    throw new Error(`Dispose ledger stamp mismatch: record ${record.id} does not match reviewed plan entry (${mismatches.join("; ")})`);
+  }
+}
+
 function resultStatusFor(action: DisposeAction): DisposeResultStatus {
   if (action === "trash-resolve") return "trashed";
   if (action === "snooze") return "snoozed";
@@ -536,30 +563,67 @@ function writeDisposeReceipt(receiptPath: string, value: unknown): void {
   writeFileSync(receiptPath, `${JSON.stringify(value, null, 2)}\n`);
 }
 
-function readCompletedDisposeReceipt(receiptPath: string, planId: string, expected?: Pick<DisposePlanEntry, "id" | "action">): { executedAt: string; result: DisposeResult } | null {
-  let receipt: { planId?: unknown; executedAt?: unknown; status?: unknown; result?: unknown };
+function readCompletedDisposeReceipt(receiptPath: string, planId: string, expected?: DisposePlanEntry): { executedAt: string; result: DisposeResult } | null {
+  let receipt: { planId?: unknown; executedAt?: unknown; status?: unknown; planEntryDigest?: unknown; result?: unknown };
   try {
-    receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown; result?: unknown };
+    receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown; planEntryDigest?: unknown; result?: unknown };
   } catch {
     return null;
   }
   if (receipt.planId !== planId || receipt.status !== "completed" || typeof receipt.executedAt !== "string" || !isDisposeResult(receipt.result)) {
     return null;
   }
-  if (expected && (receipt.result.id !== expected.id || receipt.result.action !== expected.action)) {
-    throw new Error(`Dispose receipt result mismatch: receipt ${receiptPath} reports ${receipt.result.id}/${receipt.result.action}, expected ${expected.id}/${expected.action}`);
+  if (expected) {
+    if (typeof receipt.planEntryDigest === "string" && receipt.planEntryDigest !== disposePlanEntryDigest(expected)) {
+      throw new Error(`Dispose receipt result mismatch: receipt ${receiptPath} was written for a different reviewed plan entry`);
+    }
+    assertDisposeResultMatchesEntry(receipt.result, expected, receiptPath);
   }
   return { executedAt: receipt.executedAt, result: receipt.result };
 }
 
-function readStartedDisposeReceipt(receiptPath: string, planId: string): { executedAt: string } | null {
+function readStartedDisposeReceipt(receiptPath: string, planId: string, expected?: DisposePlanEntry): { executedAt: string } | null {
   if (!existsSync(receiptPath)) return null;
+  let receipt: { planId?: unknown; executedAt?: unknown; status?: unknown; planEntryDigest?: unknown; action?: unknown; target?: unknown };
   try {
-    const receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown };
-    if (receipt.planId !== planId || receipt.status !== "started" || typeof receipt.executedAt !== "string") return null;
-    return { executedAt: receipt.executedAt };
+    receipt = JSON.parse(readFileSync(receiptPath, "utf8")) as { planId?: unknown; executedAt?: unknown; status?: unknown; planEntryDigest?: unknown; action?: unknown; target?: unknown };
   } catch {
     return null;
+  }
+  if (receipt.planId !== planId || receipt.status !== "started" || typeof receipt.executedAt !== "string") return null;
+  if (expected) {
+    if (typeof receipt.planEntryDigest === "string" && receipt.planEntryDigest !== disposePlanEntryDigest(expected)) {
+      throw new Error(`Dispose receipt result mismatch: receipt ${receiptPath} was started for a different reviewed plan entry`);
+    }
+    if (receipt.action !== undefined && receipt.action !== expected.action) {
+      throw new Error(`Dispose receipt result mismatch: receipt ${receiptPath} reports ${String(receipt.action)}, expected ${expected.action}`);
+    }
+    const expectedTarget = expected.targetPath ?? null;
+    if (receipt.target !== undefined && receipt.target !== expectedTarget) {
+      throw new Error(`Dispose receipt result mismatch: receipt ${receiptPath} targets ${String(receipt.target)}, expected ${String(expectedTarget)}`);
+    }
+  }
+  return { executedAt: receipt.executedAt };
+}
+
+function assertDisposeResultMatchesEntry(result: DisposeResult, entry: DisposePlanEntry, receiptPath: string): void {
+  const mismatches: string[] = [];
+  if (result.id !== entry.id) mismatches.push(`id ${result.id}, expected ${entry.id}`);
+  if (result.action !== entry.action) mismatches.push(`action ${result.action}, expected ${entry.action}`);
+  if (result.status !== "skipped") {
+    if (result.status !== resultStatusFor(entry.action)) mismatches.push(`status ${result.status}, expected ${resultStatusFor(entry.action)}`);
+    if (result.reason !== entry.reason) mismatches.push("reason changed");
+    const expectedPreviousPath = entry.action === "trash-resolve" ? entry.subjectPath : null;
+    const expectedTargetPath = entry.action === "trash-resolve" ? (entry.targetPath as string) : null;
+    const expectedRetention = entry.action === "snooze" ? (entry.retention as Retention) : null;
+    const expectedRetainUntil = entry.action === "snooze" ? (entry.retainUntil as string) : null;
+    if (result.previousPath !== expectedPreviousPath) mismatches.push(`previousPath ${String(result.previousPath)}, expected ${String(expectedPreviousPath)}`);
+    if (result.targetPath !== expectedTargetPath) mismatches.push(`targetPath ${String(result.targetPath)}, expected ${String(expectedTargetPath)}`);
+    if (canonicalJson(result.retention) !== canonicalJson(expectedRetention)) mismatches.push("retention changed");
+    if (result.retainUntil !== expectedRetainUntil) mismatches.push(`retainUntil ${String(result.retainUntil)}, expected ${String(expectedRetainUntil)}`);
+  }
+  if (mismatches.length > 0) {
+    throw new Error(`Dispose receipt result mismatch: receipt ${receiptPath} ${mismatches.join("; ")}`);
   }
 }
 

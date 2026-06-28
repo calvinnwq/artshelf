@@ -284,15 +284,25 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution, entr
   if (record.path !== entry.path || record.path !== entry.subjectPath) {
     return liveFail(`live row path is ${record.path}, expected ${entry.subjectPath}`, live);
   }
+  if (record.disposeReason !== entry.reason) {
+    return liveFail("live row dispose reason does not match the reviewed plan entry", live);
+  }
 
   if (result.action === "trash-resolve") {
     if (record.status !== "trashed") return liveFail(`live status is ${record.status}, expected trashed`, live);
+    if (result.reason !== entry.reason) return liveFail("receipt reason does not match the reviewed plan entry", live);
+    if (record.previousPath !== entry.subjectPath) return liveFail(`live previousPath is ${record.previousPath ?? "unset"}, expected ${entry.subjectPath}`, live);
+    if (record.targetPath !== entry.targetPath) return liveFail(`live targetPath is ${record.targetPath ?? "unset"}, expected ${entry.targetPath ?? "unset"}`, live);
+    if (result.previousPath !== entry.subjectPath) return liveFail(`receipt previousPath is ${result.previousPath ?? "unset"}, expected ${entry.subjectPath}`, live);
+    if (result.targetPath !== entry.targetPath) return liveFail(`receipt targetPath is ${result.targetPath ?? "unset"}, expected ${entry.targetPath ?? "unset"}`, live);
     if (targetPresent !== true) return liveFail(`trash target ${result.targetPath} is no longer present`, live);
     if (subjectPresent !== false) return liveFail(`subject is still present at ${result.previousPath}`, live);
     return liveOk(`row trashed and subject moved to ${result.targetPath}`, live);
   }
   if (result.action === "resolve-only") {
     if (record.status !== "resolved") return liveFail(`live status is ${record.status}, expected resolved`, live);
+    if (record.resolutionReason !== entry.reason) return liveFail("live resolution reason does not match the reviewed plan entry", live);
+    if (result.reason !== entry.reason) return liveFail("receipt reason does not match the reviewed plan entry", live);
     if (subjectPresent !== result.verification.subjectPresent) {
       return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
     }
@@ -300,7 +310,11 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution, entr
   }
   if (result.action === "snooze") {
     if (record.status !== entry.status) return liveFail(`live status is ${record.status}, expected ${entry.status}`, live);
-    if (record.retainUntil !== result.retainUntil) return liveFail(`live retainUntil is ${record.retainUntil ?? "unset"}, expected ${result.retainUntil}`, live);
+    if (result.reason !== entry.reason) return liveFail("receipt reason does not match the reviewed plan entry", live);
+    if (!sameJson(record.retention, entry.retention)) return liveFail("live retention does not match the reviewed plan entry", live);
+    if (record.retainUntil !== entry.retainUntil) return liveFail(`live retainUntil is ${record.retainUntil ?? "unset"}, expected ${entry.retainUntil}`, live);
+    if (!sameJson(result.retention, entry.retention)) return liveFail("receipt retention does not match the reviewed plan entry", live);
+    if (result.retainUntil !== entry.retainUntil) return liveFail(`receipt retainUntil is ${result.retainUntil ?? "unset"}, expected ${entry.retainUntil}`, live);
     if (subjectPresent !== result.verification.subjectPresent) {
       return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
     }
@@ -308,6 +322,7 @@ function verifyDisposeLive(ledgerPath: string, execution: DisposeExecution, entr
   }
   // keep
   if (record.status !== entry.status) return liveFail(`live status is ${record.status}, expected ${entry.status}`, live);
+  if (result.reason !== entry.reason) return liveFail("receipt reason does not match the reviewed plan entry", live);
   if (subjectPresent !== result.verification.subjectPresent) {
     return liveFail(`subject presence is ${subjectPresent}, expected ${result.verification.subjectPresent}`, live);
   }
@@ -371,6 +386,9 @@ function reReadLiveTarget(
   const record = liveRecordById(target.ledgerPath, target.targetId, ledgerCache);
   if (record === undefined) return null; // subject gone, or the ledger could not be re-read
   if (isTerminalStatus(record.status) && !recordMatchesApprovedDispose(target, record)) return null;
+  if (isNonEmptyString(target.planId) && record.disposePlanId === target.planId && !recordMatchesApprovedDispose(target, record)) {
+    return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:live-record-mismatch` };
+  }
   // A remapped subject is present but changed: echo the live path so revalidation flags it changed.
   if (isNonEmptyString(target.recordPath) && record.path !== target.recordPath) {
     return { ...target, recordPath: record.path };
@@ -394,7 +412,39 @@ function liveDisposePlanEntryDigest(target: UiApprovalTarget): string | null {
 
 function recordMatchesApprovedDispose(target: UiApprovalTarget, record: ArtshelfRecord): boolean {
   const action = approvedDisposeAction(target.actionType);
-  return action !== null && isNonEmptyString(target.planId) && record.disposePlanId === target.planId && record.disposeAction === action;
+  if (action === null || !isNonEmptyString(target.planId) || record.disposePlanId !== target.planId || record.disposeAction !== action) {
+    return false;
+  }
+  let entry: DisposePlanEntry;
+  try {
+    entry = readDisposePlanEntry(target.ledgerPath, target.planId);
+  } catch {
+    return false;
+  }
+  if (isNonEmptyString(target.planEntryDigest) && disposePlanEntryDigest(entry) !== target.planEntryDigest) {
+    return false;
+  }
+  return recordMatchesDisposeEntry(record, entry);
+}
+
+function recordMatchesDisposeEntry(record: ArtshelfRecord, entry: DisposePlanEntry): boolean {
+  if (record.disposeAction !== entry.action) return false;
+  if (record.disposeReason !== entry.reason) return false;
+  if (record.path !== entry.path || record.path !== entry.subjectPath) return false;
+  if (entry.action === "trash-resolve") {
+    return record.status === "trashed" && record.previousPath === entry.subjectPath && record.targetPath === entry.targetPath;
+  }
+  if (entry.action === "resolve-only") {
+    return record.status === "resolved" && record.resolutionReason === entry.reason;
+  }
+  if (entry.action === "snooze") {
+    return record.status === entry.status && sameJson(record.retention, entry.retention) && record.retainUntil === entry.retainUntil;
+  }
+  return record.status === entry.status;
+}
+
+function sameJson(left: unknown, right: unknown): boolean {
+  return JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 }
 
 // Index a ledger by record id once per ledger path, treating an unreadable or absent ledger as empty

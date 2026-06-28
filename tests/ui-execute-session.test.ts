@@ -8,7 +8,7 @@ import { test } from "node:test";
 // real-executor end-to-end path.
 process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
-import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
+import { createDisposePlan, disposePlanEntryDigest, executeDisposePlan, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 import { appendEvent, endSession, readSessionHistory, replyToEvent, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalSnapshot, UiApprovalTarget } from "../src/types.js";
@@ -114,14 +114,15 @@ function sessionWithBundle(
   selectedTargetIds: string[],
   reviewed: Record<string, unknown> = {},
   scope: "user" | "repo" = "user",
-  ledgerPath: string | null = null
+  ledgerPath: string | null = null,
+  actionType = "trash-resolve"
 ): { sessionId: string; snapshot: UiApprovalSnapshot } {
   const registryPath = scope === "user" && ledgerPath === null ? join(mkdtempSync(join(tmpdir(), "artshelf-exec-session-registry-")), "ledgers.json") : null;
   if (registryPath !== null) {
     writeRegistryFile(registryPath, Array.from(new Set(targets.map((entry) => entry.ledgerPath))));
   }
   const session = startOrResumeSession({ home, scope, ledgerPath, registryPath });
-  const snapshot = writeApprovalSnapshot(home, session.id, { actionType: "trash-resolve", targets, selectedTargetIds, reviewed });
+  const snapshot = writeApprovalSnapshot(home, session.id, { actionType, targets, selectedTargetIds, reviewed });
   appendEvent(home, session.id, {
     type: "approval_bundle_submitted",
     target: { bundleId: snapshot.id },
@@ -753,4 +754,33 @@ test("executeApprovedBundle refuses a same-id reviewed dispose plan whose entry 
   assert.equal(receiptsOf(outcome.reply.payload)[0]?.outcome, "skipped_stale");
   assert.equal(readLedger(ledger).find((r) => r.id === "shf_backup")?.status, "active");
   assert.equal(existsSync(subject), true, "the changed plan entry was not executed");
+});
+
+test("executeApprovedBundle refuses a same-id executed dispose plan whose reviewed semantics changed before approval", () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-session-replay-digest-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "backup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [record("shf_backup", subject)]);
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "snooze", ttl: "7d", reason: "reviewed" });
+  executeDisposePlan(ledger, plan.planId);
+  const swappedPlan = JSON.parse(readFileSync(plan.planPath as string, "utf8")) as Record<string, any>;
+  swappedPlan.entry.reason = "different reviewed semantics";
+  swappedPlan.entry.retention = { mode: "ttl", ttl: "30d" };
+  swappedPlan.entry.retainUntil = "2026-03-31T00:00:00Z";
+  writeFileSync(plan.planPath as string, `${JSON.stringify(swappedPlan, null, 2)}\n`);
+  const approved = reviewedTarget("shf_backup", ledger, subject, plan.planId, { actionType: "snooze" });
+  const { sessionId, snapshot } = sessionWithBundle(home, [approved], ["shf_backup"], {}, "user", null, "snooze");
+
+  const outcome = executeApprovedBundle(home, sessionId, snapshot.id);
+
+  assert.equal(outcome.execution.status, "refused");
+  assert.equal(outcome.reply.status, "stale");
+  assert.equal(receiptsOf(outcome.reply.payload)[0]?.outcome, "skipped_stale");
+  const recordAfter = readLedger(ledger).find((r) => r.id === "shf_backup");
+  assert.equal(recordAfter?.retainUntil, "2026-03-08T00:00:00Z");
+  assert.equal(recordAfter?.disposeReason, "reviewed");
+  assert.equal(existsSync(subject), true);
 });
