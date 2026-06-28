@@ -228,6 +228,30 @@ test("collectApprovalLiveFacts marks a selected plan without a digest stale when
   assert.equal(result.receipts[0]?.outcome, "skipped_stale");
 });
 
+test("collectApprovalLiveFacts marks a selected target stale when a later active dispose decision stamped the row", () => {
+  const { home, ledger, subject } = repoFixture();
+  const approvedPlan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "approved earlier" });
+  const approved = plannedTarget(ledger, subject, approvedPlan.planId);
+  const snapshot = bundle(home, [approved], [approved.targetId]);
+  const laterPlan = createDisposePlan(ledger, { id: "shf_backup", action: "keep", reason: "later human decision" });
+  disposeBackedTargetExecutor({
+    ...approved,
+    actionType: "keep",
+    planId: laterPlan.planId,
+    planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(ledger, laterPlan.planId))
+  });
+
+  const result = executeApprovalBundle(snapshot, collectApprovalLiveFacts(snapshot), () => {
+    throw new Error("stale approval must not overwrite a later active dispose decision");
+  });
+
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, laterPlan.planId);
+  assert.equal(recordById(ledger, "shf_backup")?.disposeAction, "keep");
+  assert.equal(result.revalidation.status, "stale");
+  assert.deepEqual(result.revalidation.changedTargetIds, ["shf_backup"]);
+  assert.equal(result.receipts[0]?.outcome, "skipped_stale");
+});
+
 test("collectApprovalLiveFacts lets trash-resolve resume after the subject reached plan trash", () => {
   const { home, ledger, subject } = repoFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });

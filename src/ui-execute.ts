@@ -386,6 +386,9 @@ function reReadLiveTarget(
   const record = liveRecordById(target.ledgerPath, target.targetId, ledgerCache);
   if (record === undefined) return null; // subject gone, or the ledger could not be re-read
   if (isTerminalStatus(record.status)) return recordMatchesApprovedDispose(target, record) ? target : null;
+  if (isNonEmptyString(target.planId) && liveDisposeStampChanged(target, record)) {
+    return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:live-dispose-stamp-mismatch` };
+  }
   if (isNonEmptyString(target.planId) && record.disposePlanId === target.planId && !recordMatchesApprovedDispose(target, record)) {
     return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:live-record-mismatch` };
   }
@@ -408,6 +411,11 @@ function reReadLiveTarget(
     }
   }
   return target;
+}
+
+function liveDisposeStampChanged(target: UiApprovalTarget, record: ArtshelfRecord): boolean {
+  if (record.disposePlanId === undefined && record.disposeAction === undefined) return false;
+  return record.disposePlanId !== target.planId || record.disposeAction !== approvedDisposeAction(target.actionType);
 }
 
 function liveDisposePlanEntryState(target: UiApprovalTarget): { digest: string; subjectStale: boolean } | null {

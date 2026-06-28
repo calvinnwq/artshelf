@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -104,6 +104,21 @@ test("executeDisposePlan resolves the ledger record without moving files for res
   assert.equal(execution.result.targetPath, null);
   assert.equal(execution.result.verification.subjectPresent, true);
   assert.equal(execution.result.verification.targetPresent, null);
+});
+
+test("executeDisposePlan resume rechecks subject presence for non-moving actions", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "no longer needed" });
+  executeDisposePlan(ledger, plan.planId);
+  const receiptPath = recordById(ledger, "shf_backup")?.disposeReceiptPath as string;
+  rmSync(receiptPath);
+  rmSync(subject);
+
+  const replay = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(replay.result.status, "resolved");
+  assert.equal(replay.result.verification.subjectPresent, false);
+  assert.equal(replay.result.verification.targetPresent, null);
 });
 
 test("executeDisposePlan extends retention and keeps the record active for snooze", () => {

@@ -144,7 +144,7 @@ test("disposeBackedTargetExecutor fails a resolved receipt when the live subject
   assert.equal(live.subjectPresent, false);
 });
 
-test("disposeBackedTargetExecutor fails an interrupted resolve-only resume when the live subject disappeared", () => {
+test("disposeBackedTargetExecutor rechecks subject presence on interrupted resolve-only resume", () => {
   const { ledger, subject } = presentBackupFixture();
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "no longer needed" });
   const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
@@ -172,11 +172,11 @@ test("disposeBackedTargetExecutor fails an interrupted resolve-only resume when 
 
   const execution = disposeBackedTargetExecutor(approvalTarget(ledger, subject, plan.planId, "resolve-only"));
 
-  assert.equal(execution.outcome, "failed");
+  assert.equal(execution.outcome, "executed");
   const evidence = evidenceOf(execution);
   const commandVerification = evidence.commandVerification as Record<string, unknown>;
   const live = evidence.live as Record<string, unknown>;
-  assert.equal(commandVerification.subjectPresent, true);
+  assert.equal(commandVerification.subjectPresent, false);
   assert.equal(live.subjectPresent, false);
 });
 

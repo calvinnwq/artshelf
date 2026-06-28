@@ -402,7 +402,7 @@ function refusal(entry: DisposePlanEntry, reason: string, recordStatus: Artshelf
 function appliedResultFromRecord(entry: DisposePlanEntry, record: ArtshelfRecord): DisposeResult {
   const action = record.disposeAction ?? entry.action;
   const target = action === "trash-resolve" ? (record.targetPath ?? null) : null;
-  const subjectPresent = action === "trash-resolve" ? existsSync(entry.subjectPath) : entry.subject.existence === "present";
+  const subjectPresent = existsSync(action === "trash-resolve" ? entry.subjectPath : record.path);
   return {
     id: entry.id,
     action,
