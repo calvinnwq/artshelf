@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { buildInspectReport } from "./inspect.js";
 import type { InspectExistence, InspectRecommendation } from "./inspect.js";
@@ -16,6 +17,7 @@ import type {
   Retention,
   UiApprovalGroup,
   UiApprovalSnapshot,
+  UiApprovalTarget,
   UiApprovalWorkbenchView
 } from "./types.js";
 
@@ -354,6 +356,58 @@ export function groupPurgeCandidates(rows: DashboardTrashRow[]): DashboardPurgeG
     group.total += 1;
   }
   return groups;
+}
+
+// NGX-541: the exact bundle action for a purge approval. Purge is a one-way-door operation, so its
+// approval bundle is a distinct action from the dispose triage actions - the agent execute/verify
+// path keys off this action so a purge bundle routes through the purge executor, never the dispose
+// path. Kept as the established `trash-purge` operation/receipt name so the bundle, its receipts, and
+// the recent-receipt lane all read consistently.
+export const PURGE_APPROVAL_ACTION = "trash-purge";
+
+// Deterministic digest over the exact trash facts a purge approval is bound to. These are precisely
+// the facts the purge executor revalidates a plan entry against before deleting anything (record
+// identity, owning ledger, the trashed artifact path, and the originating cleanup provenance), so any
+// drift in them changes the digest - and therefore the bundle fingerprint - and a stale or tampered
+// purge approval is refused before the irreversible deletion. The fact set is a flat string record,
+// so a fixed-key-order literal already canonicalizes it for hashing.
+export function purgeCandidateDigest(row: DashboardTrashRow): string {
+  const canonical = JSON.stringify({
+    recordId: row.recordId,
+    ledgerPath: row.ledgerPath,
+    targetPath: row.targetPath,
+    cleanedAt: row.cleanedAt,
+    cleanupPlanId: row.cleanupPlanId,
+    receiptPath: row.receiptPath
+  });
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+// Turn the grouped purge candidates into the exact per-target rows of a purge approval bundle
+// (NGX-541). Every target names the exact trashed artifact it would delete (recordPath = the trash
+// targetPath) and carries the trash-fact digest, so a purge approval is always a bundle of exact,
+// fingerprint-bound targets - never a vague "purge everything" - and the agent can revalidate each
+// target against live trash state before the one-way-door deletion. Targets are emitted in grouped
+// order (per-source, then first-seen row order) so the bundle matches the order the one-way-door lane
+// showed the human. This builds only the candidate pool; the deliberate, non-empty human selection
+// (nothing is preselected) and persistence are the caller's, via writeApprovalSnapshot.
+export function purgeApprovalTargets(groups: DashboardPurgeGroup[]): UiApprovalTarget[] {
+  const targets: UiApprovalTarget[] = [];
+  for (const group of groups) {
+    for (const row of group.candidates) {
+      targets.push({
+        targetId: row.recordId,
+        ledgerPath: row.ledgerPath,
+        registryPath: null,
+        recordPath: row.targetPath,
+        planId: null,
+        planEntryDigest: purgeCandidateDigest(row),
+        actionType: PURGE_APPROVAL_ACTION,
+        label: `purge ${row.targetPath} (cleaned ${row.cleanedAt})`
+      });
+    }
+  }
+  return targets;
 }
 
 function scopedReviewLedgers(registeredLedgers: LedgerRegistryEntry[], ledgerPath: string): LedgerRegistryEntry[] {

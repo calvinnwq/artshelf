@@ -3,8 +3,22 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { buildApprovalWorkbenchView, buildDashboard, groupPurgeCandidates } from "../src/dashboard.js";
+import {
+  buildApprovalWorkbenchView,
+  buildDashboard,
+  groupPurgeCandidates,
+  purgeApprovalTargets,
+  purgeCandidateDigest,
+  PURGE_APPROVAL_ACTION
+} from "../src/dashboard.js";
 import type { DashboardTrashRow } from "../src/dashboard.js";
+import {
+  approvalSnapshotFingerprint,
+  readApprovalSnapshot,
+  selectedApprovalTargets,
+  startOrResumeSession,
+  writeApprovalSnapshot
+} from "../src/session.js";
 import type { UiApprovalSnapshot } from "../src/types.js";
 
 // Read-only multi-ledger dashboard aggregation (NGX-535). Fixtures author registry + ledger
@@ -563,5 +577,100 @@ test("buildApprovalWorkbenchView projects a persisted bundle into grouped, parti
   assert.deepEqual(
     view.groups[1]?.candidates.map((candidate) => [candidate.target.targetId, candidate.selected]),
     [["t_b1", true]]
+  );
+});
+
+// --- NGX-541: selected purge bundle data model (exact targets + fingerprint) ---
+
+function freshUiHome(): string {
+  return join(mkdtempSync(join(tmpdir(), "artshelf-purge-ui-")), "ui");
+}
+
+test("purgeApprovalTargets builds one exact, digest-bound purge target per grouped candidate", () => {
+  const groups = groupPurgeCandidates([
+    purgeCandidateRow("shf_a1", "primary", "/repo/a/ledger.jsonl"),
+    purgeCandidateRow("shf_b1", "secondary", "/repo/b/ledger.jsonl"),
+    purgeCandidateRow("shf_a2", "primary", "/repo/a/ledger.jsonl")
+  ]);
+
+  const targets = purgeApprovalTargets(groups);
+
+  // One target per candidate, in grouped order (per-source, then first-seen row order) so the
+  // bundle matches the order the one-way-door lane showed the human.
+  assert.deepEqual(
+    targets.map((target) => target.targetId),
+    ["shf_a1", "shf_a2", "shf_b1"]
+  );
+
+  const first = targets[0]!;
+  assert.equal(first.targetId, "shf_a1");
+  assert.equal(first.ledgerPath, "/repo/a/ledger.jsonl");
+  assert.equal(first.registryPath, null);
+  // The exact subject is the trashed artifact path that would be deleted - never a vague global purge.
+  assert.equal(first.recordPath, "/trash/plan_a/shf_a1.txt");
+  // Purge carries no dispose plan; its exactness is the trash-fact digest, not a dispose plan id.
+  assert.equal(first.planId, null);
+  assert.equal(first.actionType, PURGE_APPROVAL_ACTION);
+  assert.equal(first.actionType, "trash-purge");
+  assert.ok(first.label.includes("/trash/plan_a/shf_a1.txt"));
+  // The per-target digest binds the exact trash facts the purge executor revalidates against.
+  assert.equal(first.planEntryDigest, purgeCandidateDigest(groups[0]!.candidates[0]!));
+  assert.match(first.planEntryDigest!, /^[0-9a-f]{64}$/);
+});
+
+test("purgeCandidateDigest is stable for identical facts and changes when any exact purge fact drifts", () => {
+  const base = purgeCandidateRow("shf_x", "primary", "/repo/a/ledger.jsonl");
+  const digest = purgeCandidateDigest(base);
+
+  // Deterministic: the same exact trash facts always produce the same digest.
+  assert.equal(purgeCandidateDigest({ ...base }), digest);
+
+  // Any drift in a fact the purge executor revalidates against changes the digest, so a stale or
+  // tampered approval cannot survive into the one-way-door deletion unnoticed.
+  assert.notEqual(purgeCandidateDigest({ ...base, recordId: "shf_y" }), digest);
+  assert.notEqual(purgeCandidateDigest({ ...base, ledgerPath: "/repo/b/ledger.jsonl" }), digest);
+  assert.notEqual(purgeCandidateDigest({ ...base, targetPath: "/trash/plan_a/other.txt" }), digest);
+  assert.notEqual(purgeCandidateDigest({ ...base, cleanedAt: "2026-01-01T00:00:00.000Z" }), digest);
+  assert.notEqual(purgeCandidateDigest({ ...base, cleanupPlanId: "plan_b" }), digest);
+  assert.notEqual(purgeCandidateDigest({ ...base, receiptPath: "/receipts/other.json" }), digest);
+});
+
+test("a deliberate purge selection persists as a fingerprinted bundle and a vague approve-all is refused", () => {
+  const home = freshUiHome();
+  const session = startOrResumeSession({ home, scope: "user" });
+  const groups = groupPurgeCandidates([
+    purgeCandidateRow("shf_a1", "primary", "/repo/a/ledger.jsonl"),
+    purgeCandidateRow("shf_a2", "primary", "/repo/a/ledger.jsonl")
+  ]);
+  const targets = purgeApprovalTargets(groups);
+
+  // Nothing is purge-selected by default: persisting the candidate pool with no selection is
+  // refused, so a purge bundle only ever exists after a deliberate human selection.
+  assert.throws(
+    () =>
+      writeApprovalSnapshot(home, session.id, {
+        actionType: PURGE_APPROVAL_ACTION,
+        targets,
+        selectedTargetIds: [],
+        reviewed: {}
+      }),
+    /at least one deliberately selected target/
+  );
+
+  // A deliberate selection of exact targets persists as a fingerprinted bundle that round-trips,
+  // and the fingerprint covers only the selected subset (so the selection is what was approved).
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: PURGE_APPROVAL_ACTION,
+    targets,
+    selectedTargetIds: ["shf_a1"],
+    reviewed: {}
+  });
+  assert.equal(snapshot.actionType, "trash-purge");
+  assert.equal(snapshot.fingerprint, approvalSnapshotFingerprint([targets[0]!], {}));
+  assert.notEqual(snapshot.fingerprint, approvalSnapshotFingerprint(targets, {}));
+  assert.deepEqual(readApprovalSnapshot(home, session.id, snapshot.id), snapshot);
+  assert.deepEqual(
+    selectedApprovalTargets(snapshot).map((target) => target.targetId),
+    ["shf_a1"]
   );
 });
