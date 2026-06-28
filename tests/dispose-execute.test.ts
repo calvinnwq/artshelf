@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -104,6 +104,21 @@ test("executeDisposePlan resolves the ledger record without moving files for res
   assert.equal(execution.result.targetPath, null);
   assert.equal(execution.result.verification.subjectPresent, true);
   assert.equal(execution.result.verification.targetPresent, null);
+});
+
+test("executeDisposePlan resume rechecks subject presence for non-moving actions", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "no longer needed" });
+  executeDisposePlan(ledger, plan.planId);
+  const receiptPath = recordById(ledger, "shf_backup")?.disposeReceiptPath as string;
+  rmSync(receiptPath);
+  rmSync(subject);
+
+  const replay = executeDisposePlan(ledger, plan.planId);
+
+  assert.equal(replay.result.status, "resolved");
+  assert.equal(replay.result.verification.subjectPresent, false);
+  assert.equal(replay.result.verification.targetPresent, null);
 });
 
 test("executeDisposePlan extends retention and keeps the record active for snooze", () => {
@@ -220,6 +235,72 @@ test("executeDisposePlan returns the original receipt without rewriting it on re
   assert.equal(readFileSync(first.receiptPath, "utf8"), receiptBefore);
   assert.deepEqual(readLedger(ledger).find((record) => record.path === first.receiptPath), receiptRecordBefore);
   process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
+});
+
+test("executeDisposePlan refuses a completed receipt for a different plan entry", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: plan.planId,
+    ledgerPath: ledger,
+    executedAt: "2026-03-01T00:00:00Z",
+    status: "completed",
+    result: {
+      id: "shf_other",
+      action: "keep",
+      status: "kept",
+      reason: "foreign receipt",
+      previousPath: null,
+      targetPath: null,
+      retention: null,
+      retainUntil: null,
+      verification: {
+        recordStatus: "active",
+        subjectPresent: true,
+        targetPresent: null
+      }
+    }
+  }, null, 2)}\n`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /receipt result mismatch/i);
+  assert.equal(recordById(ledger, "shf_backup")?.status, "active");
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+  assert.equal(existsSync(subject), true);
+});
+
+test("executeDisposePlan refuses a completed receipt whose same action changed reviewed semantics", () => {
+  const { ledger, subject } = presentBackupFixture();
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "resolve-only", reason: "reviewed" });
+  const receiptPath = join(dirname(ledger), "dispose-receipts", `${plan.planId}.json`);
+  mkdirSync(dirname(receiptPath), { recursive: true });
+  writeFileSync(receiptPath, `${JSON.stringify({
+    planId: plan.planId,
+    ledgerPath: ledger,
+    executedAt: "2026-03-01T00:00:00Z",
+    status: "completed",
+    result: {
+      id: "shf_backup",
+      action: "resolve-only",
+      status: "resolved",
+      reason: "different reviewed reason",
+      previousPath: null,
+      targetPath: null,
+      retention: null,
+      retainUntil: null,
+      verification: {
+        recordStatus: "resolved",
+        subjectPresent: true,
+        targetPresent: null
+      }
+    }
+  }, null, 2)}\n`);
+
+  assert.throws(() => executeDisposePlan(ledger, plan.planId), /receipt result mismatch/i);
+  assert.equal(recordById(ledger, "shf_backup")?.status, "active");
+  assert.equal(recordById(ledger, "shf_backup")?.disposePlanId, undefined);
+  assert.equal(existsSync(subject), true);
 });
 
 test("executeDisposePlan replays a completed skipped receipt without applying later", () => {

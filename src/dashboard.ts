@@ -314,6 +314,7 @@ export function buildApprovalWorkbenchView(
 
   return {
     sessionId: snapshot.sessionId,
+    bundleId: snapshot.id,
     actionType: snapshot.actionType,
     reviewed: snapshot.reviewed,
     groups,

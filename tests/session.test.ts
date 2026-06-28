@@ -229,6 +229,42 @@ test("startOrResumeSession resumes the active session instead of creating a seco
   assert.equal(readdirSync(join(home, "sessions")).length, 1);
 });
 
+test("startOrResumeSession resumes legacy user sessions missing registry metadata", () => {
+  const home = freshHome();
+  const legacy = startUserSession(home);
+  const sessionFile = join(home, "sessions", legacy.id, "session.json");
+  const stored = JSON.parse(readFileSync(sessionFile, "utf8")) as Record<string, unknown>;
+  delete stored.registryPath;
+  delete stored.repoRoot;
+  writeFileSync(sessionFile, `${JSON.stringify(stored, null, 2)}\n`);
+  const registryPath = join(mkdtempSync(join(tmpdir(), "artshelf-ui-legacy-registry-")), "ledgers.json");
+
+  const resumed = startOrResumeSession({ home, scope: "user", registryPath });
+
+  assert.equal(resumed.id, legacy.id);
+  assert.equal(resumed.registryPath, registryPath);
+  assert.equal(readSession(home, legacy.id).registryPath, registryPath, "legacy metadata is migrated in place");
+  assert.equal(readdirSync(join(home, "sessions")).length, 1);
+});
+
+test("startOrResumeSession resumes legacy repo sessions missing repoRoot metadata", () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-legacy-repo-"));
+  mkdirSync(join(repo, ".git"));
+  const legacy = startOrResumeSession({ home, scope: "repo", cwd: repo });
+  const sessionFile = join(home, "sessions", legacy.id, "session.json");
+  const stored = JSON.parse(readFileSync(sessionFile, "utf8")) as Record<string, unknown>;
+  delete stored.repoRoot;
+  writeFileSync(sessionFile, `${JSON.stringify(stored, null, 2)}\n`);
+
+  const resumed = startOrResumeSession({ home, scope: "repo", cwd: repo });
+
+  assert.equal(resumed.id, legacy.id);
+  assert.equal(resumed.repoRoot, repo);
+  assert.equal(readSession(home, legacy.id).repoRoot, repo, "legacy repo metadata is migrated in place");
+  assert.equal(readdirSync(join(home, "sessions")).length, 1);
+});
+
 test("a ledger-scoped session is distinct from the multi-ledger default session", () => {
   const home = freshHome();
   const multi = startUserSession(home);
@@ -943,6 +979,21 @@ test("selectedApprovalTargets resolves the selected subset in selection order", 
   });
 
   assert.deepEqual(selectedApprovalTargets(snapshot), [targets[1]]);
+});
+
+test("selectedApprovalTargets rejects loaded snapshots with corrupt selections", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+  const targets = sampleTargets();
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets,
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+
+  assert.throws(() => selectedApprovalTargets({ ...snapshot, selectedTargetIds: ["shf_a", "shf_missing"] }), /shf_missing/);
+  assert.throws(() => selectedApprovalTargets({ ...snapshot, selectedTargetIds: ["shf_a", "shf_a"] }), /duplicate/i);
 });
 
 test("writeApprovalSnapshot refuses an empty selection so approval cannot be a vague approve-all", () => {

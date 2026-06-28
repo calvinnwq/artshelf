@@ -482,8 +482,10 @@ ${approvalWorkbenchMain(view, token)}
 
 // The candidate body. With no candidates it is an explicit empty state (never a blank panel). With a
 // token the grouped rows and the deliberate submit live inside one /approve form so deselecting a row
-// and approving the remaining subset is a single act; without a token the same grouped rows render
-// read-only, carrying no form or selection inputs.
+// and approving the remaining subset is a single act. The form carries only the source bundle id and
+// selected target ids: exact target context is rehydrated server-side from the immutable bundle, never
+// trusted from hidden browser JSON. Without a token the same grouped rows render read-only, carrying
+// no form or selection inputs.
 function approvalWorkbenchMain(view: UiApprovalWorkbenchView, token?: string): string {
   if (view.totalCount === 0) {
     return `<p class="empty">No reviewed candidates to approve.</p>`;
@@ -493,19 +495,10 @@ function approvalWorkbenchMain(view: UiApprovalWorkbenchView, token?: string): s
   if (!withSelection) return groups;
   return `<form class="approve" method="post" action="/approve">
 <input type="hidden" name="token" value="${escapeHtml(token)}">
-<input type="hidden" name="actionType" value="${escapeHtml(view.actionType)}">
-<input type="hidden" name="reviewed" value="${escapeHtml(JSON.stringify(view.reviewed ?? {}))}">
-${approvalTargetInputs(view)}
+<input type="hidden" name="sourceBundleId" value="${escapeHtml(view.bundleId)}">
 ${groups}
 ${approvalSubmit(view)}
 </form>`;
-}
-
-function approvalTargetInputs(view: UiApprovalWorkbenchView): string {
-  return view.groups
-    .flatMap((group) => group.candidates)
-    .map((candidate) => `<input type="hidden" name="target" value="${escapeHtml(JSON.stringify(candidate.target))}">`)
-    .join("");
 }
 
 function approvalGroupSection(group: UiApprovalGroup, withSelection: boolean): string {

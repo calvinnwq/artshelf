@@ -468,6 +468,17 @@ test("docs document the Artshelf UI session command surface", () => {
     assert.match(text, /ui detail/);
     assert.match(text, /needs-context/);
   }
+
+  // NGX-540: every UI-documenting surface names the agent-facing mutating execute
+  // command and its core contract - revalidate the approved bundle against live
+  // state, execute exact targets only, verify live state after, and record one of
+  // the four visible per-target outcomes so a partial run hides nothing.
+  for (const text of [readme, spec, reference, agentUsage]) {
+    assert.match(text, /ui execute/);
+    assert.match(text, /skipped_stale/);
+    assert.match(text, /needs_manual_review/);
+    assert.match(text, /verif\w+ live state/i);
+  }
 });
 
 test("docs document the ui serve browser dashboard launch command", () => {

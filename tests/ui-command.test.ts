@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readdirSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
+import { readLedger } from "../src/ledger.js";
 import { appendEvent, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalTarget } from "../src/types.js";
 
@@ -18,16 +20,52 @@ function freshHome(): string {
   return join(mkdtempSync(join(tmpdir(), "artshelf-ui-cmd-")), "ui");
 }
 
-function ui(home: string, args: string[]): { status: number; stdout: string; stderr: string } {
+function ui(home: string, args: string[], env: Record<string, string> = {}): { status: number; stdout: string; stderr: string } {
   const result = spawnSync(process.execPath, [CLI.pathname, ...args], {
     encoding: "utf8",
-    env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_UI_HOME: home }
+    env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_UI_HOME: home, ...env }
   });
   return { status: result.status ?? 1, stdout: result.stdout, stderr: result.stderr };
 }
 
-function startSession(home: string, args: string[] = []): any {
-  const result = ui(home, ["ui", ...args, "--json"]);
+function serveSession(home: string, args: string[] = [], env: Record<string, string> = {}): Promise<any> {
+  const child = spawn(process.execPath, [CLI.pathname, "ui", "serve", "--port", "0", ...args, "--json"], {
+    env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_UI_HOME: home, ...env }
+  });
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+  return new Promise((resolve, reject) => {
+    const finish = (fn: () => void): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      child.kill("SIGTERM");
+      fn();
+    };
+    const timer = setTimeout(() => {
+      finish(() => reject(new Error(`ui serve timed out before launch packet: ${stderr}`)));
+    }, 5000);
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      const line = stdout.split("\n").find((entry) => entry.trim().length > 0);
+      if (!line) return;
+      finish(() => resolve(JSON.parse(line)));
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", (error: Error) => finish(() => reject(error)));
+    child.on("exit", (code: number | null) => {
+      if (!settled) finish(() => reject(new Error(`ui serve exited before launch packet (${code}): ${stderr}`)));
+    });
+  });
+}
+
+function startSession(home: string, args: string[] = [], env: Record<string, string> = {}): any {
+  const result = ui(home, ["ui", ...args, "--json"], env);
   assert.equal(result.status, 0, result.stderr);
   return JSON.parse(result.stdout);
 }
@@ -81,6 +119,21 @@ test("artshelf ui resumes the active session instead of creating a second one", 
   const second = startSession(home);
 
   assert.equal(second.session.id, first.session.id);
+  assert.equal(readdirSync(join(home, "sessions")).length, 1);
+});
+
+test("artshelf ui and ui serve share the default registry-scoped session", async () => {
+  const home = freshHome();
+  const registryPath = join(mkdtempSync(join(tmpdir(), "artshelf-ui-cmd-registry-")), "ledgers.json");
+  mkdirSync(dirname(registryPath), { recursive: true });
+  writeFileSync(registryPath, `${JSON.stringify({ version: 1, ledgers: [] })}\n`);
+  const env = { ARTSHELF_REGISTRY: registryPath };
+
+  const started = startSession(home, [], env);
+  assert.equal(started.session.registryPath, registryPath);
+  const served = await serveSession(home, [], env);
+
+  assert.equal(served.session.id, started.session.id);
   assert.equal(readdirSync(join(home, "sessions")).length, 1);
 });
 
@@ -262,7 +315,13 @@ test("artshelf ui help surfaces the agent loop and nested help is focused", () =
   const family = ui(home, ["ui", "--help"]);
   assert.equal(family.status, 0, family.stderr);
   assert.match(family.stdout, /Usage:/);
-  for (const sub of ["poll", "reply", "bundle", "end"]) assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
+  for (const sub of ["poll", "reply", "bundle", "execute", "end"]) assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
+
+  const execute = ui(home, ["ui", "execute", "--help"]);
+  assert.equal(execute.status, 0, execute.stderr);
+  assert.match(execute.stdout, /artshelf ui execute/);
+  assert.match(execute.stdout, /revalidate/i);
+  assert.doesNotMatch(execute.stdout, /Available Commands:/);
 
   const poll = ui(home, ["help", "ui", "poll"]);
   assert.equal(poll.status, 0, poll.stderr);
@@ -375,4 +434,236 @@ test("artshelf ui bundle rejects a missing session id and an unknown bundle id",
   const unknownBundle = ui(home, ["ui", "bundle", session.id, "bundle_20260101_000000_deadbeef", "--json"]);
   assert.notEqual(unknownBundle.status, 0);
   assert.match(unknownBundle.stderr, /bundle_20260101_000000_deadbeef/);
+});
+
+// === NGX-540: artshelf ui execute <session-id> <bundle-id> ===
+// The agent's mutating execution path for an approved bundle: it re-reads live state, executes only
+// exact valid targets through the existing approval-gated dispose paths, verifies live state, and
+// replies per-target receipts + aggregate state to the session. Seeding mirrors the loopback server's
+// write path (ui-server.ts): a persisted approval snapshot plus its approval_bundle_submitted event.
+
+function writeLedgerFile(ledgerPath: string, records: Array<Record<string, unknown>>): void {
+  mkdirSync(dirname(ledgerPath), { recursive: true });
+  writeFileSync(ledgerPath, records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+}
+
+function registryWithLedgers(ledgers: string[]): string {
+  const registryPath = join(mkdtempSync(join(tmpdir(), "artshelf-ui-exec-registry-")), "ledgers.json");
+  mkdirSync(dirname(registryPath), { recursive: true });
+  writeFileSync(
+    registryPath,
+    `${JSON.stringify(
+      {
+        version: 1,
+        ledgers: ledgers.map((ledgerPath, index) => ({
+          name: `ledger-${index}`,
+          path: ledgerPath,
+          scope: "other",
+          createdAt: "2026-01-01T00:00:00.000Z",
+          updatedAt: "2026-01-01T00:00:00.000Z"
+        }))
+      },
+      null,
+      2
+    )}\n`
+  );
+  return registryPath;
+}
+
+function ledgerRecord(id: string, path: string, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id,
+    path,
+    kind: "backup",
+    reason: "fixture",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    retention: { mode: "manual-review" },
+    cleanup: "review",
+    owner: "manual",
+    labels: [],
+    status: "active",
+    ...over
+  };
+}
+
+function bundleTarget(targetId: string, ledgerPath: string, recordPath: string, over: Partial<UiApprovalTarget> = {}): UiApprovalTarget {
+  return {
+    targetId,
+    ledgerPath,
+    registryPath: null,
+    recordPath,
+    planId: `plan_${targetId}`,
+    actionType: "trash-resolve",
+    label: `trash ${targetId}`,
+    ...over
+  };
+}
+
+// Persist an approval bundle plus the approval_bundle_submitted event the browser would have appended
+// for it, so the agent's execute path has a real event to reply receipts against.
+function seedApprovedBundle(home: string, sessionId: string, targets: UiApprovalTarget[], selectedTargetIds: string[], registryPath: string) {
+  const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: "trash-resolve", targets: targets.map(withPlanDigest), selectedTargetIds, reviewed: {} });
+  appendEvent(home, sessionId, {
+    type: "approval_bundle_submitted",
+    target: { bundleId: snapshot.id },
+    payload: {
+      bundleId: snapshot.id,
+      actionType: snapshot.actionType,
+      fingerprint: snapshot.fingerprint,
+      registryPath,
+      selectedTargetIds: snapshot.selectedTargetIds,
+      selectedCount: snapshot.selectedTargetIds.length,
+      targetCount: snapshot.targets.length
+    }
+  });
+  return snapshot;
+}
+
+function withPlanDigest(target: UiApprovalTarget): UiApprovalTarget {
+  if (!target.planId) return target;
+  try {
+    return { ...target, planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(target.ledgerPath, target.planId)) };
+  } catch {
+    return target;
+  }
+}
+
+// A repo whose recorded backup exists on disk, with a reviewed trash-resolve dispose plan: the safe
+// approved-bundle path the CLI smoke runs end-to-end against temp ledgers/artifacts.
+function repoWithReviewedTrashPlan(recordId: string): { ledger: string; subject: string; trashTarget: string; planId: string } {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-exec-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, `${recordId}.tar`);
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [ledgerRecord(recordId, subject)]);
+  const plan = createDisposePlan(ledger, { id: recordId, action: "trash-resolve", reason: "reviewed" });
+  return { ledger, subject, trashTarget: plan.entry?.targetPath as string, planId: plan.planId };
+}
+
+test("artshelf ui execute runs an approved bundle end-to-end through the real dispose path and verifies live state", () => {
+  const home = freshHome();
+  const { ledger, subject, trashTarget, planId } = repoWithReviewedTrashPlan("shf_backup");
+  const registryPath = registryWithLedgers([ledger]);
+  const env = { ARTSHELF_REGISTRY: registryPath };
+  const session = startSession(home, [], env).session;
+  const snapshot = seedApprovedBundle(home, session.id, [bundleTarget("shf_backup", ledger, subject, { planId })], ["shf_backup"], registryPath);
+
+  const result = ui(home, ["ui", "execute", session.id, snapshot.id, "--json"], env);
+  assert.equal(result.status, 0, result.stderr);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.ok, true);
+  assert.equal(packet.command, "ui-execute");
+  assert.equal(packet.sessionId, session.id);
+  assert.equal(packet.execution.status, "executed");
+  assert.equal(packet.execution.receipts[0].targetId, "shf_backup");
+  assert.equal(packet.execution.receipts[0].outcome, "executed");
+  // The reply advanced the bundle's own submitted event to completed.
+  assert.equal(packet.reply.status, "completed");
+  assert.equal(packet.event.type, "approval_bundle_submitted");
+  assert.equal(packet.event.status, "completed");
+  // The agent verified live state, not just the command exit: the subject really moved to trash.
+  assert.equal(readLedger(ledger).find((record) => record.id === "shf_backup")?.status, "trashed");
+  assert.equal(existsSync(subject), false);
+  assert.equal(existsSync(trashTarget), true);
+});
+
+test("artshelf ui execute refuses an all-stale bundle, executes nothing, exits non-zero, and replies stale", () => {
+  const home = freshHome();
+  // A live ledger that no longer holds either approved subject: the whole bundle is stale.
+  const ledger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-exec-stale-")), ".artshelf", "ledger.jsonl");
+  writeLedgerFile(ledger, [ledgerRecord("shf_keep", "/subjects/keep")]);
+  const registryPath = registryWithLedgers([ledger]);
+  const env = { ARTSHELF_REGISTRY: registryPath };
+  const session = startSession(home, [], env).session;
+  const targets = [bundleTarget("shf_a", ledger, "/subjects/a"), bundleTarget("shf_b", ledger, "/subjects/b")];
+  const snapshot = seedApprovedBundle(home, session.id, targets, ["shf_a", "shf_b"], registryPath);
+
+  const result = ui(home, ["ui", "execute", session.id, snapshot.id, "--json"], env);
+  assert.notEqual(result.status, 0);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.ok, false);
+  assert.equal(packet.execution.status, "refused");
+  assert.equal(packet.reply.status, "stale");
+  // Partial failures never hide a target: both stale targets are reported as skipped_stale.
+  assert.deepEqual(packet.execution.receipts.map((receipt: { outcome: string }) => receipt.outcome), ["skipped_stale", "skipped_stale"]);
+});
+
+test("artshelf ui execute reports a partial run with both the executed and skipped_stale targets visible and exits non-zero", () => {
+  const home = freshHome();
+  const { ledger, subject, planId } = repoWithReviewedTrashPlan("shf_live");
+  const registryPath = registryWithLedgers([ledger]);
+  const env = { ARTSHELF_REGISTRY: registryPath };
+  const session = startSession(home, [], env).session;
+  const liveTarget = bundleTarget("shf_live", ledger, subject, { planId });
+  // shf_gone was approved but is no longer in the live ledger.
+  const goneTarget = bundleTarget("shf_gone", ledger, join(dirname(dirname(ledger)), "gone.tar"));
+  const snapshot = seedApprovedBundle(home, session.id, [liveTarget, goneTarget], ["shf_live", "shf_gone"], registryPath);
+
+  const result = ui(home, ["ui", "execute", session.id, snapshot.id, "--json"], env);
+  assert.notEqual(result.status, 0);
+  const packet = JSON.parse(result.stdout);
+  assert.equal(packet.ok, false);
+  assert.equal(packet.execution.status, "partial");
+  assert.equal(packet.reply.status, "failed");
+  const outcomes: Record<string, string> = Object.fromEntries(
+    packet.execution.receipts.map((receipt: { targetId: string; outcome: string }) => [receipt.targetId, receipt.outcome])
+  );
+  assert.equal(outcomes.shf_live, "executed");
+  assert.equal(outcomes.shf_gone, "skipped_stale");
+  assert.deepEqual(packet.execution.counts, { executed: 1, skipped_stale: 1, failed: 0, needs_manual_review: 0 });
+  // The live target really executed; the stale one was left untouched.
+  assert.equal(readLedger(ledger).find((record) => record.id === "shf_live")?.status, "trashed");
+});
+
+test("artshelf ui execute rejects a missing bundle id", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+
+  const result = ui(home, ["ui", "execute", session.id, "--json"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /missing bundle id/i);
+});
+
+test("artshelf ui execute rejects --all before loading a bundle", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+
+  const result = ui(home, ["ui", "execute", "--all", session.id, "bundle_20260101_000000_deadbeef", "--json"]);
+  assert.notEqual(result.status, 0);
+  assert.equal(result.stdout, "");
+  assert.match(result.stderr, /ui execute --all/i);
+});
+
+test("artshelf ui execute fails fast when the bundle has no approval_bundle_submitted event", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+  // Persist a bundle WITHOUT appending its approval_bundle_submitted event.
+  const snapshot = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: [bundleTarget("shf_a", "/srv/ledgers/a/.artshelf/ledger.jsonl", "/tmp/a")],
+    selectedTargetIds: ["shf_a"],
+    reviewed: {}
+  });
+
+  const result = ui(home, ["ui", "execute", session.id, snapshot.id, "--json"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /approval_bundle_submitted/);
+});
+
+test("artshelf ui execute prints a per-target human receipt summary without --json", () => {
+  const home = freshHome();
+  const ledger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-exec-human-")), ".artshelf", "ledger.jsonl");
+  writeLedgerFile(ledger, [ledgerRecord("shf_keep", "/subjects/keep")]);
+  const registryPath = registryWithLedgers([ledger]);
+  const env = { ARTSHELF_REGISTRY: registryPath };
+  const session = startSession(home, [], env).session;
+  const snapshot = seedApprovedBundle(home, session.id, [bundleTarget("shf_a", ledger, "/subjects/a")], ["shf_a"], registryPath);
+
+  const result = ui(home, ["ui", "execute", session.id, snapshot.id], env);
+  assert.notEqual(result.status, 0, result.stdout);
+  assert.match(result.stdout, new RegExp(snapshot.id));
+  assert.match(result.stdout, /refused/);
+  assert.match(result.stdout, /shf_a/);
+  assert.match(result.stdout, /skipped_stale/);
 });

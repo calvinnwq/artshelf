@@ -51,6 +51,8 @@ export type StartSessionInput = {
   home: string;
   scope: UiSessionScope;
   ledgerPath?: string | null;
+  registryPath?: string | null;
+  cwd?: string;
 };
 
 export type AppendEventInput = {
@@ -63,6 +65,7 @@ export type AppendEventInput = {
 export type ReplyInput = {
   status: UiReplyStatus;
   payload?: Record<string, unknown>;
+  expectedStatus?: UiEventStatus;
 };
 
 export type ApprovalSnapshotInput = {
@@ -168,12 +171,21 @@ export function resolveUiHome(input: ResolveUiHomeInput = {}): string {
 export function startOrResumeSession(input: StartSessionInput): UiSession {
   const home = input.home;
   const ledgerPath = input.ledgerPath ? resolve(input.ledgerPath) : null;
+  const registryPath = input.registryPath ? resolve(input.registryPath) : null;
+  const repoRoot = input.scope === "repo" ? resolveSessionRepoRoot(input.cwd) : null;
   const lockPath = join(sessionsDir(home), "create");
   return withUiStorageLock(home, lockPath, () => {
     const existing = listSessions(home)
-      .filter((session) => session.status === "active" && session.scope === input.scope && session.ledgerPath === ledgerPath)
+      .filter(
+        (session) =>
+          session.status === "active" &&
+          session.scope === input.scope &&
+          session.ledgerPath === ledgerPath &&
+          sessionRegistryMatchesStart(session, registryPath) &&
+          sessionRepoRootMatchesStart(session, repoRoot)
+      )
       .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0];
-    if (existing) return existing;
+    if (existing) return updateLegacySessionStartMetadata(home, existing, registryPath, repoRoot);
 
     const createdAt = toIso(now());
     const session: UiSession = {
@@ -185,11 +197,35 @@ export function startOrResumeSession(input: StartSessionInput): UiSession {
       updatedAt: createdAt,
       endedAt: null,
       ledgerPath,
+      registryPath,
+      repoRoot,
       token: randomBytes(24).toString("hex")
     };
     writeSession(home, session);
     return session;
   });
+}
+
+function sessionRegistryMatchesStart(session: UiSession, registryPath: string | null): boolean {
+  if (session.registryPath === registryPath) return true;
+  return session.registryPath === null && registryPath !== null && session.ledgerPath === null;
+}
+
+function sessionRepoRootMatchesStart(session: UiSession, repoRoot: string | null): boolean {
+  if (session.repoRoot === repoRoot) return true;
+  return session.scope === "repo" && session.repoRoot === null && repoRoot !== null;
+}
+
+function updateLegacySessionStartMetadata(home: string, session: UiSession, registryPath: string | null, repoRoot: string | null): UiSession {
+  if (session.registryPath === registryPath && session.repoRoot === repoRoot) return session;
+  const updated = {
+    ...session,
+    registryPath,
+    repoRoot,
+    updatedAt: toIso(now())
+  };
+  writeSession(home, updated);
+  return updated;
 }
 
 export function listSessions(home: string): UiSession[] {
@@ -220,8 +256,16 @@ export function readSession(home: string, sessionId: string): UiSession {
     updatedAt: parsed.updatedAt ?? "",
     endedAt: parsed.endedAt ?? null,
     ledgerPath: parsed.ledgerPath ?? null,
+    registryPath: typeof parsed.registryPath === "string" ? resolve(parsed.registryPath) : null,
+    repoRoot: typeof parsed.repoRoot === "string" ? resolve(parsed.repoRoot) : null,
     token: parsed.token
   };
+}
+
+function resolveSessionRepoRoot(cwd: string | undefined): string | null {
+  if (cwd === undefined) return null;
+  const absolute = resolve(cwd);
+  return findGitRoot(absolute) ?? absolute;
 }
 
 // End a session: revoke the browser write capability and record a session_done event in the
@@ -338,23 +382,34 @@ export function replyToEvent(
   if (!isUiReplyStatus(input.status)) {
     throw new Error(`Invalid Artshelf UI reply status "${input.status}"; expected one of: ${UI_REPLY_STATUSES.join(", ")}`);
   }
-  readSession(home, sessionId);
-  const target = readSessionEvents(home, sessionId).find((event) => event.id === eventId);
-  if (!target) throw new Error(`Artshelf UI event not found: ${eventId}`);
-
   const createdAt = toIso(now());
-  const reply: UiReply = {
-    id: makeId("reply"),
-    sessionId,
-    eventId,
-    status: input.status,
-    createdAt,
-    payload: input.payload ?? {}
-  };
-  appendLogLine(home, sessionId, { kind: "reply", ...reply });
+  let result: { event: UiEvent; reply: UiReply } | null = null;
+  const path = eventsFile(home, sessionId);
+  withUiStorageLock(home, path, () => {
+    readSession(home, sessionId);
+    const target = readSessionEvents(home, sessionId).find((event) => event.id === eventId);
+    if (!target) throw new Error(`Artshelf UI event not found: ${eventId}`);
+    if (input.expectedStatus !== undefined && target.status !== input.expectedStatus) {
+      throw new Error(`Artshelf UI event ${eventId} is ${target.status}; expected ${input.expectedStatus}`);
+    }
+
+    const reply: UiReply = {
+      id: makeId("reply"),
+      sessionId,
+      eventId,
+      status: input.status,
+      createdAt,
+      payload: input.payload ?? {}
+    };
+    ensureOwnerOnlyDirectoryTree(home, dirname(path));
+    const previous = existsSync(path) ? readFileSync(path, "utf8") : "";
+    const separator = previous && !previous.endsWith("\n") ? "\n" : "";
+    atomicWriteFileSync(path, `${previous}${separator}${JSON.stringify({ kind: "reply", ...reply })}\n`);
+    const event = readSessionEvents(home, sessionId).find((entry) => entry.id === eventId)!;
+    result = { event, reply };
+  });
   touchSession(home, sessionId, createdAt);
-  const event = readSessionEvents(home, sessionId).find((entry) => entry.id === eventId)!;
-  return { event, reply };
+  return result!;
 }
 
 export function readReplies(home: string, sessionId: string): UiReply[] {
@@ -395,14 +450,24 @@ export function writeApprovalSnapshot(home: string, sessionId: string, input: Ap
 // Used both at write time (to fingerprint the selected subset) and by readers/agents that need
 // the approved per-target context without re-implementing the pool lookup.
 export function selectedApprovalTargets(snapshot: UiApprovalSnapshot): UiApprovalTarget[] {
+  validateApprovalSnapshotInput({
+    actionType: snapshot.actionType,
+    targets: snapshot.targets,
+    selectedTargetIds: snapshot.selectedTargetIds,
+    reviewed: snapshot.reviewed
+  });
   return resolveSelectedTargets(snapshot.targets, snapshot.selectedTargetIds);
 }
 
 function resolveSelectedTargets(targets: UiApprovalTarget[], selectedTargetIds: string[]): UiApprovalTarget[] {
   const byId = new Map(targets.map((target) => [target.targetId, target]));
-  return selectedTargetIds
-    .map((id) => byId.get(id))
-    .filter((target): target is UiApprovalTarget => target !== undefined);
+  return selectedTargetIds.map((id) => {
+    const target = byId.get(id);
+    if (target === undefined) {
+      throw new Error(`Artshelf UI approval selection id not in the reviewed candidate pool: ${id}`);
+    }
+    return target;
+  });
 }
 
 // Enforce the NGX-539 approval boundary at the storage seam: a bundle must carry a non-empty
@@ -469,6 +534,9 @@ function validateApprovalTarget(target: UiApprovalTarget): void {
       throw new Error(`Invalid Artshelf UI approval target.${field}; expected a non-empty string or null`);
     }
   }
+  if (target.planEntryDigest !== undefined && target.planEntryDigest !== null && !isNonEmptyString(target.planEntryDigest)) {
+    throw new Error("Invalid Artshelf UI approval target.planEntryDigest; expected a non-empty string or null");
+  }
 }
 
 // A selected target must point at an exact subject - a record, a reviewed plan, or a registry
@@ -488,7 +556,28 @@ function requireExactTargetSubject(target: UiApprovalTarget): void {
 export function readApprovalSnapshot(home: string, sessionId: string, bundleId: string): UiApprovalSnapshot {
   const path = bundleFile(home, sessionId, bundleId);
   if (!existsSync(path)) throw new Error(`Artshelf UI approval snapshot not found: ${bundleId}`);
-  return JSON.parse(readFileSync(path, "utf8")) as UiApprovalSnapshot;
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<UiApprovalSnapshot>;
+  if (parsed.id !== bundleId) {
+    throw new Error(`Invalid Artshelf UI approval snapshot bundle id in ${path}: expected ${bundleId}, found ${String(parsed.id)}`);
+  }
+  if (parsed.sessionId !== sessionId) {
+    throw new Error(`Invalid Artshelf UI approval snapshot session id in ${path}: expected ${sessionId}, found ${String(parsed.sessionId)}`);
+  }
+  const snapshot = parsed as UiApprovalSnapshot;
+  if (!isNonEmptyString(snapshot.createdAt) || !isNonEmptyString(snapshot.fingerprint)) {
+    throw new Error(`Invalid Artshelf UI approval snapshot ${bundleId}: missing createdAt or fingerprint`);
+  }
+  validateApprovalSnapshotInput({
+    actionType: snapshot.actionType,
+    targets: snapshot.targets,
+    selectedTargetIds: snapshot.selectedTargetIds,
+    reviewed: snapshot.reviewed
+  });
+  const fingerprint = approvalSnapshotFingerprint(resolveSelectedTargets(snapshot.targets, snapshot.selectedTargetIds), snapshot.reviewed ?? {});
+  if (fingerprint !== snapshot.fingerprint) {
+    throw new Error(`Invalid Artshelf UI approval snapshot ${bundleId}: fingerprint does not match selected targets and reviewed facts`);
+  }
+  return snapshot;
 }
 
 // List every persisted approval bundle for a session (NGX-539): a read-only audit/discovery

@@ -52,6 +52,7 @@ src/
   dispose.ts          disposition classification plus approval-gated dispose dry-run plan and execute layers
   session.ts          Artshelf UI review session storage: metadata, capability token, event log, approval snapshots
   ui-server.ts        loopback browser server for dashboard/detail/bundle pages and handoff capture
+  ui-execute.ts       agent-side approved-bundle execution: revalidate -> execute -> verify loop plus per-target receipts
   locks.ts            cross-process advisory file lock shared by ledger/registry writes
   time.ts             retention time parsing and clock helpers
   types.ts            ledger, cleanup, disposal, reconcile, registry, and UI contracts
@@ -102,14 +103,17 @@ Each public command has a discoverable module named after the CLI surface:
 these files must contain real command-family implementation code.
 
 The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
-`ui poll`, `ui reply`, `ui bundle`, `ui end`) is the agent-mediated AXI surface over
+`ui poll`, `ui reply`, `ui bundle`, `ui execute`, `ui end`) is the agent-mediated AXI surface over
 `session.ts` plus the read-only review data surface over `dashboard.ts`,
 `artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
 sessions, serves token-protected loopback dashboard/detail/bundle pages, returns
-compact `--json` review and bundle snapshots, and runs the poll/reply/end agent
+compact `--json` review and bundle snapshots, and runs the poll/reply/execute/end agent
 loop. The browser captures human triage intents and approval bundles but never
-mutates ledgers, files, trash, or plans directly - the agent executes existing
-approval-gated commands and replies with receipts.
+mutates ledgers, files, trash, or plans directly - the agent executes an approved
+bundle through `ui execute` (the one mutating `ui` subcommand), which revalidates
+live state, requires exact target and reviewed dispose-plan entry matches, runs the
+existing approval-gated paths for exact targets only, verifies live state after, and
+replies per-target receipts.
 
 ### Domain files
 
@@ -143,8 +147,9 @@ Current root ownership:
   file content previews
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
-  browser capability token, the append-only event log (events plus agent replies), and
-  immutable fingerprinted approval snapshots. This is the v1 handoff layer where the browser
+  browser capability token, the append-only event log (events plus agent replies), immutable
+  fingerprinted approval snapshots, and legacy active-session backfill for registry/repo scope
+  metadata. This is the v1 handoff layer where the browser
   captures exact-target triage intents and approval bundles while the agent executes existing approval-gated paths, so
   it never runs a mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped
   optionally
@@ -154,11 +159,21 @@ Current root ownership:
   per request, appends exact-target intents through the token-bound `/intents` endpoint, records
   revised approval selections through token-bound `/approve`, refuses every other mutating method,
   and never embeds file contents or scripts
+- `ui-execute.ts`: agent-side approved-bundle execution (NGX-540) - the one mutating UI path. It
+  loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
+  bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
+  exact valid targets through the existing approval-gated `dispose.ts` plan-id paths, binds those
+  targets to the reviewed dispose-plan entry digest so missing or unreadable reviewed plans, subject
+  content drift, or same-id plan rewrites cannot change reason, subject, target, or retention
+  semantics after approval, verifies live state after each command instead of trusting the command
+  exit, resumes matching `in_progress` approval-event claims, and records one of four per-target outcomes
+  (`executed`/`skipped_stale`/`failed`/`needs_manual_review`) plus receipts back to the session by
+  advancing the bundle's `approval_bundle_submitted` event
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by
   ledger and registry writes so concurrent mutations stay atomic and durable
 - `time.ts`: TTL/date parsing and current-time normalization
 - `types.ts`: ledger, cleanup, trash, provenance, reconcile, dispose, UI session/event/approval,
-  and registry-adjacent domain contracts
+  UI bundle execution outcome/receipt, and registry-adjacent domain contracts
 
 ### `adapters/`
 
@@ -242,7 +257,7 @@ Artshelf's public contract is safety-first:
 - cleanup execution stays approval-only and plan-id bound.
 - dispose execution stays approval-only, plan-id bound, scoped to one reviewed
   record, and physically delete-free.
-- `cleanup --execute --all` and `dispose --all` remain refused.
+- `cleanup --execute --all`, `dispose --all`, and `ui execute --all` remain refused.
 - reconcile is approval-gated ledger/registry housekeeping, not cleanup: it never
   creates, moves, or deletes files. Execution stays plan-id bound and scoped to one
   explicit `--ledger`; `reconcile --execute --all` is refused and `--all` is dry-run only.
@@ -254,10 +269,11 @@ Artshelf's public contract is safety-first:
   ledgers still route to a manual re-register/fix.
 - `review`, `status`, `doctor`, `due`, `validate`, `find`, `get`, `list`,
   `ui dashboard`, and `ui detail` remain read-only surfaces.
-- `ui` remains non-mutating: session subcommands may create session metadata, append browser events
+- `ui` is non-mutating except for `ui execute`: session subcommands may create session metadata, append browser events
   or agent replies, write approval snapshots, and end sessions; dashboard/detail/bundle may read
-  live ledger, registry, trash, inspect, and approval state. The command family must not execute
-  cleanup, dispose, reconcile, registry-prune, resolve, or purge actions itself.
+  live ledger, registry, trash, inspect, and approval state. `ui execute` may run only an approved
+  bundle through existing approval-gated exact-target paths; the command family must not execute
+  cleanup, reconcile, registry-prune, resolve, purge, browser-direct, or broad `--all` actions itself.
 - `ARTSHELF_NO_UPDATE_CHECK`, `ARTSHELF_UPDATE_DRY_RUN`, update cache paths, and
   update TTL behavior must remain compatible.
 - Do not introduce daemon, auto-execute, or fresh-plan-then-execute behavior.

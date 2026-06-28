@@ -33,7 +33,7 @@ the mechanics behind those moves.
 - Include reason, TTL or manual-review, cleanup mode, owner, and labels.
 - Report the Artshelf id anywhere restart or cleanup context matters.
 - Use read-only and dry-run commands freely; execute cleanup, dispose, trash
-  purge, or resolve only after exact human approval.
+  purge, approved bundles, or resolve only after exact human approval.
 - Do not call work done while known eligible artifacts are neither registered
   nor explicitly skipped.
 
@@ -103,15 +103,15 @@ artshelf status --all --agent
 artshelf review --all --agent
 artshelf trash list --all --json
 ```
-
 `artshelf ledgers list --json` reports per-ledger validation status. `--plain`
 skips validation. `--all` is for discovery and review, not mutation permission.
 Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` for compact decisions; use `--json`
 for full audit/API payloads, custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
-
-For browser review sessions, use `artshelf ui`, read-only `ui dashboard --json` / `ui detail <record-id> --ledger <path> --json`, token-protected `ui serve [--json]`, `ui bundle <session-id> [<bundle-id>] --json`, `ui poll`, `ui reply`, and `ui end`.
-Use `ui bundle` to list approved bundles or load one immutable snapshot plus its selected exact targets before live-state revalidation; the browser captures triage intents and approval bundles only, with no direct ledger/file/trash/plan mutation and no file-content preview.
+For browser review sessions, use `artshelf ui`, read-only `ui dashboard --json` / `ui detail <record-id> --ledger <path> --json`, token-protected `ui serve [--json]`, `ui bundle <session-id> [<bundle-id>] --json`, `ui execute <session-id> <bundle-id> --json`, `ui poll`, `ui reply`, and `ui end`.
+Use `ui bundle` to list approved bundles or load one immutable snapshot plus its selected exact targets before live-state revalidation, then `ui execute` (the one mutating `ui` subcommand) to run an approved bundle through the revalidate -> execute -> verify loop, recording one of `executed`/`skipped_stale`/`failed`/`needs_manual_review` per target; dispose-backed targets also bind to the reviewed plan entry digest, so missing or unreadable plans, subject content drift, or same-id plan rewrites become stale before receipts instead of changing reason, subject, target, or retention semantics.
+If `ui execute` claimed an approval event as `in_progress` and stopped before final receipts, rerun the same session and bundle id to resume that claim.
+The browser captures triage intents and approval bundles only, with no direct ledger/file/trash/plan mutation and no file-content preview.
 Treat the session token printed by `artshelf ui` and `ui serve` as a secret same-machine browser capability; `ui end` revokes browser writes and served dashboard/detail/bundle access while preserving the audit trail.
 Register existing project ledgers explicitly:
 
@@ -141,16 +141,16 @@ For old-trash review, dry-run purge only for an explicit ledger:
 ```bash
 artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
-
 Do not scan arbitrary filesystem locations for ledgers unless the user opted
 into that discovery scope. Scheduled jobs may review registry-prune plans but
-must not execute them. Never schedule cleanup, dispose, registry-prune, or purge execution:
+must not execute them. Never schedule cleanup, dispose, registry-prune, purge, or approved bundle execution:
 
 ```bash
 artshelf cleanup --execute --plan-id <id>
 artshelf dispose --execute --plan-id <id>
 artshelf ledgers prune --execute --plan-id <id>
 artshelf trash purge --execute --plan-id <id>
+artshelf ui execute <session-id> <bundle-id>
 ```
 
 ## Review
@@ -202,7 +202,7 @@ approve artshelf ledgers prune registry <registry-path> plan <plan-id>
 ```
 
 Never execute from a read-only preview id. Never generate a fresh plan and
-execute it in the same step. After cleanup, dispose, resolve, or registry-prune approval, verify with `artshelf review --all --json` and `artshelf ledgers list --json`; after trash purge approval, also run `artshelf trash list --all --json`.
+execute it in the same step. After cleanup, dispose, resolve, registry-prune, or approved `ui execute` bundle execution, verify with `artshelf review --all --json` and `artshelf ledgers list --json`; after trash purge approval, also run `artshelf trash list --all --json`.
 
 ## Clean
 

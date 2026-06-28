@@ -5,7 +5,7 @@ import type { BuildDashboardOptions } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
-import { listRegisteredLedgers } from "./registry.js";
+import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import type { AppendEventInput, ApprovalSnapshotInput } from "./session.js";
 import {
   appendEvent,
@@ -16,7 +16,7 @@ import {
   validateBrowserToken,
   writeApprovalSnapshot
 } from "./session.js";
-import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./types.js";
+import type { UiEventType, UiSessionHistoryEntry } from "./types.js";
 
 // Loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard, NGX-536 detail
 // drawer, NGX-537 needs-context presentation, NGX-538 human triage intents, NGX-539 token-gated
@@ -225,11 +225,11 @@ async function routeIntentSubmission(options: UiServerOptions, request: any, res
   sendRedirect(response, 303, detailRedirect(event.target, fields.token ?? ""));
 }
 
-// Record one reviewed approval bundle (NGX-539). The form carries the server-rendered candidate
-// rows and reviewed facts, plus the human's checked target ids. The storage seam validates the
-// deliberate non-empty subset and exact per-target context before the bundle is persisted. The
-// follow-up event tells the agent a new bundle is ready for live-state revalidation; no execution
-// happens in the browser server.
+// Record one reviewed approval bundle (NGX-539). The form carries the source immutable bundle id plus
+// the human's checked target ids. The server rehydrates the reviewed candidate rows, action, and
+// reviewed facts from the stored source bundle before persistence; hidden browser target JSON is not
+// trusted as approval evidence. The follow-up event tells the agent a new bundle is ready for
+// live-state revalidation; no execution happens in the browser server.
 async function routeApprovalSubmission(options: UiServerOptions, request: any, response: any): Promise<void> {
   let fields: Record<string, string[]>;
   try {
@@ -252,7 +252,7 @@ async function routeApprovalSubmission(options: UiServerOptions, request: any, r
 
   let snapshot;
   try {
-    snapshot = writeApprovalSnapshot(options.uiHome, options.sessionId, buildApprovalInput(fields));
+    snapshot = writeApprovalSnapshot(options.uiHome, options.sessionId, buildApprovalInput(options, fields));
     appendEvent(options.uiHome, options.sessionId, {
       type: "approval_bundle_submitted",
       target: { bundleId: snapshot.id },
@@ -260,6 +260,8 @@ async function routeApprovalSubmission(options: UiServerOptions, request: any, r
         bundleId: snapshot.id,
         actionType: snapshot.actionType,
         fingerprint: snapshot.fingerprint,
+        registryPath: normalizeRegistryPath(options.registryPath),
+        ledgerPath: options.ledgerPath ? normalizeLedgerPath(options.ledgerPath) : null,
         selectedTargetIds: snapshot.selectedTargetIds,
         selectedCount: snapshot.selectedTargetIds.length,
         targetCount: snapshot.targets.length
@@ -317,38 +319,19 @@ function buildIntentInput(fields: Record<string, string>): AppendEventInput {
   return { type, target, payload };
 }
 
-function buildApprovalInput(fields: Record<string, string[]>): ApprovalSnapshotInput {
-  const actionType = firstField(fields, "actionType");
-  const targetFields = fields.target ?? [];
+function buildApprovalInput(options: UiServerOptions, fields: Record<string, string[]>): ApprovalSnapshotInput {
+  const sourceBundleId = firstField(fields, "sourceBundleId");
+  if (!isNonBlank(sourceBundleId)) {
+    throw intentError(400, "Invalid Artshelf UI approval sourceBundleId; expected the source approval bundle id");
+  }
+  const source = readApprovalSnapshot(options.uiHome, options.sessionId, sourceBundleId);
   const selectedTargetIds = fields.targetId ?? [];
   return {
-    actionType,
-    targets: targetFields.map((field) => parseApprovalTarget(field)),
+    actionType: source.actionType,
+    targets: source.targets,
     selectedTargetIds,
-    reviewed: parseReviewedFacts(firstField(fields, "reviewed") || "{}")
+    reviewed: source.reviewed ?? {}
   };
-}
-
-function parseApprovalTarget(value: string): UiApprovalTarget {
-  const parsed = parseJsonRecord(value, "approval target");
-  return parsed as UiApprovalTarget;
-}
-
-function parseReviewedFacts(value: string): Record<string, unknown> {
-  return parseJsonRecord(value, "approval reviewed facts");
-}
-
-function parseJsonRecord(value: string, label: string): Record<string, unknown> {
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(value);
-  } catch {
-    throw intentError(400, `Invalid Artshelf UI ${label}; expected JSON`);
-  }
-  if (!isPlainRecord(parsed)) {
-    throw intentError(400, `Invalid Artshelf UI ${label}; expected a JSON object`);
-  }
-  return parsed;
 }
 
 function isBrowserIntentType(value: string): value is UiEventType {
@@ -637,8 +620,4 @@ function sendRedirect(response: any, status: number, location: string): void {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

@@ -176,7 +176,7 @@ artshelf doctor [--agent] [--json]</code></pre>
 
 
           <section class="cmd">
-            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag readonly">review loop</span></div>
+            <div class="cmd-head"><h2>artshelf ui</h2><span class="cmd-flag approval">review loop</span></div>
             <pre><code><span class="c"># start or resume a durable review session</span>
 artshelf ui [--scope user|repo] [--ledger &lt;path&gt;] [--json]
 
@@ -194,6 +194,9 @@ artshelf ui reply &lt;session-id&gt; --event &lt;event-id&gt; --status &lt;statu
 <span class="c"># read persisted approval bundles for revalidation before execution</span>
 artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] [--scope user|repo] [--json]
 
+<span class="c"># execute an approved bundle, verify live state, and reply per-target receipts</span>
+artshelf ui execute &lt;session-id&gt; &lt;bundle-id&gt; [--scope user|repo] [--json]
+
 <span class="c"># close the session</span>
 artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
             <p>
@@ -209,15 +212,15 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               token printed in the serve URL, serves no script and embeds no file contents,
               accepts safe GET/HEAD reads plus token-bound posts that record human triage intents
               (inspect, comment, keep/trash/resolve/defer, dry-run request) and approval bundle submissions as pending session events,
-              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C. The served pages also expose <code>GET /bundle/&lt;bundle-id&gt;</code>: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets versus the merely reviewed rows plus the exact action. With the active token, its scriptless form can submit a revised non-empty subset through <code>POST /approve</code>, creating a new immutable approval snapshot and pending event without editing the original bundle or executing a workflow.
+              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C. The served pages also expose <code>GET /bundle/&lt;bundle-id&gt;</code>: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets versus the merely reviewed rows plus the exact action. With the active token, its scriptless form can submit a revised non-empty subset through <code>POST /approve</code>, creating a new immutable approval snapshot and pending event without editing the original bundle or executing a workflow. The approval form carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle instead of trusting hidden browser target JSON.
               The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
               to narrow the session target.
             </p>
             <p>
-              The browser records exact-target triage intents and approval bundle submissions; the agent polls pending events, runs existing
-              approval-gated commands after human approval, and replies with receipts or notes.
+              The browser records exact-target triage intents and approval bundle submissions; the agent polls pending events, uses
+              <code>ui execute</code> for approved bundles or runs existing approval-gated commands after human approval, and replies with receipts or notes.
               <code>ui reply</code> accepts <code>acknowledged</code>,
               <code>in_progress</code>, <code>completed</code>, <code>rejected</code>,
               <code>stale</code>, <code>failed</code>, or <code>cancelled</code> status values,
@@ -236,6 +239,28 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               mutates ledgers, files, trash, or plans - and it is a deliberate-approval surface, so
               an approval record is never itself an execution and no vague approve-all can be
               persisted.
+            </p>
+            <p>
+              <code>ui execute &lt;session-id&gt; &lt;bundle-id&gt; --json</code> is the agent's
+              mutating path and the one <code>ui</code> subcommand that changes live state. It
+              loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state,
+              then runs a revalidate -&gt; execute -&gt; verify loop through the existing
+              approval-gated dispose paths and replies the per-target receipts plus aggregate
+              result to the session by advancing the bundle's
+              <code>approval_bundle_submitted</code> event. Execution is exact-target only: a
+              stale, missing, mismatched, or unapproved target is refused or skipped, never
+              force-applied, and the agent verifies live state after each command rather than
+              trusting the command exit. Dispose-backed targets also bind approval to the
+              reviewed plan entry digest, so missing or unreadable reviewed plans, subject content
+              drift, or same-id plan rewrites become stale before receipts instead of changing
+              reason, subject, target, or retention semantics. If an earlier execution claimed the
+              approval event as <code>in_progress</code> and stopped before final receipts, rerunning
+              the same session and bundle resumes that claim. There is no <code>ui execute --all</code> and no
+              browser-direct execution. Each selected target receives one of four visible
+              outcomes - <code>executed</code>, <code>skipped_stale</code>, <code>failed</code>,
+              or <code>needs_manual_review</code> - so a partial run never hides a target's state;
+              a clean run exits 0 while a partial or refused run exits non-zero with every receipt
+              still recorded in the session.
             </p>
             <p>
               The session token printed by <code>artshelf ui</code> and
@@ -386,7 +411,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
             <p>
               <code>artshelf ui --json</code>, <code>ui dashboard --json</code>, <code>ui detail --json</code>,
               <code>ui serve --json</code>, <code>ui poll --json</code>, <code>ui reply --json</code>,
-              <code>ui bundle --json</code>, and <code>ui end --json</code> emit compact UI packets.
+              <code>ui bundle --json</code>, <code>ui execute --json</code>, and <code>ui end --json</code> emit compact UI packets.
               <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code> add <code>--agent</code>:
               a deterministic, token-efficient decision packet emitted as a single line of compact JSON.
               It names the relevant health, prune counts, dispose plan status, or record recommendation, classifications, blockers, approval targets where applicable, and the command
@@ -402,7 +427,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               <tr><th>option</th><th>meaning</th></tr>
               <tr><td>(default)</td><td>human render: grouped counts or a record card, ✓/⚠ attention glyphs, and a short next action</td></tr>
               <tr><td>--agent</td><td>token-efficient decision packet for agents on <code>review</code>, <code>status</code>, <code>doctor</code>, <code>ledgers prune --dry-run</code>, <code>dispose --dry-run</code>, and <code>get --inspect</code></td></tr>
-              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data; compact single-line packets for the <code>artshelf ui</code> review views, serve launch packet, approval-bundle read surface, and session loop</td></tr>
+              <tr><td>--json</td><td>full machine-readable audit JSON on commands that return data; compact single-line packets for the <code>artshelf ui</code> review views, serve launch packet, approval-bundle read surface, execution receipt surface, and session loop</td></tr>
             </table>
           </section>
 
@@ -467,7 +492,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               or <code>&lt;repo&gt;/.artshelf/ui</code> for repo scope, with
               <code>sessions/&lt;session-id&gt;/session.json</code>,
               <code>events.jsonl</code>, and immutable approval bundles under
-              <code>bundles/</code>. The event log stores exact-target browser triage intents and approval bundle submissions
+              <code>bundles/</code>. Session metadata records ledger, registry, and repo scope when present, backfills missing registry/repo metadata on legacy active sessions that resume the same scope, and approval execution rechecks that selected targets remain inside that scope. The event log stores exact-target browser triage intents and approval bundle submissions
               plus agent replies, preserving reply payloads for record history. Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed

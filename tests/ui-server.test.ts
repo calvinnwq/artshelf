@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
+import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
+import { readLedger } from "../src/ledger.js";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
 import {
   endSession,
@@ -10,11 +12,13 @@ import {
   pollPendingEvents,
   readApprovalSnapshot,
   readSessionEvents,
+  readSessionHistory,
   replyToEvent,
   startOrResumeSession,
   writeApprovalSnapshot
 } from "../src/session.js";
 import { createUiServer, startUiServer } from "../src/ui-server.js";
+import { executeApprovedBundle } from "../src/ui-execute.js";
 
 // Tests for the loopback browser surface (Artshelf UI v1 contract slice 2). NGX-535's
 // dashboard, NGX-536's detail drawer, and NGX-537's needs-context presentation all named the
@@ -126,9 +130,9 @@ type TestSession = {
   token: string;
 };
 
-function createTestSession(): TestSession {
+function createTestSession(registryPath?: string): TestSession {
   const home = join(fixtureDir(), "ui");
-  const session = startOrResumeSession({ home, scope: "user", ledgerPath: null });
+  const session = startOrResumeSession({ home, scope: "user", ledgerPath: null, registryPath: registryPath ?? null });
   return { home, sessionId: session.id, token: session.token };
 }
 
@@ -147,7 +151,7 @@ async function withServer(
 }
 
 async function startTestServer(options: { registryPath: string; ledgerPath?: string }): Promise<ServerHandle> {
-  const session = createTestSession();
+  const session = createTestSession(options.registryPath);
   try {
     const serverOptions = {
       port: 0,
@@ -261,22 +265,43 @@ function postIntent(
   });
 }
 
-function approvalBody(fields: { token?: string; actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> }): string {
+function approvalBody(fields: {
+  token?: string;
+  sourceBundleId: string;
+  selectedTargetIds: string[];
+  actionType?: string;
+  targets?: Array<Record<string, unknown>>;
+  reviewed?: Record<string, unknown>;
+}): string {
   const params = new URLSearchParams();
   if (fields.token !== undefined) params.append("token", fields.token);
-  params.append("actionType", fields.actionType);
-  params.append("reviewed", JSON.stringify(fields.reviewed ?? {}));
-  for (const target of fields.targets) params.append("target", JSON.stringify(target));
+  params.append("sourceBundleId", fields.sourceBundleId);
+  if (fields.actionType !== undefined) params.append("actionType", fields.actionType);
+  if (fields.reviewed !== undefined) params.append("reviewed", JSON.stringify(fields.reviewed));
+  for (const target of fields.targets ?? []) params.append("target", JSON.stringify(target));
   for (const id of fields.selectedTargetIds) params.append("targetId", id);
   return params.toString();
 }
 
 function postApproval(
   server: ServerHandle,
-  fields: { actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> },
+  fields: {
+    sourceBundleId: string;
+    selectedTargetIds: string[];
+    actionType?: string;
+    targets?: Array<Record<string, unknown>>;
+    reviewed?: Record<string, unknown>;
+  },
   options: { noToken?: boolean } = {}
 ): Promise<TestResponse> {
-  const bodyFields: { token?: string; actionType: string; targets: Array<Record<string, unknown>>; selectedTargetIds: string[]; reviewed?: Record<string, unknown> } = {
+  const bodyFields: {
+    token?: string;
+    sourceBundleId: string;
+    selectedTargetIds: string[];
+    actionType?: string;
+    targets?: Array<Record<string, unknown>>;
+    reviewed?: Record<string, unknown>;
+  } = {
     ...fields
   };
   if (!options.noToken) bodyFields.token = server.token;
@@ -976,6 +1001,8 @@ test("GET /bundle/<id> renders a persisted approval bundle with token-gated part
     assert.match(body, /Selected/, "the selected row carries its state badge");
     assert.match(body, /Not selected/, "the merely-reviewed row is clearly distinguished");
     assert.match(body, /<form[^>]*method="post"[^>]*action="\/approve"/, "the token-gated bundle page can record a revised partial approval");
+    assert.match(body, new RegExp(`name="sourceBundleId" value="${snapshot.id}"`), "approval posts only the source bundle id");
+    assert.doesNotMatch(body, /name="target"/, "the workbench never posts hidden target JSON");
     assert.match(body, /type="checkbox"/, "selection inputs let the reviewer deselect rows before approval");
     assert.match(body, /Approve 1 selected/, "the submit names the exact selected count");
   });
@@ -1005,12 +1032,16 @@ test("POST /approve records a selected approval bundle and pending agent event",
         label: "trash skip me"
       }
     ];
-
-    const response = await postApproval(server, {
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
       actionType: "trash-resolve",
       targets,
       selectedTargetIds: ["t_keep"],
       reviewed: { planId: "plan_x", total: 2 }
+    });
+
+    const response = await postApproval(server, {
+      sourceBundleId: source.id,
+      selectedTargetIds: ["t_keep"]
     });
 
     assert.equal(response.status, 303);
@@ -1023,7 +1054,7 @@ test("POST /approve records a selected approval bundle and pending agent event",
     assert.deepEqual(snapshot.selectedTargetIds, ["t_keep"]);
     assert.deepEqual(snapshot.targets, targets);
     assert.deepEqual(snapshot.reviewed, { planId: "plan_x", total: 2 });
-    assert.deepEqual(listApprovalSnapshots(server.home, server.sessionId).map((bundle) => bundle.id), [bundleId]);
+    assert.deepEqual(new Set(listApprovalSnapshots(server.home, server.sessionId).map((bundle) => bundle.id)), new Set([source.id, bundleId]));
 
     const events = readSessionEvents(server.home, server.sessionId);
     assert.equal(events.length, 1);
@@ -1033,6 +1064,66 @@ test("POST /approve records a selected approval bundle and pending agent event",
     assert.equal(events[0]!.payload.bundleId, bundleId);
     assert.equal(events[0]!.payload.selectedCount, 1);
     assert.equal(events[0]!.payload.targetCount, 2);
+  });
+});
+
+test("POST /approve rehydrates targets from the stored source bundle instead of trusting hidden target JSON", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+  const outsider = singleLedger([baseRecord({ id: "shf_outside", path: "/tmp/outside" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const reviewedTargets = [
+      {
+        targetId: "t_keep",
+        ledgerPath: ledger.ledgerPath,
+        registryPath: null,
+        recordPath: "/tmp/keep",
+        planId: null,
+        actionType: "trash",
+        label: "trash keep me"
+      },
+      {
+        targetId: "t_skip",
+        ledgerPath: ledger.ledgerPath,
+        registryPath: null,
+        recordPath: "/tmp/skip",
+        planId: null,
+        actionType: "trash",
+        label: "trash skip me"
+      }
+    ];
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-resolve",
+      targets: reviewedTargets,
+      selectedTargetIds: ["t_keep"],
+      reviewed: { planId: "plan_x", total: 2 }
+    });
+
+    const forgedTarget = {
+      targetId: "shf_outside",
+      ledgerPath: outsider.ledgerPath,
+      registryPath: null,
+      recordPath: "/tmp/outside",
+      planId: "dispose_forged",
+      actionType: "trash-resolve",
+      label: "forged target"
+    };
+    const response = await postApproval(server, {
+      sourceBundleId: source.id,
+      selectedTargetIds: ["t_keep"],
+      actionType: "purge",
+      targets: [forgedTarget],
+      reviewed: { forged: true }
+    });
+
+    assert.equal(response.status, 303);
+    const location = response.headers.get("location") ?? "";
+    const bundleId = location.slice("/bundle/".length, location.indexOf("?"));
+    const snapshot = readApprovalSnapshot(server.home, server.sessionId, bundleId);
+    assert.equal(snapshot.actionType, "trash-resolve", "the stored source action wins over posted form fields");
+    assert.deepEqual(snapshot.targets, reviewedTargets, "the posted target JSON is ignored");
+    assert.deepEqual(snapshot.reviewed, { planId: "plan_x", total: 2 }, "the stored reviewed facts win over posted form fields");
+    assert.deepEqual(snapshot.selectedTargetIds, ["t_keep"]);
   });
 });
 
@@ -1071,5 +1162,142 @@ test("GET /bundle/<id> reports an unknown bundle as not found", async () => {
 
     const malformed = await server.request("/bundle/not-a-real-bundle-id");
     assert.equal(malformed.status, 404, "a malformed bundle id is a 404, not a 500 server error");
+  });
+});
+
+// NGX-540 browser/session smoke: the full mutating round-trip the contract demands - a human approves
+// exactly one target through the real browser write path (POST /approve), the agent then revalidates
+// live state, executes only that exact target through the existing approval-gated dispose path,
+// verifies the live result, and writes per-target receipts back to the session. The browser still
+// executes nothing itself; the agent's executeApprovedBundle is the only thing that mutates a ledger,
+// file, or trash. The assertions span all three hops: the browser-created bundle event, the genuine
+// live-state change, and the UI receipt update the review surface reads back from the durable session.
+test("browser approves a bundle, the agent executes it, and the receipt lands in the UI session (NGX-540)", async () => {
+  // A real repo whose recorded backup exists on disk, with a reviewed trash-resolve dispose plan -
+  // exactly the approval-gated CLI path the agent binds to by plan id, never minting a fresh plan.
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-smoke-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledgerPath = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "backup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledgerPath, [baseRecord({ id: "shf_backup", path: subject, kind: "backup" })]);
+  const plan = createDisposePlan(ledgerPath, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const trashTarget = plan.entry?.targetPath as string;
+
+  // The server's registry includes the real ledger so the served scope and the approved target agree.
+  const registryPath = join(repo, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-resolve",
+      targets: [
+        {
+          targetId: "shf_backup",
+          ledgerPath,
+          registryPath: null,
+          recordPath: subject,
+          planId: plan.planId,
+          planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(ledgerPath, plan.planId)),
+          actionType: "trash-resolve",
+          label: "trash backup.tar"
+        }
+      ],
+      selectedTargetIds: ["shf_backup"],
+      reviewed: {}
+    });
+    // Hop 1 - the human approves exactly this one target through the real browser write path. reviewed
+    // stays empty so the live re-read gates purely on exact-target liveness rather than refusing the
+    // whole bundle on a reviewed-fact mismatch.
+    const approveResponse = await postApproval(server, {
+      sourceBundleId: source.id,
+      selectedTargetIds: ["shf_backup"]
+    });
+    assert.equal(approveResponse.status, 303);
+    const location = approveResponse.headers.get("location") ?? "";
+    const redirectBundleId = location.slice("/bundle/".length, location.indexOf("?"));
+    assert.match(redirectBundleId, /^bundle_\d{8}_\d{6}_[0-9a-f]{8}$/, "the browser persisted a real approval bundle");
+
+    // The browser executed nothing: the bundle event is pending and live state is untouched. The agent
+    // discovers the bundle the way it really would - from the pending event's target.bundleId, the
+    // browser -> agent handoff - not from the browser's own redirect URL.
+    const pending = readSessionEvents(server.home, server.sessionId).find((e) => e.type === "approval_bundle_submitted");
+    assert.equal(pending?.status, "pending", "the browser only queues the bundle for the agent");
+    const bundleId = pending?.target.bundleId as string;
+    assert.equal(bundleId, redirectBundleId, "the queued event carries the exact bundle the browser created");
+    assert.equal(readLedger(ledgerPath).find((r) => r.id === "shf_backup")?.status, "active");
+    assert.equal(existsSync(subject), true, "the browser never touches the subject file");
+
+    // Hop 2 - the agent handles the approved bundle end to end: revalidate -> execute -> verify -> reply.
+    const outcome = executeApprovedBundle(server.home, server.sessionId, bundleId);
+    assert.equal(outcome.execution.status, "executed");
+    assert.equal(outcome.reply.status, "completed");
+
+    // Hop 2 verification - live state really changed, confirmed by re-reading the ledger and filesystem
+    // rather than trusting the command's exit: the subject moved to trash and its row is trashed.
+    assert.equal(readLedger(ledgerPath).find((r) => r.id === "shf_backup")?.status, "trashed");
+    assert.equal(existsSync(subject), false, "the approved target's subject moved to trash");
+    assert.equal(existsSync(trashTarget), true, "the trashed subject is recoverable at its trash path");
+
+    // Hop 3 - UI receipt update: the bundle's session event is claimed in-progress before mutation,
+    // then completed with a per-target receipt the review surface reads back from the durable session
+    // history, so the approved target ends with a visible, audit-ready result and nothing is hidden.
+    const entry = readSessionHistory(server.home, server.sessionId).find((h) => h.event.type === "approval_bundle_submitted");
+    assert.ok(entry, "the approved bundle's event is in the session history the UI renders");
+    assert.equal(entry!.event.status, "completed");
+    assert.equal(entry!.replies.length, 2);
+    assert.equal(entry!.replies[0]?.status, "in_progress");
+    assert.equal(entry!.replies[1]?.status, "completed");
+    const receipts = entry!.replies[1]!.payload.receipts as Array<{ targetId: string; outcome: string }>;
+    assert.deepEqual(receipts.map((r) => r.targetId), ["shf_backup"]);
+    assert.deepEqual(receipts.map((r) => r.outcome), ["executed"]);
+  });
+});
+
+test("browser-approved bundles cannot execute ledgers outside the served registry", async () => {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-scope-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const allowedLedger = join(repo, ".artshelf", "ledger.jsonl");
+  writeLedgerFile(allowedLedger, [baseRecord({ id: "shf_allowed", path: join(repo, "allowed.tar") })]);
+
+  const outsider = mkdtempSync(join(tmpdir(), "artshelf-ui-scope-outsider-"));
+  const outsiderLedger = join(outsider, ".artshelf", "ledger.jsonl");
+  const outsiderSubject = join(outsider, "secret.tar");
+  writeFileSync(outsiderSubject, "payload");
+  writeLedgerFile(outsiderLedger, [baseRecord({ id: "shf_outside", path: outsiderSubject, kind: "backup" })]);
+  const outsiderPlan = createDisposePlan(outsiderLedger, { id: "shf_outside", action: "trash-resolve", reason: "reviewed" });
+
+  const registryPath = join(repo, "ledgers.json");
+  writeRegistry(registryPath, [{ name: "primary", path: allowedLedger }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const source = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-resolve",
+      targets: [
+        {
+          targetId: "shf_outside",
+          ledgerPath: outsiderLedger,
+          registryPath: null,
+          recordPath: outsiderSubject,
+          planId: outsiderPlan.planId,
+          planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(outsiderLedger, outsiderPlan.planId)),
+          actionType: "trash-resolve",
+          label: "trash outside"
+        }
+      ],
+      selectedTargetIds: ["shf_outside"],
+      reviewed: {}
+    });
+    const approveResponse = await postApproval(server, {
+      sourceBundleId: source.id,
+      selectedTargetIds: ["shf_outside"]
+    });
+    assert.equal(approveResponse.status, 303);
+    const pending = readSessionEvents(server.home, server.sessionId).find((e) => e.type === "approval_bundle_submitted");
+    const bundleId = pending?.target.bundleId as string;
+
+    assert.throws(() => executeApprovedBundle(server.home, server.sessionId, bundleId), /outside.*registry|scope/i);
+    assert.equal(readLedger(outsiderLedger).find((r) => r.id === "shf_outside")?.status, "active");
+    assert.equal(existsSync(outsiderSubject), true);
   });
 });

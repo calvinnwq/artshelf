@@ -31,7 +31,7 @@ Flags:
 Use "artshelf trash <command> --help" for more information about a command.
 `;
 
-export const UI_HELP = `Start sessions and read Artshelf UI review views.
+export const UI_HELP = `Start sessions, read views, and execute approved bundles.
 
 Usage:
   artshelf ui [command]
@@ -44,13 +44,14 @@ Available Commands:
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
   bundle      Load or list persisted approval bundles for the agent
+  execute     Execute an approved bundle and reply per-target receipts
   end         End the session and revoke browser writes
 
 Flags:
   -h, --help   help for ui
 
 The browser records exact-target triage intents and approval bundle submissions;
-the agent polls them, executes existing approval-gated paths, and replies with
+the agent polls them, uses ui execute for approved bundles, and replies with
 receipts. The dashboard, detail, and bundle surfaces never read file contents.
 The browser captures handoff events only; it never executes or mutates ledgers,
 files, trash, or plans directly.
@@ -84,7 +85,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
     commands: [
       { name: "validate", summary: "Check ledger shape and report warnings" },
       { name: "review", summary: "Preview validate, due, and cleanup plans (read-only)" },
-      { name: "ui", summary: "Start review sessions and read UI review views" }
+      { name: "ui", summary: "Start sessions, read views, and execute approved bundles" }
     ]
   },
   {
@@ -110,7 +111,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "end"])]
+  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "execute", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -535,7 +536,10 @@ contents. The dashboard only displays state; the detail drawer captures human
 triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) and
 the bundle workbench captures revised approval selections as pending session
 events through token-bound POSTs, but never mutates ledgers, files, trash, or plans
-directly. The process runs in the foreground; press Ctrl-C to stop it.
+directly. Approval posts carry only the source bundle id and selected target ids;
+the server rehydrates target context from the stored bundle instead of trusting
+hidden browser target JSON. The process runs in the foreground; press Ctrl-C to
+stop it.
 `;
   }
 
@@ -567,8 +571,8 @@ Options:
 
 Reply appends an agent receipt, result, validation failure, question, or status
 note and advances exactly one event. The browser records triage intents; the
-agent replies after running existing approval-gated paths. There is no
-browser-direct execution path.
+agent replies after ui execute or other existing approval-gated paths. There is
+no browser-direct execution path.
 `;
   }
 
@@ -585,6 +589,36 @@ bundle id it loads one immutable reviewed snapshot and its deliberate selected
 targets - the agent-facing JSON used to revalidate live state before execution.
 With no bundle id it lists the session's approved bundles. It only reads approval
 records; it never executes a bundle or mutates ledgers, files, trash, or plans.
+`;
+  }
+
+  if (command === "ui execute") {
+    return `Usage:
+  artshelf ui execute <session-id> <bundle-id> [--scope user|repo] [--json]
+
+Options:
+  --scope <scope>          Locate the session in user (default) or repo scope
+  --json                   Emit a compact single-line agent receipt packet
+
+Execute is the agent's mutating path for an approved bundle, and the one ui
+subcommand that changes live state. It loads the immutable reviewed snapshot,
+re-reads live ledger/registry/trash state, then runs the revalidate -> execute ->
+verify loop through the existing approval-gated dispose paths, and replies the
+per-target receipts and aggregate result to the session by advancing the bundle's
+approval_bundle_submitted event. Execution is exact-target only: a stale, missing,
+mismatched, or unapproved target is refused or skipped, never force-applied, and
+the agent confirms live state rather than trusting the command exit. Dispose
+targets also bind to the reviewed plan entry digest, so missing or unreadable
+plans, subject content drift, or same-id plan rewrites make the bundle stale
+before receipts instead of changing reason, subject, target, or retention
+semantics. Matching in_progress approval-event claims can be resumed by rerunning
+the same session and bundle. There is no ui execute --all and no
+browser-direct execution.
+
+Each selected target receives one of four visible outcomes - executed,
+skipped_stale, failed, or needs_manual_review - so a partial run never hides a
+target's state. A clean run (every selected target executed) exits 0; a partial
+or refused run exits non-zero while still recording every receipt in the session.
 `;
   }
 
