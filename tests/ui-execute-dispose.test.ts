@@ -7,7 +7,7 @@ import { test } from "node:test";
 // Fix the clock so snooze horizons, generated plan ids, and audit timestamps are deterministic.
 process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
-import { createDisposePlan, executeDisposePlanEntry, readDisposePlanEntry } from "../src/dispose.js";
+import { createDisposePlan, disposePlanEntryDigest, executeDisposePlanEntry, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 import { startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import { disposeBackedTargetExecutor, executeApprovalBundle } from "../src/ui-execute.js";
@@ -72,7 +72,7 @@ function approvalTarget(
   actionType: string,
   over: Partial<UiApprovalTarget> = {}
 ): UiApprovalTarget {
-  return {
+  const target: UiApprovalTarget = {
     targetId: "shf_backup",
     ledgerPath: ledger,
     registryPath: null,
@@ -82,6 +82,14 @@ function approvalTarget(
     label: `${actionType} backup.tar`,
     ...over
   };
+  if (planId && target.planEntryDigest === undefined) {
+    try {
+      target.planEntryDigest = disposePlanEntryDigest(readDisposePlanEntry(ledger, planId));
+    } catch {
+      // Some negative tests deliberately point at a missing reviewed plan.
+    }
+  }
+  return target;
 }
 
 function recordById(ledger: string, id: string) {

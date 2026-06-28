@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -8,7 +8,7 @@ import { test } from "node:test";
 // real-executor end-to-end path.
 process.env.ARTSHELF_NOW = "2026-03-01T00:00:00Z";
 
-import { createDisposePlan } from "../src/dispose.js";
+import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 import { appendEvent, endSession, readSessionHistory, replyToEvent, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalSnapshot, UiApprovalTarget } from "../src/types.js";
@@ -95,6 +95,14 @@ function target(targetId: string, ledgerPath: string, recordPath: string, over: 
     label: `trash ${targetId}`,
     ...over
   };
+}
+
+function reviewedTarget(targetId: string, ledgerPath: string, recordPath: string, planId: string, over: Partial<UiApprovalTarget> = {}): UiApprovalTarget {
+  return target(targetId, ledgerPath, recordPath, {
+    planId,
+    planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(ledgerPath, planId)),
+    ...over
+  });
 }
 
 // A session with one persisted approval bundle plus the approval_bundle_submitted event the browser
@@ -608,7 +616,7 @@ test("executeApprovedBundle resumes in_progress execution after a terminal targe
   const home = freshHome();
   const { ledger, subject } = repoWithSubject("shf_a");
   const plan = createDisposePlan(ledger, { id: "shf_a", action: "trash-resolve", reason: "reviewed" });
-  const approvedTarget = target("shf_a", ledger, subject, { planId: plan.planId });
+  const approvedTarget = reviewedTarget("shf_a", ledger, subject, plan.planId);
   const { sessionId, snapshot } = sessionWithBundle(home, [approvedTarget], ["shf_a"]);
   const submitted = readSessionHistory(home, sessionId).find((h) => h.event.type === "approval_bundle_submitted");
   if (!submitted) throw new Error("expected approval_bundle_submitted event");
@@ -709,7 +717,7 @@ test("executeApprovedBundle drives the real dispose-backed executor end-to-end a
   writeLedgerFile(ledger, [record("shf_backup", subject)]);
   const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
   const trashTarget = plan.entry?.targetPath as string;
-  const approved = target("shf_backup", ledger, subject, { planId: plan.planId, actionType: "trash-resolve" });
+  const approved = reviewedTarget("shf_backup", ledger, subject, plan.planId, { actionType: "trash-resolve" });
   const { sessionId, snapshot } = sessionWithBundle(home, [approved], ["shf_backup"]);
 
   // No injected executor: this exercises the default disposeBackedTargetExecutor wiring.
@@ -721,4 +729,28 @@ test("executeApprovedBundle drives the real dispose-backed executor end-to-end a
   assert.equal(readLedger(ledger).find((r) => r.id === "shf_backup")?.status, "trashed");
   assert.equal(existsSync(subject), false);
   assert.equal(existsSync(trashTarget), true);
+});
+
+test("executeApprovedBundle refuses a same-id reviewed dispose plan whose entry digest changed after approval", () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-exec-session-digest-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "backup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [record("shf_backup", subject)]);
+  const plan = createDisposePlan(ledger, { id: "shf_backup", action: "trash-resolve", reason: "reviewed" });
+  const approved = reviewedTarget("shf_backup", ledger, subject, plan.planId);
+  const { sessionId, snapshot } = sessionWithBundle(home, [approved], ["shf_backup"]);
+  const swappedPlan = JSON.parse(readFileSync(plan.planPath as string, "utf8")) as Record<string, any>;
+  swappedPlan.entry.reason = "different reviewed semantics";
+  writeFileSync(plan.planPath as string, `${JSON.stringify(swappedPlan, null, 2)}\n`);
+
+  const outcome = executeApprovedBundle(home, sessionId, snapshot.id);
+
+  assert.equal(outcome.execution.status, "refused");
+  assert.equal(outcome.reply.status, "stale");
+  assert.equal(receiptsOf(outcome.reply.payload)[0]?.outcome, "skipped_stale");
+  assert.equal(readLedger(ledger).find((r) => r.id === "shf_backup")?.status, "active");
+  assert.equal(existsSync(subject), true, "the changed plan entry was not executed");
 });

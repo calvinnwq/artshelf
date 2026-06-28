@@ -439,9 +439,13 @@ export function selectedApprovalTargets(snapshot: UiApprovalSnapshot): UiApprova
 
 function resolveSelectedTargets(targets: UiApprovalTarget[], selectedTargetIds: string[]): UiApprovalTarget[] {
   const byId = new Map(targets.map((target) => [target.targetId, target]));
-  return selectedTargetIds
-    .map((id) => byId.get(id))
-    .filter((target): target is UiApprovalTarget => target !== undefined);
+  return selectedTargetIds.map((id) => {
+    const target = byId.get(id);
+    if (target === undefined) {
+      throw new Error(`Artshelf UI approval selection id not in the reviewed candidate pool: ${id}`);
+    }
+    return target;
+  });
 }
 
 // Enforce the NGX-539 approval boundary at the storage seam: a bundle must carry a non-empty
@@ -508,6 +512,9 @@ function validateApprovalTarget(target: UiApprovalTarget): void {
       throw new Error(`Invalid Artshelf UI approval target.${field}; expected a non-empty string or null`);
     }
   }
+  if (target.planEntryDigest !== undefined && target.planEntryDigest !== null && !isNonEmptyString(target.planEntryDigest)) {
+    throw new Error("Invalid Artshelf UI approval target.planEntryDigest; expected a non-empty string or null");
+  }
 }
 
 // A selected target must point at an exact subject - a record, a reviewed plan, or a registry
@@ -534,7 +541,21 @@ export function readApprovalSnapshot(home: string, sessionId: string, bundleId: 
   if (parsed.sessionId !== sessionId) {
     throw new Error(`Invalid Artshelf UI approval snapshot session id in ${path}: expected ${sessionId}, found ${String(parsed.sessionId)}`);
   }
-  return parsed as UiApprovalSnapshot;
+  const snapshot = parsed as UiApprovalSnapshot;
+  if (!isNonEmptyString(snapshot.createdAt) || !isNonEmptyString(snapshot.fingerprint)) {
+    throw new Error(`Invalid Artshelf UI approval snapshot ${bundleId}: missing createdAt or fingerprint`);
+  }
+  validateApprovalSnapshotInput({
+    actionType: snapshot.actionType,
+    targets: snapshot.targets,
+    selectedTargetIds: snapshot.selectedTargetIds,
+    reviewed: snapshot.reviewed
+  });
+  const fingerprint = approvalSnapshotFingerprint(resolveSelectedTargets(snapshot.targets, snapshot.selectedTargetIds), snapshot.reviewed ?? {});
+  if (fingerprint !== snapshot.fingerprint) {
+    throw new Error(`Invalid Artshelf UI approval snapshot ${bundleId}: fingerprint does not match selected targets and reviewed facts`);
+  }
+  return snapshot;
 }
 
 // List every persisted approval bundle for a session (NGX-539): a read-only audit/discovery

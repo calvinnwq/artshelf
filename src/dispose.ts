@@ -200,6 +200,10 @@ export function readDisposePlanEntry(ledgerPath: string, planId: string): Dispos
   return assertDisposePlanExecutable(plan, planId, ledgerPath);
 }
 
+export function disposePlanEntryDigest(entry: DisposePlanEntry): string {
+  return createHash("sha256").update(canonicalJson(entry)).digest("hex");
+}
+
 type DisposeAudit = { planId: string; receiptPath: string; executedAt: string };
 
 // `records` is the mutated ledger to persist, or null when the entry was refused (no write).
@@ -590,6 +594,16 @@ function isDisposeResult(value: unknown): value is DisposeResult {
     (typeof result.targetPath === "string" || result.targetPath === null) &&
     Boolean(result.verification)
   );
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return `[${value.map((entry) => canonicalJson(entry)).join(",")}]`;
+  const record = value as Record<string, unknown>;
+  const entries = Object.keys(record)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`);
+  return `{${entries.join(",")}}`;
 }
 
 function buildDisposePlan(ledgerPath: string, request: DisposeRequest): DisposePlan {

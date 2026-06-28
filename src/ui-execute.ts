@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
-import { executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
+import { disposePlanEntryDigest, executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import { resolveRepoRoot } from "./provenance.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
@@ -167,6 +167,24 @@ function bindApprovedDisposeTarget(target: UiApprovalTarget): DisposeTargetBindi
     };
   }
 
+  const digest = disposePlanEntryDigest(entry);
+  if (!isNonEmptyString(target.planEntryDigest)) {
+    return {
+      ok: false,
+      execution: {
+        outcome: "needs_manual_review",
+        detail: "needs_manual_review: approved target lacks the reviewed dispose-plan entry digest; re-run the dry-run and re-approve",
+        evidence: { ...targetBindingEvidence(target), livePlanEntryDigest: digest }
+      }
+    };
+  }
+  if (target.planEntryDigest !== digest) {
+    return {
+      ok: false,
+      execution: targetPlanMismatch(target, entry, "reviewed dispose-plan entry digest changed after approval")
+    };
+  }
+
   if (entry.id !== target.targetId) {
     return { ok: false, execution: targetPlanMismatch(target, entry, `plan targets ${entry.id}, approved ${target.targetId}`) };
   }
@@ -197,6 +215,7 @@ function targetBindingEvidence(target: UiApprovalTarget): Record<string, unknown
     targetId: target.targetId,
     recordPath: target.recordPath,
     planId: target.planId,
+    approvedPlanEntryDigest: target.planEntryDigest ?? null,
     actionType: target.actionType
   };
 }
@@ -356,7 +375,21 @@ function reReadLiveTarget(
   if (isNonEmptyString(target.recordPath) && record.path !== target.recordPath) {
     return { ...target, recordPath: record.path };
   }
+  if (isNonEmptyString(target.planId) && isNonEmptyString(target.planEntryDigest)) {
+    const digest = liveDisposePlanEntryDigest(target);
+    if (digest !== null && digest !== target.planEntryDigest) {
+      return { ...target, planEntryDigest: digest };
+    }
+  }
   return target;
+}
+
+function liveDisposePlanEntryDigest(target: UiApprovalTarget): string | null {
+  try {
+    return disposePlanEntryDigest(readDisposePlanEntry(target.ledgerPath, target.planId as string));
+  } catch {
+    return null;
+  }
 }
 
 function recordMatchesApprovedDispose(target: UiApprovalTarget, record: ArtshelfRecord): boolean {

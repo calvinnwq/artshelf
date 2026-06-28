@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
-import { createDisposePlan } from "../src/dispose.js";
+import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
 import { appendEvent, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalTarget } from "../src/types.js";
@@ -502,7 +502,7 @@ function bundleTarget(targetId: string, ledgerPath: string, recordPath: string, 
 // Persist an approval bundle plus the approval_bundle_submitted event the browser would have appended
 // for it, so the agent's execute path has a real event to reply receipts against.
 function seedApprovedBundle(home: string, sessionId: string, targets: UiApprovalTarget[], selectedTargetIds: string[], registryPath: string) {
-  const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: "trash-resolve", targets, selectedTargetIds, reviewed: {} });
+  const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: "trash-resolve", targets: targets.map(withPlanDigest), selectedTargetIds, reviewed: {} });
   appendEvent(home, sessionId, {
     type: "approval_bundle_submitted",
     target: { bundleId: snapshot.id },
@@ -517,6 +517,15 @@ function seedApprovedBundle(home: string, sessionId: string, targets: UiApproval
     }
   });
   return snapshot;
+}
+
+function withPlanDigest(target: UiApprovalTarget): UiApprovalTarget {
+  if (!target.planId) return target;
+  try {
+    return { ...target, planEntryDigest: disposePlanEntryDigest(readDisposePlanEntry(target.ledgerPath, target.planId)) };
+  } catch {
+    return target;
+  }
 }
 
 // A repo whose recorded backup exists on disk, with a reviewed trash-resolve dispose plan: the safe

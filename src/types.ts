@@ -451,6 +451,9 @@ export type UiApprovalTarget = {
   registryPath: string | null;
   recordPath: string | null;
   planId: string | null;
+  // Digest of the reviewed dispose-plan entry captured at approval time. This binds execution to
+  // the entry contents, not just a reusable plan id/path/action tuple.
+  planEntryDigest?: string | null;
   actionType: string;
   // Row-level human label shown at approval time.
   label: string;

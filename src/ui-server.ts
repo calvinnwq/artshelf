@@ -3,6 +3,7 @@ import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
+import { disposePlanEntryDigest, readDisposePlanEntry } from "./dispose.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
@@ -325,7 +326,7 @@ function buildApprovalInput(fields: Record<string, string[]>): ApprovalSnapshotI
   const selectedTargetIds = fields.targetId ?? [];
   return {
     actionType,
-    targets: targetFields.map((field) => parseApprovalTarget(field)),
+    targets: targetFields.map((field) => bindApprovalTargetPlanEntry(parseApprovalTarget(field))),
     selectedTargetIds,
     reviewed: parseReviewedFacts(firstField(fields, "reviewed") || "{}")
   };
@@ -334,6 +335,16 @@ function buildApprovalInput(fields: Record<string, string[]>): ApprovalSnapshotI
 function parseApprovalTarget(value: string): UiApprovalTarget {
   const parsed = parseJsonRecord(value, "approval target");
   return parsed as UiApprovalTarget;
+}
+
+function bindApprovalTargetPlanEntry(target: UiApprovalTarget): UiApprovalTarget {
+  if (target.planId === null || !isNonBlank(target.planId)) return target;
+  try {
+    const entry = readDisposePlanEntry(target.ledgerPath, target.planId);
+    return { ...target, planEntryDigest: disposePlanEntryDigest(entry) };
+  } catch {
+    return target;
+  }
 }
 
 function parseReviewedFacts(value: string): Record<string, unknown> {
