@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { basename, dirname, relative, resolve } from "node:path";
-import { disposePlanEntryDigest, disposePlanEntrySubjectDrifted, executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
+import { disposePlanEntryDigest, disposePlanEntrySubjectStaleForExecute, executeDisposePlanEntry, readDisposePlanEntry } from "./dispose.js";
 import { readLedger } from "./ledger.js";
 import { resolveRepoRoot } from "./provenance.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
@@ -393,27 +393,29 @@ function reReadLiveTarget(
   if (isNonEmptyString(target.recordPath) && record.path !== target.recordPath) {
     return { ...target, recordPath: record.path };
   }
-  if (isNonEmptyString(target.planId) && isNonEmptyString(target.planEntryDigest)) {
+  if (isNonEmptyString(target.planId)) {
     const planEntry = liveDisposePlanEntryState(target);
     if (planEntry === null) {
-      return { ...target, planEntryDigest: `${target.planEntryDigest}:missing-reviewed-plan` };
+      return { ...target, planEntryDigest: `${target.planEntryDigest ?? "missing"}:missing-reviewed-plan` };
     }
-    if (planEntry.digest !== target.planEntryDigest) {
-      return { ...target, planEntryDigest: planEntry.digest };
-    }
-    if (planEntry.subjectDrifted) {
-      return { ...target, planEntryDigest: `${target.planEntryDigest}:subject-drifted` };
+    if (isNonEmptyString(target.planEntryDigest)) {
+      if (planEntry.digest !== target.planEntryDigest) {
+        return { ...target, planEntryDigest: planEntry.digest };
+      }
+      if (planEntry.subjectStale) {
+        return { ...target, planEntryDigest: `${target.planEntryDigest}:subject-drifted` };
+      }
     }
   }
   return target;
 }
 
-function liveDisposePlanEntryState(target: UiApprovalTarget): { digest: string; subjectDrifted: boolean } | null {
+function liveDisposePlanEntryState(target: UiApprovalTarget): { digest: string; subjectStale: boolean } | null {
   try {
     const entry = readDisposePlanEntry(target.ledgerPath, target.planId as string);
     return {
       digest: disposePlanEntryDigest(entry),
-      subjectDrifted: disposePlanEntrySubjectDrifted(entry)
+      subjectStale: disposePlanEntrySubjectStaleForExecute(entry)
     };
   } catch {
     return null;

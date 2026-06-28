@@ -90,7 +90,7 @@ function target(targetId: string, ledgerPath: string, recordPath: string, over: 
     ledgerPath,
     registryPath: null,
     recordPath,
-    planId: `plan_${targetId}`,
+    planId: null,
     actionType: "trash-resolve",
     label: `trash ${targetId}`,
     ...over

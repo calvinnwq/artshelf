@@ -206,8 +206,9 @@ export function disposePlanEntryDigest(entry: DisposePlanEntry): string {
   return createHash("sha256").update(canonicalJson(entry)).digest("hex");
 }
 
-export function disposePlanEntrySubjectDrifted(entry: DisposePlanEntry): boolean {
-  return subjectDrifted(entry.subject, snapshotSubject(entry.subjectPath));
+export function disposePlanEntrySubjectStaleForExecute(entry: DisposePlanEntry): boolean {
+  const live = snapshotSubject(entry.subjectPath);
+  return subjectDrifted(entry.subject, live) && !(entry.action === "trash-resolve" && canResumeTrashResolve(entry, live));
 }
 
 type DisposeAudit = { planId: string; receiptPath: string; executedAt: string };
