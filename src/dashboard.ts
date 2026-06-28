@@ -85,17 +85,27 @@ export type DashboardArtifactRow = {
   lastAction: DashboardLastAction | null;
 };
 
-// A trash / purge-candidate row. Same projection the `trash list` surface uses, plus the
-// owning ledger so the multi-ledger lane stays target-exact.
-export type DashboardTrashRow = {
+// The exact trash facts a purge approval is fingerprint-bound to (NGX-541). These are precisely the
+// facts the purge executor revalidates against before the one-way-door deletion: record identity, the
+// owning ledger, the trashed artifact path, and the originating cleanup provenance. DashboardTrashRow
+// is a superset, so the dashboard side passes a row directly while the agent execute side reconstructs
+// these from the live ledger row - both through the same purgeCandidateDigest, so the approval binding
+// can never drift between approval and execution.
+export type PurgeCandidateFacts = {
   recordId: string;
-  ledgerName: string;
   ledgerPath: string;
   targetPath: string;
   cleanedAt: string;
-  age: string;
   cleanupPlanId: string;
   receiptPath: string;
+};
+
+// A trash / purge-candidate row. Same projection the `trash list` surface uses, plus the
+// owning ledger so the multi-ledger lane stays target-exact. It is a superset of the exact
+// PurgeCandidateFacts the purge approval digest is taken over.
+export type DashboardTrashRow = PurgeCandidateFacts & {
+  ledgerName: string;
+  age: string;
 };
 
 // A purge-candidate group: every purge candidate that belongs to one source/ledger, gathered under
@@ -371,14 +381,14 @@ export const PURGE_APPROVAL_ACTION = "trash-purge";
 // drift in them changes the digest - and therefore the bundle fingerprint - and a stale or tampered
 // purge approval is refused before the irreversible deletion. The fact set is a flat string record,
 // so a fixed-key-order literal already canonicalizes it for hashing.
-export function purgeCandidateDigest(row: DashboardTrashRow): string {
+export function purgeCandidateDigest(facts: PurgeCandidateFacts): string {
   const canonical = JSON.stringify({
-    recordId: row.recordId,
-    ledgerPath: row.ledgerPath,
-    targetPath: row.targetPath,
-    cleanedAt: row.cleanedAt,
-    cleanupPlanId: row.cleanupPlanId,
-    receiptPath: row.receiptPath
+    recordId: facts.recordId,
+    ledgerPath: facts.ledgerPath,
+    targetPath: facts.targetPath,
+    cleanedAt: facts.cleanedAt,
+    cleanupPlanId: facts.cleanupPlanId,
+    receiptPath: facts.receiptPath
   });
   return createHash("sha256").update(canonical).digest("hex");
 }

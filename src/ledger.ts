@@ -94,13 +94,18 @@ export type TrashedRecord = {
   age: string;
 };
 
-type TrashProvenance = {
+export type TrashProvenance = {
   cleanedAt: string;
   receiptPath: string;
   cleanupPlanId: string;
 };
 
-function trashProvenance(record: ArtshelfRecord): TrashProvenance | null {
+// The cleanup/dispose provenance that makes a trashed record a purge candidate: when it was cleaned,
+// the originating receipt, and the plan id. Exported so the agent purge execute path (NGX-541) can
+// re-derive the exact live trash facts a purge approval is fingerprint-bound to and revalidate them
+// before the one-way-door deletion. Returns null for a trashed row whose provenance is incomplete -
+// such a row is not a valid purge candidate (the purge planner skips it too).
+export function trashProvenance(record: ArtshelfRecord): TrashProvenance | null {
   if (record.cleanedAt && record.receiptPath && record.cleanupPlanId) {
     return { cleanedAt: record.cleanedAt, receiptPath: record.receiptPath, cleanupPlanId: record.cleanupPlanId };
   }
