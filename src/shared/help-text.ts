@@ -536,7 +536,10 @@ contents. The dashboard only displays state; the detail drawer captures human
 triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) and
 the bundle workbench captures revised approval selections as pending session
 events through token-bound POSTs, but never mutates ledgers, files, trash, or plans
-directly. The process runs in the foreground; press Ctrl-C to stop it.
+directly. Approval posts carry only the source bundle id and selected target ids;
+the server rehydrates target context from the stored bundle instead of trusting
+hidden browser target JSON. The process runs in the foreground; press Ctrl-C to
+stop it.
 `;
   }
 
@@ -568,8 +571,8 @@ Options:
 
 Reply appends an agent receipt, result, validation failure, question, or status
 note and advances exactly one event. The browser records triage intents; the
-agent replies after running existing approval-gated paths. There is no
-browser-direct execution path.
+agent replies after ui execute or other existing approval-gated paths. There is
+no browser-direct execution path.
 `;
   }
 
@@ -605,9 +608,12 @@ per-target receipts and aggregate result to the session by advancing the bundle'
 approval_bundle_submitted event. Execution is exact-target only: a stale, missing,
 mismatched, or unapproved target is refused or skipped, never force-applied, and
 the agent confirms live state rather than trusting the command exit. Dispose
-targets also bind to the reviewed plan entry digest, so same-id plan rewrites
-make the bundle stale instead of changing reason, subject, target, or retention
-semantics. There is no ui execute --all and no browser-direct execution.
+targets also bind to the reviewed plan entry digest, so missing or unreadable
+plans, subject content drift, or same-id plan rewrites make the bundle stale
+before receipts instead of changing reason, subject, target, or retention
+semantics. Matching in_progress approval-event claims can be resumed by rerunning
+the same session and bundle. There is no ui execute --all and no
+browser-direct execution.
 
 Each selected target receives one of four visible outcomes - executed,
 skipped_stale, failed, or needs_manual_review - so a partial run never hides a

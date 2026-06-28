@@ -212,7 +212,7 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               token printed in the serve URL, serves no script and embeds no file contents,
               accepts safe GET/HEAD reads plus token-bound posts that record human triage intents
               (inspect, comment, keep/trash/resolve/defer, dry-run request) and approval bundle submissions as pending session events,
-              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C. The served pages also expose <code>GET /bundle/&lt;bundle-id&gt;</code>: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets versus the merely reviewed rows plus the exact action. With the active token, its scriptless form can submit a revised non-empty subset through <code>POST /approve</code>, creating a new immutable approval snapshot and pending event without editing the original bundle or executing a workflow.
+              never mutates ledgers, files, trash, or plans directly, supports <code>--json</code> for a compact launch packet, and runs in the foreground until you press Ctrl-C. The served pages also expose <code>GET /bundle/&lt;bundle-id&gt;</code>: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets versus the merely reviewed rows plus the exact action. With the active token, its scriptless form can submit a revised non-empty subset through <code>POST /approve</code>, creating a new immutable approval snapshot and pending event without editing the original bundle or executing a workflow. The approval form carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle instead of trusting hidden browser target JSON.
               The session command starts or resumes
               durable state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> for
               <code>.artshelf/ui</code> in the current repo, or <code>--ledger &lt;path&gt;</code>
@@ -251,8 +251,11 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               stale, missing, mismatched, or unapproved target is refused or skipped, never
               force-applied, and the agent verifies live state after each command rather than
               trusting the command exit. Dispose-backed targets also bind approval to the
-              reviewed plan entry digest, so same-id plan rewrites become stale instead of
-              changing reason, subject, target, or retention semantics. There is no <code>ui execute --all</code> and no
+              reviewed plan entry digest, so missing or unreadable reviewed plans, subject content
+              drift, or same-id plan rewrites become stale before receipts instead of changing
+              reason, subject, target, or retention semantics. If an earlier execution claimed the
+              approval event as <code>in_progress</code> and stopped before final receipts, rerunning
+              the same session and bundle resumes that claim. There is no <code>ui execute --all</code> and no
               browser-direct execution. Each selected target receives one of four visible
               outcomes - <code>executed</code>, <code>skipped_stale</code>, <code>failed</code>,
               or <code>needs_manual_review</code> - so a partial run never hides a target's state;
@@ -489,7 +492,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               or <code>&lt;repo&gt;/.artshelf/ui</code> for repo scope, with
               <code>sessions/&lt;session-id&gt;/session.json</code>,
               <code>events.jsonl</code>, and immutable approval bundles under
-              <code>bundles/</code>. Session metadata records ledger, registry, and repo scope when present, and approval execution rechecks that selected targets remain inside that scope. The event log stores exact-target browser triage intents and approval bundle submissions
+              <code>bundles/</code>. Session metadata records ledger, registry, and repo scope when present, backfills missing registry/repo metadata on legacy active sessions that resume the same scope, and approval execution rechecks that selected targets remain inside that scope. The event log stores exact-target browser triage intents and approval bundle submissions
               plus agent replies, preserving reply payloads for record history. Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed

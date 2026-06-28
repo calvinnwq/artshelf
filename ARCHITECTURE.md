@@ -147,8 +147,9 @@ Current root ownership:
   file content previews
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
-  browser capability token, the append-only event log (events plus agent replies), and
-  immutable fingerprinted approval snapshots. This is the v1 handoff layer where the browser
+  browser capability token, the append-only event log (events plus agent replies), immutable
+  fingerprinted approval snapshots, and legacy active-session backfill for registry/repo scope
+  metadata. This is the v1 handoff layer where the browser
   captures exact-target triage intents and approval bundles while the agent executes existing approval-gated paths, so
   it never runs a mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped
   optionally
@@ -162,9 +163,10 @@ Current root ownership:
   loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
   bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
   exact valid targets through the existing approval-gated `dispose.ts` plan-id paths, binds those
-  targets to the reviewed dispose-plan entry digest so same-id plan rewrites cannot change reason,
-  subject, target, or retention semantics after approval, verifies live state after each command
-  instead of trusting the command exit, and records one of four per-target outcomes
+  targets to the reviewed dispose-plan entry digest so missing or unreadable reviewed plans, subject
+  content drift, or same-id plan rewrites cannot change reason, subject, target, or retention
+  semantics after approval, verifies live state after each command instead of trusting the command
+  exit, resumes matching `in_progress` approval-event claims, and records one of four per-target outcomes
   (`executed`/`skipped_stale`/`failed`/`needs_manual_review`) plus receipts back to the session by
   advancing the bundle's `approval_bundle_submitted` event
 - `locks.ts`: cross-process advisory file lock (re-entrant within a process) used by

@@ -140,7 +140,10 @@
               rows, and exact action from an immutable approval snapshot. With the active token, its
               scriptless form can submit a revised non-empty subset through <code>POST /approve</code>,
               creating a new immutable approval snapshot and pending approval event without editing
-              the original bundle or executing a workflow. The
+              the original bundle or executing a workflow. That submit carries only the source
+              bundle id and selected target ids; the server rehydrates the action, reviewed facts,
+              and exact target rows from the stored source bundle instead of trusting hidden browser
+              target JSON. The
               session command defaults to user-level multi-ledger review and stores session
               state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> or
               <code>--ledger &lt;path&gt;</code> when the review needs a narrower target.
@@ -163,9 +166,12 @@
               missing, mismatched, or unapproved target is refused or skipped, never
               force-applied - and the agent verifies live state after each command rather than
               trusting the command exit. Dispose-backed targets also bind to the reviewed
-              dispose-plan entry contents, so changing a same-id plan artifact after approval makes
-              the bundle stale instead of changing reason, subject, target, or retention semantics;
-              there is no <code>ui execute --all</code> and no
+              dispose-plan entry contents, so missing or unreadable reviewed plans, subject content
+              drift, or changing a same-id plan artifact after approval makes the bundle stale
+              before any dispose receipt is written instead of changing reason, subject, target, or
+              retention semantics. If an earlier execution claimed the approval event as
+              <code>in_progress</code> and stopped before final receipts, rerunning the same session
+              and bundle resumes that claim; there is no <code>ui execute --all</code> and no
               browser-direct execution. Each selected target receives one of four visible
               outcomes - <code>executed</code>, <code>skipped_stale</code>, <code>failed</code>,
               or <code>needs_manual_review</code> - so a partial run never hides a target's state,
