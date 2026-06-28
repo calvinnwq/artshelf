@@ -80,13 +80,13 @@
               <a class="ledger-row" href="agent-purge.html">
                 <span class="n">4.5</span>
                 <span class="stage">Purge</span>
-                <span class="what"><span class="cmdline">artshelf trash purge --execute --plan-id &lt;id&gt;</span>Clear old trash through its own separately reviewed purge plan. Physical deletion never piggybacks on the cleanup plan that trashed the file.</span>
+                <span class="what"><span class="cmdline">artshelf trash purge --execute --plan-id &lt;id&gt;</span>Clear old trash through its own separately reviewed purge plan or an exact approved <code>trash-purge</code> bundle. Physical deletion never piggybacks on the cleanup plan that trashed the file.</span>
               </a>
             </div>
             <p>
               Clean trashes; Purge deletes. Cleanup quarantines artifacts into Artshelf
-              trash, and only a separate, separately reviewed purge plan removes them for
-              good — a second approval boundary before destructive deletion.
+              trash, and only a separately reviewed purge plan or exact approved <code>trash-purge</code> bundle removes them for
+              good - a second approval boundary before destructive deletion.
             </p>
           </section>
 
@@ -161,7 +161,7 @@
               agent's mutating path and the one <code>ui</code> subcommand that changes live
               state: it loads the immutable reviewed snapshot, re-reads live
               ledger/registry/trash state, then runs a revalidate -&gt; execute -&gt; verify loop
-              through the existing approval-gated dispose paths and replies per-target receipts
+              through the existing approval-gated dispose or one-way-door purge paths and replies per-target receipts
               plus the aggregate result to the session. Execution is exact-target only - a stale,
               missing, mismatched, or unapproved target is refused or skipped, never
               force-applied - and the agent verifies live state after each command rather than

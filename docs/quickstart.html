@@ -125,7 +125,7 @@ artshelf trash list --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>
             <h2>5. Purge trash separately</h2>
             <p>
               Cleanup with <code>cleanup=trash</code> moves files into Artshelf trash.
-              Physical deletion needs a separate reviewed purge plan.
+              Physical deletion needs a separate reviewed purge plan or exact approved <code>trash-purge</code> bundle; this quickstart uses the CLI purge plan path.
             </p>
             <pre><code><span class="c"># preview which trashed files are old enough to purge</span>
 artshelf trash purge --older-than 0m --dry-run --ledger /tmp/artshelf-ledger.jsonl --json</code></pre>

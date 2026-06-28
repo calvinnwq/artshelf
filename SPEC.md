@@ -369,7 +369,7 @@ Doctor reports:
 - The cleanup safety posture, including that `cleanup --execute` is scoped to
   one selected/default ledger and still requires a reviewed `--plan-id`, that
   global execute is refused, that `cleanup=delete` is refused in v1, and that
-  physical trash purge requires a separate reviewed purge plan.
+  physical trash purge requires a separate reviewed purge plan or exact approved `trash-purge` bundle.
 
 A healthy machine exits 0. A broken registry file or any stale or invalid
 registered ledger exits non-zero with actionable errors. When stale/missing
@@ -422,7 +422,7 @@ next action, and a verify command); `--agent` takes precedence over `--json`.
 ### `artshelf ui`
 
 Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views plus approval-bundle workbench views for live review state.
-The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, the agent polls those events, `ui execute` runs approved bundles through existing approval-gated paths, and the agent replies with receipts.
+The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, the agent polls those events, `ui execute` runs approved dispose or purge bundles through existing approval-gated paths, and the agent replies with receipts.
 The dashboard/detail subcommands are read-only data surfaces over existing ledger, registry, trash, and inspect state.
 The browser captures human triage intents and approval bundle submissions as session events but never mutates ledgers, files, trash, or plans directly.
 
@@ -445,6 +445,7 @@ Rules:
 - Starting an active session for the same scope and ledger target resumes it instead of creating a duplicate, and legacy active sessions that predate stored registry or repo metadata are resumed and backfilled with that scope metadata.
 - `artshelf ui --json` returns the session token separately from the public session view; the token is a same-machine browser access and write capability and must be treated as secret.
 - `ui dashboard` recomputes a multi-ledger snapshot from registered ledgers and surfaces needs-review, needs-context, cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts buckets without mutating anything.
+The purge-candidate lane groups rows by source/ledger, shows per-group totals and exact row details, states there is no recovery path, and starts with nothing selected by default.
 - `ui detail <record-id>` composes the path label, inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
 - `ui serve` hosts the `ui dashboard`, `ui detail`, and approval-bundle workbench surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
@@ -454,10 +455,21 @@ The captured intents and approval bundles never mutate ledgers, files, trash, or
 - `GET /bundle/<bundle-id>` renders one persisted approval bundle as a browser workbench: grouped candidate rows that clearly distinguish the deliberately selected exact targets from the merely reviewed ones, the exact action being approved, and the human row labels captured at approval time.
 The page requires the active session token, renders the immutable source snapshot, and provides scriptless selection inputs that can submit a revised non-empty subset through `POST /approve`.
 That submit carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle before creating a new immutable approval snapshot and queuing an `approval_bundle_submitted` event.
+For a `trash-purge` bundle, the workbench repeats the one-way-door/no-recovery warning before approval.
 It never trusts hidden browser target JSON as approval evidence, never edits the original bundle, and never executes a workflow.
 Absent or malformed bundle ids render as non-crashing not-found states.
-- `ui bundle <session-id> [<bundle-id>]` is the agent's read surface over persisted approval bundles, scoped to `user` or `repo` (default `user`). With a bundle id it loads one immutable reviewed snapshot and resolves its deliberate selection to the exact per-target rows, emitting the agent-facing JSON the executor revalidates against live ledger, registry, record, and plan facts before any exact-target execution; with no bundle id it lists the session's approved bundles as a compact discovery summary. It only reads approval records - it never executes a bundle or mutates ledgers, files, trash, or plans - and a bundle revalidation is fresh only when every selected target is still present and unchanged and no reviewed fact drifted; otherwise `ui execute` refuses whole-bundle drift or skips per-target drift with visible receipts for human re-review.
-- `ui execute <session-id> <bundle-id>` is the agent's mutating path for an approved bundle and the one `ui` subcommand that changes live state, scoped to `user` or `repo` (default `user`). It loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths, and replies the per-target receipts and aggregate result to the session by advancing the bundle's `approval_bundle_submitted` event. Execution is exact-target only: a stale, missing, mismatched, or unapproved target is refused or skipped, never force-applied, and the agent verifies live state after each command rather than trusting the command exit. There is no `ui execute --all` and no browser-direct execution. Dispose-backed targets bind approval to the reviewed dispose-plan entry digest, so missing or unreadable reviewed plans, subject content drift, or changed same-id plan entry contents such as reason, subject snapshot, target path, or retention make the bundle stale/refused before any dispose receipt is written instead of changing execution semantics. If an earlier run claimed the approval event as `in_progress` and stopped before final receipts, rerunning the same session and bundle resumes that claim. Each selected target receives one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state; a clean run (every selected target executed) exits 0, while a partial or refused run exits non-zero with every receipt still recorded in the session.
+- `ui bundle <session-id> [<bundle-id>]` is the agent's read surface over persisted approval bundles, scoped to `user` or `repo` (default `user`).
+With a bundle id it loads one immutable reviewed snapshot and resolves its deliberate selection to the exact per-target rows, emitting the agent-facing JSON the executor revalidates against live ledger, registry, record, plan, and trash-fact state before any exact-target execution.
+With no bundle id it lists the session's approved bundles as a compact discovery summary.
+It only reads approval records - it never executes a bundle or mutates ledgers, files, trash, or plans - and a bundle revalidation is fresh only when every selected target is still present and unchanged and no reviewed fact drifted; otherwise `ui execute` refuses whole-bundle drift or skips per-target drift with visible receipts for human re-review.
+- `ui execute <session-id> <bundle-id>` is the agent's mutating path for an approved bundle and the one `ui` subcommand that changes live state, scoped to `user` or `repo` (default `user`).
+It loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths or the exact-target one-way-door purge path, and replies the per-target receipts and aggregate result to the session by advancing the bundle's `approval_bundle_submitted` event.
+Execution is exact-target only: a stale, missing, mismatched, or unapproved target is refused or skipped, never force-applied, and the agent verifies live state after each command rather than trusting the command exit.
+There is no `ui execute --all` and no browser-direct execution.
+Dispose-backed targets bind approval to the reviewed dispose-plan entry digest, so missing or unreadable reviewed plans, subject content drift, or changed same-id plan entry contents such as reason, subject snapshot, target path, or retention make the bundle stale/refused before any dispose receipt is written instead of changing execution semantics.
+Purge-backed targets use the `trash-purge` action, bind approval to the exact live trash facts by digest, permanently delete only the reviewed trashed artifact with no recovery path, and skip or require manual review for stale, missing, changed, unsafe, or out-of-scope targets instead of force-applying them.
+If an earlier run claimed the approval event as `in_progress` and stopped before final receipts, rerunning the same session and bundle resumes that claim.
+Each selected target receives one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state; a clean run (every selected target executed) exits 0, while a partial or refused run exits non-zero with every receipt still recorded in the session.
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail/bundle access while keeping the session readable for audit.
@@ -807,14 +819,14 @@ sessions/<session-id>/bundles/<bundle-id>.json
 When an older active session has the same scope and target but lacks registry or repo metadata, starting or serving it backfills those fields so the session stays resumable while later approval execution can still enforce scope.
 The token authorizes browser reads plus intent and approval writes only while the session is active; ending the session revokes browser access without deleting audit history.
 `events.jsonl` is append-only and stores exact-target browser triage intents plus agent replies as separate log lines, with read-side projections folding replies into the current event status and preserving reply payloads for record history.
-Approval snapshots under `bundles/` are immutable JSON documents that persist the full reviewed candidate pool, the deliberate selection (a non-empty, duplicate-free subset of those targets, never a vague approve-all), exact per-target ledger or registry context for every selected target, optional reviewed dispose-plan entry digests, and a deterministic fingerprint over the selected targets and reviewed facts.
-Before running any approval-gated command, an executor revalidates the bundle against live ledger, registry, record, and plan facts, comparing the persisted fingerprint and the selected per-target context with what live state now reports.
+Approval snapshots under `bundles/` are immutable JSON documents that persist the full reviewed candidate pool, the deliberate selection (a non-empty, duplicate-free subset of those targets, never a vague approve-all), exact per-target ledger or registry context for every selected target, optional reviewed dispose-plan entry or trash-fact digests, and a deterministic fingerprint over the selected targets and reviewed facts.
+Before running any approval-gated command, an executor revalidates the bundle against live ledger, registry, record, plan, and trash facts, comparing the persisted fingerprint and the selected per-target context with what live state now reports.
 Session scope is also rechecked: ledger-scoped sessions accept only that ledger, repo-scoped sessions accept only ledgers in that repo, and registry-scoped browser approvals must still point at ledgers registered in the served registry.
-The bundle is fresh only when every selected target is still present and unchanged, every reviewed dispose plan remains readable with the same entry digest and subject snapshot, and no reviewed fact drifted; drift in a shared reviewed fact or unexplained fingerprint refuses the whole bundle, while missing or changed selected targets are skipped as stale per-target receipts and still require human re-review.
+The bundle is fresh only when every selected target is still present and unchanged, every reviewed dispose plan remains readable with the same entry digest and subject snapshot, every reviewed purge target still matches its trash-fact digest, and no reviewed fact drifted; drift in a shared reviewed fact or unexplained fingerprint refuses the whole bundle, while missing or changed selected targets are skipped as stale per-target receipts and still require human re-review.
 Drift in an unselected candidate row is ignored because only the approved subset gates execution.
 
-The storage layer must not execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions.
-Those remain existing explicit CLI paths that require the same reviewed plan ids and approval wording as the non-UI flow.
+The storage layer must not itself execute cleanup, dispose, reconcile, registry-prune, resolve, or purge actions.
+Those remain explicit execution paths: reviewed plan-id CLI commands, or `ui execute` over an approved exact-target bundle.
 
 ## Ledger Storage
 
@@ -869,7 +881,7 @@ V1 also supports a user-level registry of known ledgers:
   `registry-prune-rollbacks/`, and `registry-prune-receipts/`.
 - `cleanup --execute --all`, `dispose --all`, `reconcile --execute --all`, `ui execute --all`, and
   `trash purge --all` are refused; execution stays scoped to one explicit ledger
-  or registry plus one reviewed plan id, or to one approved bundle whose selected targets each bind to exact reviewed plan context.
+  or registry plus one reviewed plan id, or to one approved bundle whose selected targets each bind to exact reviewed plan or trash-fact context.
 
 ## Ledger Registry Schema
 
@@ -1048,15 +1060,16 @@ hold, and every future feature (`status`, `doctor`, `review`, scheduled jobs,
 - **No global execute.** `cleanup --execute --all`, `dispose --all`, `ui execute --all`, and
   `trash purge --all` are refused; `--all` is read-only or dry-run reporting
   only where supported. Execution is scoped to a reviewed plan id or one approved
-  bundle whose selected targets each bind to exact reviewed plan context.
+  bundle whose selected targets each bind to exact reviewed plan or trash-fact context.
 - **No fresh-plan-then-execute.** `cleanup --execute` and `dispose --execute`
   refuse to compute a new live set. They act only on plan ids that earlier
   dry-runs produced and a human reviewed; they will not plan and execute in one
   step.
 - **No silent deletion.** Cleanup trashes or flags for review and writes a
   receipt to the ledger. The `cleanup=delete` action stays refused in v1; the
-  one sanctioned physical deletion is `artshelf trash purge --execute`, which only
-  removes already-quarantined trash through its own reviewed purge plan and
+  sanctioned physical deletion is limited to `artshelf trash purge --execute` or
+  agent-side `artshelf ui execute` over an exact approved `trash-purge` bundle;
+  both remove already-quarantined trash through reviewed purge context and a
   receipt. Nothing leaves the filesystem without an auditable trail.
 
 Operational rules that back those boundaries:
@@ -1075,8 +1088,8 @@ Operational rules that back those boundaries:
   successful.
 - Cleanup never scans arbitrary filesystem paths for deletion in v1.
 - Cleanup only acts on ledger entries.
-- Trash purge is scoped to one ledger, requires a reviewed purge plan id, and
-  writes a purge receipt before removing quarantined files.
+- Trash purge is scoped to one ledger for the CLI plan-id path, or to exact selected targets for an approved UI `trash-purge` bundle.
+  Both write a purge receipt before removing quarantined files.
 
 ## Agent Usage Contract
 
@@ -1210,9 +1223,10 @@ dry-run and report plans for later human review.
   approval bundles for agent revalidation, execute an approved bundle through
   exact-target revalidation plus post-execute verification, and end the session;
   dispose-backed approval targets bind to reviewed plan entry contents, not only
-  the reusable plan id, and the browser captures human triage intents and
-  approval bundle submissions but never mutates ledgers, files, trash, or plans
-  directly.
+  the reusable plan id, and purge-backed approval targets bind to exact live
+  trash facts with no recovery path.
+  The browser captures human triage intents and approval bundle submissions but
+  never mutates ledgers, files, trash, or plans directly.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf
@@ -1254,7 +1268,7 @@ dry-run and report plans for later human review.
   dry-run, global-dry-run, execute-plan, cleanup plan-id validation, concurrent
   ledger writes, trash list/purge, path provenance validation, registry-prune,
   reconcile dry-run/execute, dispose dry-run/execute, UI dashboard/detail,
-  approval-bundle workbench, and UI session/command behavior.
+  approval-bundle workbench, UI purge execution, and UI session/command behavior.
 
 ## Deferred
 
