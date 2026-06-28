@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   lstatSync,
@@ -414,14 +414,6 @@ export function executeTrashPurgePlan(ledgerPath: string, purgePlanId: string): 
   return runTrashPurgePlan(ledgerPath, purgePlanId, plan);
 }
 
-// Agent-mediated, exact-target one-way-door purge (NGX-541). Unlike executeTrashPurgePlan it neither
-// scans the ledger nor reads a plan file from disk: the agent passes the single exact trash entry the
-// human approved - already digest-bound and revalidated against live state by the approval gate - so
-// this mints a fresh purge plan id for the receipt/ledger stamp and runs the very same battle-tested
-// purge loop over that one entry. The loop still independently re-validates the entry against the live
-// ledger record (status === trashed, intact provenance, trash-root containment) before deleting, so
-// the destructive action stays exact-target and approval-gated with no broad `--all` path. Returns the
-// single per-target result (null only if the entry produced none) alongside the minted plan/receipt ids.
 export function executeApprovedTrashPurge(
   ledgerPath: string,
   entry: { id: string; targetPath: string; cleanedAt: string; receiptPath: string; cleanupPlanId: string }
@@ -431,7 +423,7 @@ export function executeApprovedTrashPurge(
   result: { id: string; status: string; targetPath: string; reason?: string } | null;
 } {
   const generatedAt = now();
-  const purgePlanId = makePurgePlanId(generatedAt);
+  const purgePlanId = makeApprovedPurgePlanId(ledgerPath, entry);
   const plan: TrashPurgePlan = {
     purgePlanId,
     generatedAt: toIso(generatedAt),
@@ -1237,6 +1229,22 @@ function makePlanId(date: Date): string {
 
 function makePurgePlanId(date: Date): string {
   return `purge_${toIso(date).replace(/[-:]/g, "").replace("T", "_").replace("Z", "")}_${randomBytes(2).toString("hex")}`;
+}
+
+function makeApprovedPurgePlanId(
+  ledgerPath: string,
+  entry: { id: string; targetPath: string; cleanedAt: string; receiptPath: string; cleanupPlanId: string }
+): string {
+  const canonical = JSON.stringify({
+    ledgerPath: resolve(ledgerPath),
+    id: entry.id,
+    targetPath: entry.targetPath,
+    cleanedAt: entry.cleanedAt,
+    receiptPath: entry.receiptPath,
+    cleanupPlanId: entry.cleanupPlanId
+  });
+  const digest = createHash("sha256").update(canonical).digest("hex").slice(0, 32);
+  return `purge_exact_${digest}`;
 }
 
 function cleanupPlanPath(ledgerPath: string, planId: string): string {

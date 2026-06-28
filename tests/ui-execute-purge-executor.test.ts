@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../src/dashboard.js";
 import type { DashboardTrashRow } from "../src/dashboard.js";
-import { readLedger } from "../src/ledger.js";
+import { executeApprovedTrashPurge, readLedger } from "../src/ledger.js";
 import { revalidateApprovalSnapshot, startOrResumeSession, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalSnapshot } from "../src/types.js";
 import { collectApprovalLiveFacts, defaultBundleTargetExecutor, executeApprovalBundle, purgeBackedTargetExecutor } from "../src/ui-execute.js";
@@ -36,6 +36,27 @@ type PurgeFixture = {
   recordId: string;
 };
 
+function trashedFixtureRecord(fx: PurgeFixture, over: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    id: fx.recordId,
+    path: "/subjects/shf_a",
+    kind: "backup",
+    reason: "fixture",
+    createdAt: "2026-01-01T00:00:00.000Z",
+    retention: { mode: "manual-review" },
+    cleanup: "review",
+    owner: "manual",
+    labels: [],
+    status: "trashed",
+    previousPath: "/subjects/shf_a",
+    targetPath: fx.targetPath,
+    cleanedAt: fx.cleanedAt,
+    cleanupPlanId: fx.cleanupPlanId,
+    receiptPath: fx.receiptPath,
+    ...over
+  };
+}
+
 // A repo whose ledger holds one trashed purge candidate whose trash artifact really exists on disk,
 // inside the ledger's own trash/<cleanupPlanId>/ root (the only place the purge executor will delete
 // from). `over` overrides ledger-record fields to model drift between approval and execution.
@@ -51,26 +72,9 @@ function purgeFixture(over: Record<string, unknown> = {}): PurgeFixture {
   const targetPath = join(ledgerDir, "trash", cleanupPlanId, "backup.tar");
   mkdirSync(dirname(targetPath), { recursive: true });
   writeFileSync(targetPath, "trashed payload");
-  const record = {
-    id: recordId,
-    path: "/subjects/shf_a",
-    kind: "backup",
-    reason: "fixture",
-    createdAt: "2026-01-01T00:00:00.000Z",
-    retention: { mode: "manual-review" },
-    cleanup: "review",
-    owner: "manual",
-    labels: [],
-    status: "trashed",
-    previousPath: "/subjects/shf_a",
-    targetPath,
-    cleanedAt,
-    cleanupPlanId,
-    receiptPath,
-    ...over
-  };
-  writeLedgerFile(ledger, [record]);
-  return { home, ledger, targetPath, cleanedAt, cleanupPlanId, receiptPath, recordId };
+  const fx = { home, ledger, targetPath, cleanedAt, cleanupPlanId, receiptPath, recordId };
+  writeLedgerFile(ledger, [trashedFixtureRecord(fx, over)]);
+  return fx;
 }
 
 // A DashboardTrashRow whose exact purge facts match the fixture record, so the approval digest equals
@@ -123,6 +127,33 @@ test("purgeBackedTargetExecutor permanently deletes the approved trashed artifac
   assert.ok(record?.purgedAt, "expected a purgedAt stamp");
   assert.ok(record?.purgePlanId, "expected a purgePlanId stamp");
   assert.ok(record?.purgeReceiptPath && existsSync(record.purgeReceiptPath), "expected a written purge receipt");
+});
+
+test("executeApprovedTrashPurge resumes an interrupted exact-target purge receipt", () => {
+  const fx = purgeFixture();
+  const entry = {
+    id: fx.recordId,
+    targetPath: fx.targetPath,
+    cleanedAt: fx.cleanedAt,
+    receiptPath: fx.receiptPath,
+    cleanupPlanId: fx.cleanupPlanId
+  };
+  const first = executeApprovedTrashPurge(fx.ledger, entry);
+  writeLedgerFile(fx.ledger, [trashedFixtureRecord(fx)]);
+  writeFileSync(first.receiptPath, `${JSON.stringify({
+    purgePlanId: first.purgePlanId,
+    executedAt: "2026-03-01T00:00:00.000Z",
+    status: "started",
+    results: [{ id: fx.recordId, status: "deleting", targetPath: fx.targetPath }]
+  }, null, 2)}\n`);
+
+  const resumed = executeApprovedTrashPurge(fx.ledger, entry);
+
+  assert.equal(resumed.purgePlanId, first.purgePlanId);
+  assert.equal(resumed.result?.status, "purged");
+  const record = readLedger(fx.ledger).find((entry) => entry.id === fx.recordId);
+  assert.equal(record?.status, "resolved");
+  assert.equal(record?.purgePlanId, first.purgePlanId);
 });
 
 test("purgeBackedTargetExecutor deletes only the approved artifact and never touches another trashed artifact", () => {
