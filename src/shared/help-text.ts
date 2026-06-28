@@ -604,8 +604,10 @@ verify loop through the existing approval-gated dispose paths, and replies the
 per-target receipts and aggregate result to the session by advancing the bundle's
 approval_bundle_submitted event. Execution is exact-target only: a stale, missing,
 mismatched, or unapproved target is refused or skipped, never force-applied, and
-the agent confirms live state rather than trusting the command exit. There is no
-ui execute --all and no browser-direct execution.
+the agent confirms live state rather than trusting the command exit. Dispose
+targets also bind to the reviewed plan entry digest, so same-id plan rewrites
+make the bundle stale instead of changing reason, subject, target, or retention
+semantics. There is no ui execute --all and no browser-direct execution.
 
 Each selected target receives one of four visible outcomes - executed,
 skipped_stale, failed, or needs_manual_review - so a partial run never hides a

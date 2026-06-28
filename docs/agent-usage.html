@@ -162,7 +162,10 @@
               plus the aggregate result to the session. Execution is exact-target only - a stale,
               missing, mismatched, or unapproved target is refused or skipped, never
               force-applied - and the agent verifies live state after each command rather than
-              trusting the command exit; there is no <code>ui execute --all</code> and no
+              trusting the command exit. Dispose-backed targets also bind to the reviewed
+              dispose-plan entry contents, so changing a same-id plan artifact after approval makes
+              the bundle stale instead of changing reason, subject, target, or retention semantics;
+              there is no <code>ui execute --all</code> and no
               browser-direct execution. Each selected target receives one of four visible
               outcomes - <code>executed</code>, <code>skipped_stale</code>, <code>failed</code>,
               or <code>needs_manual_review</code> - so a partial run never hides a target's state,

@@ -250,7 +250,9 @@ artshelf ui end &lt;session-id&gt; [--scope user|repo] [--json]</code></pre>
               <code>approval_bundle_submitted</code> event. Execution is exact-target only: a
               stale, missing, mismatched, or unapproved target is refused or skipped, never
               force-applied, and the agent verifies live state after each command rather than
-              trusting the command exit - there is no <code>ui execute --all</code> and no
+              trusting the command exit. Dispose-backed targets also bind approval to the
+              reviewed plan entry digest, so same-id plan rewrites become stale instead of
+              changing reason, subject, target, or retention semantics. There is no <code>ui execute --all</code> and no
               browser-direct execution. Each selected target receives one of four visible
               outcomes - <code>executed</code>, <code>skipped_stale</code>, <code>failed</code>,
               or <code>needs_manual_review</code> - so a partial run never hides a target's state;
@@ -487,7 +489,7 @@ artshelf reconcile --execute --plan-id &lt;id&gt; --ledger &lt;path&gt; [--json]
               or <code>&lt;repo&gt;/.artshelf/ui</code> for repo scope, with
               <code>sessions/&lt;session-id&gt;/session.json</code>,
               <code>events.jsonl</code>, and immutable approval bundles under
-              <code>bundles/</code>. The event log stores exact-target browser triage intents and approval bundle submissions
+              <code>bundles/</code>. Session metadata records ledger, registry, and repo scope when present, and approval execution rechecks that selected targets remain inside that scope. The event log stores exact-target browser triage intents and approval bundle submissions
               plus agent replies, preserving reply payloads for record history. Automatic update checks cache their last npm result at
               <code>~/.artshelf/update-check.json</code> by default, with a long TTL
               for update-available results and a shorter TTL for no-update or failed
