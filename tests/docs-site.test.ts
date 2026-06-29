@@ -1247,6 +1247,115 @@ test("docs and portable skill teach the simplified review workflow", () => {
   }
 });
 
+test("docs keep the Artshelf UI human-review safety boundaries explicit", () => {
+  // NGX-542: the shipped UI behavior landed in prior slices; these assertions are
+  // regression guards so a later doc edit cannot silently drop a safety boundary.
+  // (No browser-direct mutation and agent-mediated execution are already guarded by
+  // the sibling "docs document the Artshelf UI session command surface" test.)
+  const readme = read("README.md");
+  const spec = read("SPEC.md");
+  const reference = read("docs/reference.html");
+  const agentUsage = read("docs/agent-usage.md") + read("docs/agent-usage.html");
+  const surfaces = [readme, spec, reference, agentUsage];
+
+  for (const text of surfaces) {
+    // No file-content preview: the browser views recompute live state but never
+    // read or preview file bytes.
+    assert.match(text, /previe\w+ (?:arbitrary )?file content/i);
+    // Approvals and execution name exact targets, never a broad action.
+    assert.match(text, /exact-target/);
+    // No broad UI purge/execute: `ui execute --all` does not exist.
+    assert.match(text, /no\s+(?:`|<code>)?ui execute --all/i);
+    // The UI purge path is a one-way door with no recovery.
+    assert.match(text, /one-way-door/i);
+    assert.match(text, /no recovery path/i);
+  }
+
+  // Read-only is tied to the dashboard/detail views, not just CLI review surfaces.
+  assert.match(readme, /read-only dashboard\/detail/i);
+  assert.match(spec, /read-only dashboard\/detail/i);
+  assert.match(reference, /[Bb]oth views are read-only/);
+  assert.match(agentUsage, /read-only (?:multi-ledger|artifact detail)/i);
+});
+
+test("portable Artshelf skill states the UI agent loop and safety boundaries", () => {
+  const skill = read("skills/artshelf/SKILL.md");
+
+  // Agent session loop: enter, poll, reply with receipts, end.
+  assert.match(skill, /artshelf ui\b/);
+  assert.match(skill, /ui poll/);
+  assert.match(skill, /ui reply/);
+  assert.match(skill, /ui end/);
+  assert.match(skill, /receipt/i);
+
+  // Read-only dashboard/detail with no file-content preview.
+  assert.match(skill, /read-only `ui dashboard/);
+  assert.match(skill, /no file-content preview/i);
+  // No browser-direct mutation.
+  assert.match(skill, /no direct ledger\/file\/trash\/plan mutation/i);
+  // Exact selected approval targets, never a broad action.
+  assert.match(skill, /selected exact targets/i);
+  assert.match(skill, /ui execute --all/);
+  // The UI purge path is a one-way door with no recovery.
+  assert.match(skill, /one-way door/i);
+  assert.match(skill, /no recovery path/i);
+  // The session token is a secret and `ui end` revokes browser access.
+  assert.match(skill, /secret/i);
+  assert.match(skill, /ui end` revokes/);
+});
+
+test("reusable Artshelf docs and examples carry no private or local identifiers", () => {
+  // The portable skill and the example/schema packets travel with the published
+  // package and get copied into other environments, so they must never leak
+  // personal paths, hostnames, channel ids, tokens, or other local-only details.
+  const reusable = [
+    "skills/artshelf/SKILL.md",
+    "skills/artshelf/scripts/render-review-report.mjs",
+    "skills/artshelf/examples/artshelf-review-report.json",
+    "skills/artshelf/schemas/artshelf-review-report.schema.json",
+    "examples/artshelf-review-report.json",
+    "schemas/artshelf-review-report.schema.json",
+    "docs/examples/artshelf-review-report.json",
+    "docs/schemas/artshelf-review-report.schema.json"
+  ];
+  const forbidden: Array<[string, RegExp]> = [
+    ["personal /Users path", /\/Users\//],
+    ["personal /home path", /\/home\/[a-z]/],
+    ["tailnet hostname", /\.ts\.net/],
+    ["mDNS .local hostname", /\.local\b/],
+    [
+      "private LAN address",
+      /\b(?:10\.\d{1,3}\.\d{1,3}\.\d{1,3}|192\.168\.\d{1,3}\.\d{1,3}|172\.(?:1[6-9]|2\d|3[01])\.\d{1,3}\.\d{1,3})\b/
+    ],
+    ["Slack channel id", /\bC0[A-Z0-9]{8,}\b/],
+    ["Slack token", /\bxox[bp]-/],
+    ["GitHub token", /\b(?:ghp_|gho_|github_pat_)/],
+    ["Anthropic key", /\bsk-ant-/],
+    ["AWS access key", /\bAKIA[0-9A-Z]{16}\b/],
+    ["Google API key", /\bAIza[0-9A-Za-z_-]{35}\b/],
+    ["bearer token", /Bearer\s+[A-Za-z0-9._-]{10,}/]
+  ];
+
+  for (const path of reusable) {
+    const text = read(path);
+    for (const [label, pattern] of forbidden) {
+      assert.doesNotMatch(text, pattern, `${path} must not contain a ${label}`);
+    }
+  }
+});
+
+test("AGENTS.md keeps the UI human-review boundaries for contributors", () => {
+  const agents = read("AGENTS.md");
+  // A contributor editing UI routing should get the UI guardrails here, not just
+  // the CLI ones: the browser only records intents/bundles (no browser-direct
+  // mutation), `ui execute --all` stays refused, the views stay read-only with no
+  // file-content preview, and the UI purge path is a one-way door on exact targets.
+  assert.match(agents, /ui execute --all/);
+  assert.match(agents, /browser only records/i);
+  assert.match(agents, /read-only and never preview file contents/i);
+  assert.match(agents, /one-way door/i);
+});
+
 function read(path: string): string {
   return readFileSync(path, "utf8");
 }
