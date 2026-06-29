@@ -432,6 +432,66 @@ test("GET / routes a weak-reason record into needs-context and out of the cleanu
   });
 });
 
+test("GET / renders the redesigned top fold, status summary, and scriptless lane filters", async () => {
+  const dir = fixtureDir();
+  const primaryLedger = join(dir, "primary", "ledger.jsonl");
+  const secondaryLedger = join(dir, "secondary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  // A purge candidate (one-way door) and a cleanup candidate across two sources, so the top fold,
+  // the source filter, and the per-stage grouping all have something to render.
+  writeLedgerFile(primaryLedger, [dueCleanupRecord(dir), trashedRecord("shf_p1", "plan_p")]);
+  writeLedgerFile(secondaryLedger, [trashedRecord("shf_s1", "plan_s")]);
+  writeRegistry(registryPath, [
+    { name: "primary", path: primaryLedger },
+    { name: "secondary", path: secondaryLedger }
+  ]);
+
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request("/")).text();
+
+    // Top fold: a required-actions section whose purge card states the one-way door and jumps to the
+    // purge lane anchor, plus an at-a-glance status summary.
+    assert.match(html, /Required actions/i, "the top fold names the required actions");
+    assert.match(html, /href="#lane-purge-candidates"/, "an action card jumps to the purge lane");
+    assert.match(html, /one-way door/i, "the purge action card carries the one-way-door warning");
+    assert.match(html, /Status at a glance/i, "the status summary is present");
+
+    // Scriptless zone filter: a default-checked "all" radio, the action zone radio, the static
+    // :has() rule that hides off-zone stages, and per-stage data-zone tags / lane ids.
+    assert.match(html, /name="flt-zone" id="flt-zone-all"[^>]*checked/, "the zone filter defaults to All");
+    assert.match(html, /name="flt-zone" id="flt-zone-action"/, "an action-needed zone filter is offered");
+    assert.match(html, /\.queue:has\(#flt-zone-action:checked\) details\.stage:not\(\[data-zone="action"\]\)/, "off-zone stages are hidden by a pure-CSS rule");
+    assert.match(html, /<details class="stage"[^>]*id="lane-needs-review"[^>]*data-zone="action"/, "the needs-review stage is tagged into the action zone");
+    assert.match(html, /id="lane-purge-candidates"[^>]*data-zone="quarantine"/, "the purge stage is tagged into the quarantine zone");
+
+    // Scriptless source filter for 2+ ledgers: per-ledger radios, the dynamically generated :has()
+    // rules, and rows tagged with the stable led-<index> token (never raw ledger text in a selector).
+    assert.match(html, /name="flt-led" id="flt-led-0"/, "a per-ledger source radio is offered");
+    assert.match(html, /name="flt-led" id="flt-led-1"/, "each ledger gets its own source radio");
+    assert.match(html, /\.queue:has\(#flt-led-1:checked\) tr\.r:not\(\[data-ledger="led-1"\]\)/, "a generated rule filters rows by ledger");
+    assert.match(html, /data-ledger="led-0"/, "rows carry the stable ledger token the filter targets");
+
+    // None of the interactivity introduces script: it is all CSS :has()/<details>.
+    assert.doesNotMatch(html, /<script/i, "the filters and collapsibles ship no executable script");
+  });
+});
+
+test("GET / shows an explicit all-clear top fold when nothing needs review", async () => {
+  // A registry with only a healthy, empty ledger: no lane has work, so the required-actions fold must
+  // be an explicit all-clear rather than an empty panel or a wall of zero-count cards.
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, []);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request("/")).text();
+    assert.match(html, /Required actions/i);
+    assert.match(html, /caught up/i, "an empty review queue reads as an explicit all-clear");
+  });
+});
+
 test("GET /detail/<id> renders the minimum human-judgment fields with a back link and no file content", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
