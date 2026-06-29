@@ -2,7 +2,7 @@
 
 This file is the source of truth for Artshelf's TypeScript CLI structure. Read
 it before changing CLI routing, command behavior, output rendering, storage,
-update checks, or cleanup safety rules.
+update checks, UI review/session routing, or cleanup safety rules.
 
 Artshelf is intentionally small. The CLI refactor moved command behavior,
 update/config/output boundaries, and shared contracts out of the executable
@@ -295,7 +295,7 @@ Artshelf's public contract is safety-first:
 `tests/architecture-contract.test.ts` enforces the NGX-410 closeout guardrails:
 
 - root `ARCHITECTURE.md` exists and names the current folder/file ownership
-- root `AGENTS.md` points agents here before CLI work
+- root `AGENTS.md` points agents here before CLI and UI review/session work
 - `CONTRIBUTING.md` links this contract for humans
 - `src/cli.ts` stays within a thin-entrypoint line/function budget and does not
   import ledger/registry, adapters, or renderers directly

@@ -4,8 +4,8 @@ Artshelf is intentionally small. Contributions should keep it boring, predictabl
 and safe around file cleanup.
 
 For CLI structure and ownership boundaries, read [ARCHITECTURE.md](ARCHITECTURE.md)
-before changing routing, command behavior, renderers, config, adapters, or
-cleanup safety rules.
+before changing routing, command behavior, renderers, config, adapters, UI
+review/session routing, or cleanup safety rules.
 
 Command behavior routes through real `src/commands/<command>.ts` modules, with
 `src/commands/index.ts` limited to dispatch. New command files must own real
