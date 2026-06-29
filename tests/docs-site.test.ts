@@ -1255,8 +1255,9 @@ test("docs keep the Artshelf UI human-review safety boundaries explicit", () => 
   const readme = read("README.md");
   const spec = read("SPEC.md");
   const reference = read("docs/reference.html");
-  const agentUsage = read("docs/agent-usage.md") + read("docs/agent-usage.html");
-  const surfaces = [readme, spec, reference, agentUsage];
+  const usageMd = read("docs/agent-usage.md");
+  const usageHtml = read("docs/agent-usage.html");
+  const surfaces = [readme, spec, reference, usageMd, usageHtml];
 
   for (const text of surfaces) {
     // No file-content preview: the browser views recompute live state but never
@@ -1275,7 +1276,8 @@ test("docs keep the Artshelf UI human-review safety boundaries explicit", () => 
   assert.match(readme, /read-only dashboard\/detail/i);
   assert.match(spec, /read-only dashboard\/detail/i);
   assert.match(reference, /[Bb]oth views are read-only/);
-  assert.match(agentUsage, /read-only (?:multi-ledger|artifact detail)/i);
+  assert.match(usageMd, /read-only (?:multi-ledger|artifact detail)/i);
+  assert.match(usageHtml, /read-only (?:multi-ledger|artifact detail)/i);
 });
 
 test("portable Artshelf skill states the UI agent loop and safety boundaries", () => {
