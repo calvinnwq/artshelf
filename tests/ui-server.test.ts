@@ -1406,8 +1406,9 @@ test("dashboard progressive enhancement keeps activity polling alive and refresh
     assert.match(html, /agent-rail-inner/, "the right rail has its own sticky inner column");
     assert.match(html, /data-activity-href="\/activity\?token=/, "the browser should poll the same-origin token-scoped path");
     assert.match(html, /setInterval\([^)]*2500/, "JS-enabled browsers should refresh every ~2-3s");
-    assert.match(html, /refreshRequiredActions/, "activity changes should refresh required-action badges without a manual reload");
+    assert.match(html, /refreshReviewShell/, "activity changes should refresh the review shell without a manual reload");
     assert.match(html, /DOMParser/, "the poller should parse a read-only dashboard response for live row state");
+    assert.match(html, /querySelector\("\.review-shell"\)/, "the action cards and agent rail should refresh together");
     assert.match(html, /input\[name\^="approval:"\]:checked/, "the poller should preserve unsent reviewer selections");
     assert.match(csp, /connect-src 'self'/, "polling must be limited to same-origin reads");
     const nonce = csp.match(/script-src 'nonce-([^']+)'/)?.[1] ?? "";
