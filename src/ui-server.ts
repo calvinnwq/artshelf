@@ -310,7 +310,7 @@ function buildIntentSubmission(
     return buildRequiredActionsSubmission(options, multiFields, approvalSelections(multiFields));
   }
   if (fields.type === "decision_submitted" && fields.lane !== undefined) {
-    return buildBulkDecisionSubmission(options, fields);
+    return buildBulkDecisionSubmission(options, fields, multiFields);
   }
   const intent = buildIntentInput(fields);
   return { intents: [intent], redirectTarget: intent.target ?? {} };
@@ -515,7 +515,7 @@ function buildIntentInput(fields: Record<string, string>): AppendEventInput {
   return { type, target, payload };
 }
 
-function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<string, string>): BuiltIntentSubmission {
+function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<string, string>, multiFields: Record<string, string[]>): BuiltIntentSubmission {
   const lane = fields.lane ?? "";
   if (!isBulkDecisionLane(lane)) {
     throw intentError(400, `Invalid Artshelf UI bulk decision lane "${lane}"`);
@@ -528,7 +528,9 @@ function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<st
     );
   }
 
-  return buildBulkDecisionSubmissionFromSnapshot(buildDashboard(dashboardOptions(options)), lane, decision, undefined, fields.reason);
+  const snapshot = buildDashboard(dashboardOptions(options));
+  validateReviewedBulkLaneRows(snapshot, multiFields, lane);
+  return buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision, undefined, fields.reason);
 }
 
 function buildBulkDecisionSubmissionFromSnapshot(

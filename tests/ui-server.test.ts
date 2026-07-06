@@ -991,7 +991,7 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
   });
 });
 
-test("POST /intents records a bulk lane decision as exact per-record pending events", async () => {
+test("POST /intents records a bulk lane decision with reviewed targets as exact per-record pending events", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
   const registryPath = join(dir, "ledgers.json");
@@ -1004,10 +1004,19 @@ test("POST /intents records a bulk lane decision as exact per-record pending eve
   await withServer({ registryPath }, async (server) => {
     assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "loading the dashboard does not queue agent work");
 
-    const response = await postIntent(server, {
-      type: "decision_submitted",
-      lane: "cleanup",
-      decision: "trash"
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "decision_submitted");
+    params.append("lane", "cleanup");
+    params.append("decision", "trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", ledgerPath);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
     });
 
     assert.equal(response.status, 303, "a successful bulk decision should redirect back to the dashboard lane");
@@ -1030,6 +1039,62 @@ test("POST /intents records a bulk lane decision as exact per-record pending eve
       assert.equal(event.payload.bulk, true);
       assert.equal(event.payload.count, 2);
     }
+  });
+});
+
+test("POST /intents rejects a legacy bulk lane decision without reviewed targets", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, {
+      type: "decision_submitted",
+      lane: "cleanup",
+      decision: "trash"
+    });
+
+    assert.equal(response.status, 409);
+    assert.match(await response.text(), /changed since this page loaded/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "bulk decisions without reviewed rows must not enter the agent queue");
+  });
+});
+
+test("POST /intents rejects a legacy bulk lane decision when reviewed targets are stale", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  const original = dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") });
+  const added = dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") });
+  writeLedgerFile(ledgerPath, [original]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+    writeLedgerFile(ledgerPath, [original, added]);
+
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "decision_submitted");
+    params.append("lane", "cleanup");
+    params.append("decision", "trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 409);
+    assert.match(await response.text(), /changed since this page loaded/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "stale legacy bulk decisions must not queue a partial lane");
   });
 });
 
