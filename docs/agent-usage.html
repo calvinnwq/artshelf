@@ -130,8 +130,10 @@
               <code>artshelf ui serve [--scope user|repo] [--port &lt;port&gt;] [--json]</code> hosts those
               dashboard and detail views as a local browser page for a human reviewer; it
               binds to loopback (127.0.0.1) only, recomputes live state per request, requires
-              the active UI session capability token printed in the serve URL, serves no script
-              and no file contents, and supports <code>--json</code> for a compact launch packet.
+              the active UI session capability token printed in the serve URL, embeds no file
+              contents, loads no external assets, and supports <code>--json</code> for a compact launch packet.
+              The dashboard includes a nonce-bound session-activity poller for the token-scoped
+              <code>/activity</code> fragment; detail and bundle pages remain scriptless.
               The dashboard presents compact required-action cards before the status summary and
               collapsed source details. Reviewers can queue recommended card approvals, lane-level
               keep/trash/resolve choices, individual row choices, and dashboard dry-run requests
@@ -140,7 +142,10 @@
               loaded dashboard and are rejected if the lane changed before submit. Dashboard
               dry-run requests enter the agent queue as lane events: cleanup prepares a cleanup
               plan, resolve checks missing files, purge-candidates requests delete review, and
-              registry/reconcile checks source problems. The detail drawer adds record-level
+              registry/reconcile checks source problems. After a dashboard submit, the page lands on
+              session activity with a bounded queued count, marks affected rows as sent to the agent,
+              and refreshes pending decisions, dry-run replies, stale/rejected states, and execution receipts
+              without mutating ledgers, files, trash, or plans from the browser. The detail drawer adds record-level
               forms for inspect, comment, keep/trash/resolve/defer, and dry-run requests. The
               served bundle workbench at
               <code>GET /bundle/&lt;bundle-id&gt;</code> shows the selected exact targets, reviewed-only

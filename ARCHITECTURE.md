@@ -165,11 +165,12 @@ Current root ownership:
 - `ui-server.ts`: token-protected loopback HTTP server for dashboard/detail browser pages, the
   approval-bundle workbench page (NGX-539 `GET /bundle/<id>`), human triage intent
   capture, dashboard required-action submission, and approval-bundle submission. It accepts safe
-  browser reads, recomputes live state per request, appends exact-target record intents plus
+  browser reads, recomputes live state per request, serves a token-gated `/activity`
+  fragment for the dashboard's nonce-bound session-activity poller, appends exact-target record intents plus
   reviewed-row-bound dashboard choices through the token-bound `/intents` endpoint, records revised
   approval selections through token-bound `/approve`, rejects stale dashboard lane submissions and
   conflicting card/bulk/row choices, refuses every other mutating method, and never embeds file
-  contents or scripts
+  contents or external assets
 - `ui-execute.ts`: agent-side approved-bundle execution (NGX-540/NGX-541) - the one mutating UI path. It
   loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
   bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
@@ -212,7 +213,7 @@ Render modes:
 - human output: compact terminal text for people
 - `--json`: full machine/audit payloads and compact UI packets
 - `--agent`: terse decision packets for agents
-- browser HTML: script-free dashboard/detail/bundle pages and token-bound intent/approval forms generated from read-only snapshots
+- browser HTML: token-bound dashboard/detail/bundle pages and intent/approval forms generated from read-only snapshots; detail/bundle stay scriptless, while the dashboard may include its nonce-bound session-activity poller
 
 ### `config/`
 

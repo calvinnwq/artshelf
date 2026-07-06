@@ -89,11 +89,13 @@ requires `--inspect`.
 `artshelf ui dashboard --json` returns the read-only multi-ledger review buckets, including needs-context, cleanup, resolve, trash, purge candidates, registry/reconcile problems, and recent receipts.
 `artshelf ui detail <record-id> --ledger <path> --json` returns the read-only artifact detail drawer with path label, inspect-card output, provenance, audit trail, existence facts, needs-context badge, and last action.
 Both views are metadata-only and never preview file contents.
-`artshelf ui serve [--scope user|repo] [--port <port>] [--json]` hosts those dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, requires the active UI session capability token printed in the serve URL, serves no script and no file contents, and supports `--json` for a compact launch packet.
+`artshelf ui serve [--scope user|repo] [--port <port>] [--json]` hosts those dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, requires the active UI session capability token printed in the serve URL, embeds no file contents, loads no external assets, and supports `--json` for a compact launch packet.
+The dashboard includes a nonce-bound session-activity poller for the token-scoped `/activity` fragment; detail and bundle pages remain scriptless.
 The dashboard presents compact required-action cards before the status summary and collapsed source details.
 Reviewers can queue recommended card approvals, lane-level keep/trash/resolve choices, individual row choices, and dashboard dry-run requests into one `Queued for agent` submit bar, while conflicting card/bulk/row selections are refused.
 Bulk lane approvals carry the reviewed row set from the loaded dashboard and are rejected if the lane changed before submit.
 Dashboard dry-run requests enter the agent queue as lane events: cleanup prepares a cleanup plan, resolve checks missing files, purge-candidates requests delete review, and registry/reconcile checks source problems.
+After a dashboard submit, the page lands on session activity with a bounded queued count, marks affected rows as sent to the agent, and refreshes pending decisions, dry-run replies, stale/rejected states, and execution receipts without mutating ledgers, files, trash, or plans from the browser.
 The detail drawer adds record-level forms for inspect, comment, keep/trash/resolve/defer, and dry-run requests.
 The served bundle workbench at `GET /bundle/<bundle-id>` shows the selected exact targets, reviewed-only rows, and exact action from an immutable approval snapshot.
 With the active token, its scriptless form can submit a revised non-empty subset through `POST /approve`, creating a new immutable approval snapshot and pending approval event without editing the original bundle or executing a workflow.

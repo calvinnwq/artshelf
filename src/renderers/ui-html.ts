@@ -42,9 +42,9 @@ export function escapeHtml(value: string): string {
     .replace(/'/g, "&#39;");
 }
 
-// A strict, scriptless document shell. The viewport meta keeps the layout usable on narrow/mobile
+// A strict self-contained document shell. The viewport meta keeps the layout usable on narrow/mobile
 // widths; the inline stylesheet avoids any external resource so the page renders fully offline and
-// the read-only content policy can forbid everything but inline styles.
+// can run under a tight page-specific content policy.
 function page(title: string, body: string): string {
   return `<!doctype html>
 <html lang="en">
