@@ -423,7 +423,7 @@ next action, and a verify command); `--agent` takes precedence over `--json`.
 
 Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views plus approval-bundle workbench views for live review state.
 The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, the agent polls those events, `ui execute` runs approved dispose or purge bundles through existing approval-gated paths, and the agent replies with receipts.
-The dashboard/detail subcommands are read-only data surfaces over existing ledger, registry, trash, and inspect state.
+The read-only dashboard/detail subcommands are data surfaces over existing ledger, registry, trash, and inspect state.
 The browser captures human triage intents and approval bundle submissions as session events but never mutates ledgers, files, trash, or plans directly.
 
 ```bash

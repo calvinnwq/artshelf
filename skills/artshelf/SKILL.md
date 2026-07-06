@@ -252,7 +252,6 @@ trash and dry-run purge freely; execute `artshelf trash purge --execute --plan-i
 purge execute, verify quiet with `artshelf trash list --all --json` and `artshelf review --all --json`.
 
 ## Safety
-
 - Do not register secrets or credential dumps.
 - Do not use Artshelf as a replacement for git, durable workflow ledgers, or
   backups.
