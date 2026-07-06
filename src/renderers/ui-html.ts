@@ -311,7 +311,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .session-activity{ background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:16px 18px; flex:1; min-height:0; overflow:auto; }
 .session-head{ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .session-head .title{ font:650 15px/1.2 var(--sans); }
-.session-confirm{ margin:0 0 12px; padding:10px 12px; border:1px solid var(--good-line); background:var(--good-soft); color:var(--good); border-radius:9px; font-weight:700; }
+.session-confirm{ margin:0; padding:10px 12px; border:1px solid var(--good-line); background:var(--good-soft); color:var(--good); border-radius:9px; font-weight:700; }
 .activity-stats{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 10px; }
 .activity-chip{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line-2); background:var(--surface-2); border-radius:999px; padding:5px 9px; font:650 12px/1.2 var(--sans); color:var(--ink-2); }
 .activity-chip.warn{ color:var(--attn); border-color:var(--attn-line); background:var(--attn-soft); }
@@ -518,9 +518,8 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const doneCount = counts["recent-receipts"];
   const queuedItems = queuedApprovalItems(snapshot, badLedgers, visibleRows, preparedPlans, pendingActions);
   const hasCancelableItems = hasCancelableQueuedItems(history);
-  const activityOptions: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {
-    submittedCount: activity.submittedCount ?? null
-  };
+  const submittedConfirmation = dashboardSubmittedConfirmation(activity.submittedCount ?? null);
+  const activityOptions: { activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {};
   if (activity.activityHref !== undefined) activityOptions.activityHref = activity.activityHref;
   if (activity.scriptNonce !== undefined) activityOptions.scriptNonce = activity.scriptNonce;
   if (activity.includeScript !== undefined) activityOptions.includeScript = activity.includeScript;
@@ -537,7 +536,7 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
 </div>
 </header>`;
   const agentRail = `<aside class="agent-rail" aria-label="Agent loop">
-<div class="agent-rail-inner"><div class="agent-rail-title"><span>Agent loop</span><span>poll, queue, reply</span></div>${token && queuedItems.length > 0 ? globalSubmitBar(queuedItems) : ""}${renderDashboardActivityFragment(history, activityOptions)}</div>
+<div class="agent-rail-inner"><div class="agent-rail-title"><span>Agent loop</span><span>poll, queue, reply</span></div>${token && queuedItems.length > 0 ? globalSubmitBar(queuedItems) : ""}${submittedConfirmation}${renderDashboardActivityFragment(history, activityOptions)}</div>
 </aside>`;
   const dashboard = `<main class="review-main">${masthead}<div class="wrap">${mainSurface}</div></main>${agentRail}`;
 
@@ -547,6 +546,10 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
 
   const body = reviewSurface;
   return page("Artshelf review dashboard", body);
+}
+
+function dashboardSubmittedConfirmation(submittedCount: number | null): string {
+  return submittedCount && submittedCount > 0 ? `<p class="session-confirm">${submittedCount} decisions queued for agent</p>` : "";
 }
 
 // The top fold: priority-ordered cards for the lanes that need the human now. Cards stay intentionally
@@ -931,16 +934,12 @@ function ledgerHealthSection(ledgers: DashboardLedgerStatus[]): string {
 
 export function renderDashboardActivityFragment(
   history: UiSessionHistoryEntry[],
-  options: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {}
+  options: { activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {}
 ): string {
   const queued = history.filter((entry) => isQueuedForAgentStatus(entry.event.status));
   const handled = history.filter((entry) => entry.event.status === "completed" || entry.event.status === "cancelled");
   const problem = history.filter((entry) => ["stale", "rejected", "failed"].includes(entry.event.status));
   const executionRan = history.some((entry) => entry.replies.some((reply) => isExecutionReply(reply)));
-  const confirmation =
-    options.submittedCount && options.submittedCount > 0
-      ? `<p class="session-confirm">${options.submittedCount} decisions queued for agent</p>`
-      : "";
   const activityRows = [
     ...activityGroupCards(queued, "Queued", "warn"),
     ...activityGroupCards(handled, "Handled by agent", "good"),
@@ -952,7 +951,6 @@ export function renderDashboardActivityFragment(
   const safety = executionRan ? "Execution receipt received. Browser did not execute files." : "No execution ran.";
   return `<section class="block session-activity" id="session-activity"${activityHref}>
 <div class="session-head"><span class="title">Queue activity</span><span class="muted">live status</span></div>
-${confirmation}
 <div class="activity-stats">
 <span class="activity-chip warn">Queued: <span class="num">${queued.length}</span></span>
 <span class="activity-chip good">Handled: <span class="num">${handled.length}</span></span>

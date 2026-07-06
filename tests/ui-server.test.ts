@@ -400,6 +400,15 @@ function requiredActionsHtml(html: string): string {
   return next >= 0 ? rest.slice(0, next) : rest;
 }
 
+function sessionActivityHtml(html: string): string {
+  const start = html.indexOf('<section class="block session-activity" id="session-activity"');
+  assert.ok(start >= 0, "dashboard should render session activity");
+  const rest = html.slice(start);
+  const end = rest.indexOf("</section>");
+  assert.ok(end >= 0, "dashboard should close session activity");
+  return rest.slice(0, end + "</section>".length);
+}
+
 function laneHtml(html: string, laneId: string): string {
   const start = html.indexOf(`id="${laneId}"`);
   assert.ok(start >= 0, `dashboard should render ${laneId}`);
@@ -719,6 +728,13 @@ test("POST /intents redirects to a dashboard confirmation with visible queued ac
       html,
       /<button type="submit" disabled>Submit selected to agent<\/button>/,
       "a queued-only dashboard should not render an active empty submit"
+    );
+    const activity = sessionActivityHtml(html);
+    assert.doesNotMatch(activity, /2 decisions queued for agent/i, "queued confirmation should stay outside the polled activity fragment");
+    assert.equal(
+      activity,
+      await (await server.request("/activity")).text(),
+      "queued confirmation should not make the poller refresh the shell repeatedly"
     );
     const required = requiredActionsHtml(html);
     assert.match(
