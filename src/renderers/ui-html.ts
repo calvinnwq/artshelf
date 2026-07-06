@@ -28,8 +28,8 @@ import type {
 // a nonce-bound activity poller. Forms only post token-bound session events and never expose direct
 // ledger/file/trash/plan mutation affordances. The loopback server (src/ui-server.ts) wires these to
 // live state and sets the strict CSP the markup honors: no external assets, no <img>, no web fonts.
-// Interactivity (collapsible stages, selection state) is expressed entirely in CSS (:has(),
-// <details>, :checked).
+// Interactivity (collapsible stages, selection state) is expressed mostly in CSS (:has(),
+// <details>, :checked); the dashboard script only refreshes token-scoped queue activity.
 
 // Escape the five HTML metacharacters so record-supplied text (reasons, paths, ids) is always
 // rendered as text, never markup. Every dynamic value in these pages routes through here.

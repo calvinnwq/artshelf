@@ -144,8 +144,13 @@
               plan, resolve checks missing files, purge-candidates requests delete review, and
               registry/reconcile checks source problems. After a dashboard submit, the page lands on
               session activity with a bounded queued count, marks affected rows as sent to the agent,
-              and refreshes pending decisions, dry-run replies, stale/rejected states, and execution receipts
-              without mutating ledgers, files, trash, or plans from the browser. The detail drawer adds record-level
+              and refreshes pending decisions, prepared plans, stale/rejected states, and execution receipts
+              without mutating ledgers, files, trash, or plans from the browser. Completed dry-run replies
+              that produce reviewed dispose plans become ready-for-approval rows in Required actions,
+              replacing the original row while the plan remains live; those plans can be approved
+              individually or with the prepared-plan approve-all control. Submitted approvals stay visibly
+              queued until the agent handles them, and the activity rail can unqueue pending browser work
+              without touching ledgers, files, trash, or plans. The detail drawer adds record-level
               forms for inspect, comment, keep/trash/resolve/defer, and dry-run requests. The
               served bundle workbench at
               <code>GET /bundle/&lt;bundle-id&gt;</code> shows the selected exact targets, reviewed-only

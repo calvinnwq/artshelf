@@ -37,6 +37,8 @@ import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./typ
 // pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable approval
 // snapshot as selected vs reviewed rows and the exact action. Submitting a revised subset creates a
 // new immutable approval snapshot for the agent to revalidate.
+// Completed dry-run replies can become prepared-plan approval rows on the dashboard, and pending
+// browser events can be unqueued from the activity rail.
 //
 // The write paths are POST /intents for lightweight triage intents and POST /approve for immutable
 // approval snapshots. Both are guarded by the session capability token and append pending events for
