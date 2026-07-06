@@ -4,7 +4,13 @@ import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardSnapshot } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { normalizeLedgerPath } from "./ledger.js";
-import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
+import {
+  renderApprovalWorkbenchPage,
+  renderDashboardActivityFragment,
+  renderDashboardPage,
+  renderDetailPage,
+  renderErrorPage
+} from "./renderers/ui-html.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import type { AppendEventInput, ApprovalSnapshotInput } from "./session.js";
 import {
@@ -63,7 +69,7 @@ const SECURITY_HEADERS: Record<string, string> = {
   // boundary at the browser. `form-action 'self'` opens only the server's token-gated forms
   // (/intents and /approve); the browser still executes nothing and mutates no ledger, file, trash,
   // or plan - it only records intents and approval bundles for the agent.
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'self'",
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   // Always recompute from live state; never let a browser serve a stale dashboard from cache.
@@ -74,6 +80,7 @@ const DETAIL_PREFIX = "/detail/";
 const BUNDLE_PREFIX = "/bundle/";
 const INTENTS_PATH = "/intents";
 const APPROVE_PATH = "/approve";
+const ACTIVITY_PATH = "/activity";
 
 // Detail-drawer intents are tiny, but the dashboard required-actions form also carries reviewed row
 // targets so bulk approvals can be rejected if a lane changed since render. Keep the cap bounded but
@@ -172,7 +179,22 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
   }
 
   if (pathname === "/" || pathname === "/dashboard") {
-    sendHtml(response, 200, renderDashboardPage(buildDashboard(dashboardOptions(options)), access.token));
+    const history = dashboardSessionHistory(options);
+    const queued = parseQueuedNotice(query, history);
+    sendHtml(
+      response,
+      200,
+      renderDashboardPage(buildDashboard(dashboardOptions(options)), access.token, {
+        history,
+        submittedCount: queued,
+        activityHref: activityHref(access.token)
+      })
+    );
+    return;
+  }
+
+  if (pathname === ACTIVITY_PATH) {
+    sendHtml(response, 200, renderDashboardActivityFragment(dashboardSessionHistory(options)));
     return;
   }
 
@@ -223,13 +245,14 @@ async function routeIntentSubmission(options: UiServerOptions, request: any, res
       const validated = validateIntentTarget(options, intent.type, intent.target ?? {}, intent.payload ?? {});
       return { ...intent, target: validated.target, payload: validated.payload };
     });
-    appendEvents(options.uiHome, options.sessionId, validatedIntents);
+    const queued = appendEvents(options.uiHome, options.sessionId, validatedIntents);
+    submission = { ...submission, queuedCount: queued.length };
   } catch (error) {
     sendIntentError(response, error);
     return;
   }
 
-  sendRedirect(response, 303, intentRedirect(submission.redirectTarget, fields.token ?? ""));
+  sendRedirect(response, 303, intentRedirect(submission.redirectTarget, fields.token ?? "", submission.queuedCount));
 }
 
 // Record one reviewed approval bundle (NGX-539). The form carries the source immutable bundle id plus
@@ -299,6 +322,7 @@ function authorizeBrowserWrite(options: UiServerOptions, token: string): boolean
 type BuiltIntentSubmission = {
   intents: AppendEventInput[];
   redirectTarget: Record<string, unknown>;
+  queuedCount?: number;
 };
 
 function buildIntentSubmission(
@@ -742,16 +766,41 @@ function detailRedirect(target: Record<string, unknown>, token: string): string 
   return `${DETAIL_PREFIX}${encodeURIComponent(recordId)}${query}`;
 }
 
-function intentRedirect(target: Record<string, unknown>, token: string): string {
+function intentRedirect(target: Record<string, unknown>, token: string, queuedCount = 0): string {
   if (target.dashboard === "required-actions") {
-    const query = token ? `?token=${encodeURIComponent(token)}` : "";
-    return `/${query}#required-actions`;
+    const params: string[] = [];
+    if (token) params.push(`token=${encodeURIComponent(token)}`);
+    if (queuedCount > 0) params.push(`queued=${encodeURIComponent(String(queuedCount))}`);
+    const query = params.length > 0 ? `?${params.join("&")}` : "";
+    return `/${query}${queuedCount > 0 ? "#session-activity" : "#required-actions"}`;
   }
   if (typeof target.lane === "string") {
     const query = token ? `?token=${encodeURIComponent(token)}` : "";
     return `/${query}#lane-${encodeURIComponent(target.lane)}`;
   }
   return detailRedirect(target, token);
+}
+
+function parseQueuedNotice(query: string, history: UiSessionHistoryEntry[]): number | null {
+  const raw = getQueryParam(query, "queued");
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  const pending = history.filter((entry) => entry.event.source === "browser" && entry.event.status === "pending").length;
+  if (pending <= 0) return null;
+  return Math.min(parsed, pending);
+}
+
+function activityHref(token: string): string {
+  return `${ACTIVITY_PATH}?token=${encodeURIComponent(token)}`;
+}
+
+function dashboardSessionHistory(options: UiServerOptions): UiSessionHistoryEntry[] {
+  try {
+    return readSessionHistory(options.uiHome, options.sessionId);
+  } catch {
+    return [];
+  }
 }
 
 function bundleRedirect(bundleId: string, token: string): string {

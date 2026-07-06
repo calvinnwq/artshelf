@@ -292,6 +292,33 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .legend span{ display:inline-flex; align-items:center; gap:6px; }
 .legend .pip{ width:8px; height:8px; border-radius:50%; }
 
+/* ---- session activity ---- */
+.session-activity{ background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:16px 18px; }
+.session-head{ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.session-head .title{ font:650 15px/1.2 var(--sans); }
+.session-confirm{ margin:0 0 12px; padding:10px 12px; border:1px solid var(--good-line); background:var(--good-soft); color:var(--good); border-radius:9px; font-weight:700; }
+.activity-stats{ display:flex; flex-wrap:wrap; gap:8px; margin:0 0 10px; }
+.activity-chip{ display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line-2); background:var(--surface-2); border-radius:999px; padding:5px 9px; font:650 12px/1.2 var(--sans); color:var(--ink-2); }
+.activity-chip.warn{ color:var(--attn); border-color:var(--attn-line); background:var(--attn-soft); }
+.activity-chip.good{ color:var(--good); border-color:var(--good-line); background:var(--good-soft); }
+.activity-chip.bad{ color:var(--danger); border-color:var(--danger-line); background:var(--danger-soft); }
+.safety-line{ margin:8px 0 0; font-weight:700; color:var(--accent-ink); font-size:13px; }
+.activity-list{ display:grid; gap:8px; margin-top:12px; }
+.activity-card{ border:1px solid var(--line); background:var(--raise); border-radius:10px; padding:11px 12px; }
+.activity-card.bad{ border-color:var(--danger-line); background:var(--danger-soft); }
+.activity-card .topline{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:5px; }
+.activity-card .name{ font-weight:700; }
+.activity-card .detail{ margin:0; color:var(--ink-2); font-size:12.5px; }
+.activity-card .mono{ font-family:var(--mono); font-size:12px; color:var(--ink-2); word-break:break-all; }
+.reply-card{ margin-top:8px; padding:9px 10px; border:1px solid var(--good-line); background:var(--good-soft); border-radius:9px; }
+.reply-card.final{ border-color:var(--accent); background:var(--accent-soft); }
+.reply-card.bad{ border-color:var(--danger-line); background:var(--danger-soft); }
+.reply-card .kind{ font:700 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); margin-bottom:5px; }
+.reply-card .headline{ font-weight:750; margin-bottom:5px; }
+.reply-card dl{ display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 10px; margin:6px 0 0; font-size:12.5px; }
+.reply-card dt{ font:700 10px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); }
+.reply-card dd{ margin:0; word-break:break-word; }
+
 /* ---- detail drawer ---- */
 .rec-head{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 12px; }
 .rec-head .brand{ margin:0; }
@@ -437,18 +464,31 @@ const LANES: Record<DashboardBucketKey, LaneMeta> = {
   "recent-receipts": { title: "Recent receipts", zone: "done", rail: "good", hint: "verified - last 7 days" }
 };
 
-export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string): string {
+export type DashboardSessionActivityRender = {
+  history?: UiSessionHistoryEntry[];
+  submittedCount?: number | null;
+  activityHref?: string;
+};
+
+export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string, activity: DashboardSessionActivityRender = {}): string {
   const counts = snapshot.counts;
   const ledgers = snapshot.ledgers;
   const okLedgers = ledgers.filter((ledger) => ledger.ok).length;
   const badLedgers = ledgers.length - okLedgers;
   const ledgerIndex = new Map(ledgers.map((ledger, i) => [ledger.path, i]));
+  const history = activity.history ?? [];
+  const rowActivity = recordActivityIndex(history);
 
   const actionCount = counts["needs-review"] + counts["needs-context"] + counts.cleanup + counts.resolve;
   const problemsCount = counts["registry-reconcile"] + badLedgers;
   const doneCount = counts["recent-receipts"];
   const queuedItems = queuedApprovalItems(snapshot, badLedgers);
-  const dashboard = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex)}
+  const activityOptions: { submittedCount?: number | null; activityHref?: string } = {
+    submittedCount: activity.submittedCount ?? null
+  };
+  if (activity.activityHref !== undefined) activityOptions.activityHref = activity.activityHref;
+  const dashboard = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity)}
+${renderDashboardActivityFragment(history, activityOptions)}
 ${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
 ${ledgerHealthSection(ledgers)}
 ${activitySection(snapshot, token, ledgerIndex)}`;
@@ -479,7 +519,8 @@ function requiredActionsSection(
   snapshot: DashboardSnapshot,
   badLedgers: number,
   token: string | undefined,
-  ledgerIndex: Map<string, number>
+  ledgerIndex: Map<string, number>,
+  rowActivity: Map<string, UiSessionHistoryEntry>
 ): string {
   const counts = snapshot.counts;
   const cards: string[] = [];
@@ -507,7 +548,7 @@ function requiredActionsSection(
         "Move to trash",
         "unless a row looks worth keeping.",
         token ? approvalChoice("decision", "needs-review", "trash", "Approve") : "",
-        artifactActionBody("needs-review", snapshot.buckets.needsReview, token, ledgerIndex)
+        artifactActionBody("needs-review", snapshot.buckets.needsReview, token, ledgerIndex, rowActivity)
       )
     );
   }
@@ -521,7 +562,7 @@ function requiredActionsSection(
         "Move to trash",
         "unless missing context changes the decision.",
         token ? approvalChoice("decision", "needs-context", "trash", "Approve") : "",
-        artifactActionBody("needs-context", snapshot.buckets.needsContext, token, ledgerIndex)
+        artifactActionBody("needs-context", snapshot.buckets.needsContext, token, ledgerIndex, rowActivity)
       )
     );
   }
@@ -535,7 +576,7 @@ function requiredActionsSection(
         "Move to trash",
         "because they are due and appear unused.",
         token ? approvalChoice("decision", "cleanup", "trash", "Approve") : "",
-        artifactActionBody("cleanup", snapshot.buckets.cleanup, token, ledgerIndex)
+        artifactActionBody("cleanup", snapshot.buckets.cleanup, token, ledgerIndex, rowActivity)
       )
     );
   }
@@ -549,7 +590,7 @@ function requiredActionsSection(
         "Resolve records",
         "because their files are already gone.",
         token ? approvalChoice("decision", "resolve", "resolve", "Approve") : "",
-        artifactActionBody("resolve", snapshot.buckets.resolve, token, ledgerIndex)
+        artifactActionBody("resolve", snapshot.buckets.resolve, token, ledgerIndex, rowActivity)
       )
     );
   }
@@ -748,6 +789,175 @@ function ledgerHealthSection(ledgers: DashboardLedgerStatus[]): string {
   return `<section class="block"><details class="sources-drawer"><summary>Sources &middot; ${ledgers.length} ledger(s) &middot; ${ledgers.filter((ledger) => ledger.ok).length} healthy</summary><div class="sources">${cards}</div></details></section>`;
 }
 
+export function renderDashboardActivityFragment(
+  history: UiSessionHistoryEntry[],
+  options: { submittedCount?: number | null; activityHref?: string } = {}
+): string {
+  const pending = history.filter((entry) => entry.event.status === "pending");
+  const replies = history.filter((entry) => entry.replies.length > 0);
+  const problem = history.filter((entry) => ["stale", "rejected", "failed"].includes(entry.event.status));
+  const executionRan = history.some((entry) => entry.replies.some((reply) => isExecutionReply(reply)));
+  const confirmation =
+    options.submittedCount && options.submittedCount > 0
+      ? `<p class="session-confirm">${options.submittedCount} decisions queued for agent</p>`
+      : "";
+  const empty =
+    history.length === 0
+      ? `<p class="empty">No queued session activity yet.</p>`
+      : `<div class="activity-list">${history.map(activityEntryCard).join("")}</div>`;
+  const pendingGroups = pending.length > 0 ? `<div class="activity-list">${pendingGroupCards(pending).join("")}</div>` : "";
+  const activityHref = options.activityHref ? ` data-activity-href="${escapeHtml(options.activityHref)}"` : "";
+  const script = options.activityHref ? activityPollScript() : "";
+  const safety = executionRan
+    ? "Execution receipts are shown below. The browser still did not execute files, ledgers, trash, or plans."
+    : "No execution ran. No files changed yet.";
+  return `<section class="block session-activity" id="session-activity"${activityHref}>
+<div class="session-head"><span class="title">Session activity</span><span class="muted">agent handoff loop</span></div>
+${confirmation}
+<div class="activity-stats">
+<span class="activity-chip warn">Pending for agent: <span class="num">${pending.length}</span></span>
+<span class="activity-chip good">Agent replies: <span class="num">${replies.length}</span></span>
+<span class="activity-chip${problem.length > 0 ? " bad" : ""}">Stale / rejected / failed: <span class="num">${problem.length}</span></span>
+</div>
+<p class="safety-line">${escapeHtml(safety)}</p>
+${pendingGroups}
+${empty}
+</section>${script}`;
+}
+
+function activityPollScript(): string {
+  return `<script>(function(){var href=(document.getElementById("session-activity")||{}).dataset&&document.getElementById("session-activity").dataset.activityHref;if(!href)return;async function refresh(){var current=document.getElementById("session-activity");if(!current)return;try{var response=await fetch(href,{cache:"no-store",credentials:"omit"});if(response.ok)current.outerHTML=await response.text();}catch(_error){}}setInterval(refresh,2500);})();</script>`;
+}
+
+function pendingGroupCards(entries: UiSessionHistoryEntry[]): string[] {
+  const groups = new Map<string, { label: string; entries: UiSessionHistoryEntry[] }>();
+  for (const entry of entries) {
+    const label = activityGroupLabel(entry.event);
+    const existing = groups.get(label) ?? { label, entries: [] };
+    existing.entries.push(entry);
+    groups.set(label, existing);
+  }
+  return [...groups.values()].map((group) => {
+    const targets = group.entries.map((entry) => eventTargetLabel(entry.event)).filter((value) => value.length > 0).join(", ");
+    return `<article class="activity-card"><div class="topline"><span class="badge">Pending for agent</span><span class="name">${group.entries.length} ${group.entries.length === 1 ? "decision" : "decisions"}: ${escapeHtml(group.label)}</span></div><p class="detail">${escapeHtml(targets)}</p></article>`;
+  });
+}
+
+function activityEntryCard(entry: UiSessionHistoryEntry): string {
+  const bad = ["stale", "rejected", "failed"].includes(entry.event.status);
+  const replyCards = entry.replies.map((reply) => replyCard(reply)).join("");
+  const recovery = bad ? `<p class="detail"><strong>Safe next action:</strong> Reload the dashboard before submitting again.</p>` : "";
+  const note = intentNote(entry.event);
+  return `<article class="activity-card${bad ? " bad" : ""}">
+<div class="topline"><span class="badge">${escapeHtml(entry.event.status)}</span><span class="name">${escapeHtml(intentLabel(entry.event))}</span><span class="when">${escapeHtml(entry.event.createdAt)}</span></div>
+<p class="detail">${escapeHtml(eventTargetLabel(entry.event))}${note ? ` &middot; ${escapeHtml(note)}` : ""}</p>
+${replyCards}${recovery}
+</article>`;
+}
+
+function replyCard(reply: UiReply): string {
+  const title = replyTitle(reply);
+  const planId = stringPayload(reply.payload, "planId");
+  const approvalTarget = stringPayload(reply.payload, "approvalTarget") ?? stringPayload(reply.payload, "approvalPhrase");
+  const count = numberPayload(reply.payload, "count");
+  const records = stringArrayPayload(reply.payload, "records");
+  const execution = isExecutionReply(reply);
+  const bad = ["stale", "rejected", "failed"].includes(reply.status);
+  const dryRun = !execution && (planId !== null || /dry-run/i.test(title));
+  const kind = execution ? "Final execution receipt" : dryRun ? "Dry-run reply" : "Agent reply";
+  const fields = [
+    planId ? `<dt>plan</dt><dd class="mono">${escapeHtml(planId)}</dd>` : "",
+    count !== null ? `<dt>count</dt><dd>${count}</dd>` : "",
+    records.length > 0 ? `<dt>records</dt><dd class="mono">${escapeHtml(records.join(", "))}</dd>` : "",
+    approvalTarget ? `<dt>approval</dt><dd class="mono">${escapeHtml(approvalTarget)}</dd>` : ""
+  ].join("");
+  const continuity = dryRun ? `<p class="detail">completed dry-run &middot; awaiting approval &middot; No execution ran</p>` : "";
+  const note = replyNote(reply.payload);
+  return `<div class="reply-card${execution ? " final" : ""}${bad ? " bad" : ""}">
+<div class="kind">${kind}</div>
+<div class="headline">${escapeHtml(title)}</div>
+${continuity}
+${note ? `<p class="detail">${escapeHtml(note)}</p>` : ""}
+${fields ? `<dl>${fields}</dl>` : ""}
+</div>`;
+}
+
+function replyTitle(reply: UiReply): string {
+  const title = stringPayload(reply.payload, "title");
+  if (title) return title;
+  const kind = stringPayload(reply.payload, "kind");
+  if (kind === "dispose_dry_run") return "Dispose dry-run prepared";
+  if (kind === "purge_dry_run") return "Purge dry-run prepared";
+  if (kind === "reconcile_dry_run") return "Reconcile dry-run prepared";
+  if (isExecutionReply(reply)) return "Execution receipt";
+  return `Agent ${reply.status}`;
+}
+
+function isExecutionReply(reply: UiReply): boolean {
+  return typeof reply.payload.executionStatus === "string" || Array.isArray(reply.payload.receipts);
+}
+
+function stringPayload(payload: Record<string, unknown>, key: string): string | null {
+  const value = payload[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function numberPayload(payload: Record<string, unknown>, key: string): number | null {
+  const value = payload[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringArrayPayload(payload: Record<string, unknown>, key: string): string[] {
+  const value = payload[key];
+  return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string" && entry.length > 0) : [];
+}
+
+function activityGroupLabel(event: UiEvent): string {
+  const lane = typeof event.payload.lane === "string" ? event.payload.lane : typeof event.target.lane === "string" ? event.target.lane : "record";
+  if (event.type === "decision_submitted") {
+    const decision = typeof event.payload.decision === "string" ? event.payload.decision : "decision";
+    return `${lane} / ${decision}`;
+  }
+  if (event.type === "dry_run_requested") {
+    const request = typeof event.payload.request === "string" ? event.payload.request : "dry-run";
+    return `${lane} / ${request}`;
+  }
+  return event.type;
+}
+
+function eventTargetLabel(event: UiEvent): string {
+  const recordId = typeof event.target.recordId === "string" ? event.target.recordId : "";
+  const ledgerName = typeof event.target.ledgerName === "string" ? event.target.ledgerName : "";
+  const lane = typeof event.target.lane === "string" ? event.target.lane : "";
+  return [recordId, ledgerName, lane].filter((value) => value.length > 0).join(" / ");
+}
+
+function recordActivityIndex(history: UiSessionHistoryEntry[]): Map<string, UiSessionHistoryEntry> {
+  const index = new Map<string, UiSessionHistoryEntry>();
+  for (const entry of history) {
+    const recordId = typeof entry.event.target.recordId === "string" ? entry.event.target.recordId : "";
+    const ledgerPath = typeof entry.event.target.ledgerPath === "string" ? entry.event.target.ledgerPath : "";
+    if (recordId && ledgerPath) index.set(recordActivityKey(recordId, ledgerPath), entry);
+  }
+  return index;
+}
+
+function recordActivityKey(recordId: string, ledgerPath: string): string {
+  return `${recordId}\0${ledgerPath}`;
+}
+
+function rowActivityBadge(entry: UiSessionHistoryEntry | undefined): string {
+  if (!entry) return "";
+  if (entry.event.status === "pending" || entry.event.status === "acknowledged" || entry.event.status === "in_progress") {
+    return `<span class="badge ctx">Sent to agent</span>`;
+  }
+  if (entry.event.status === "completed") return `<span class="badge rec">Agent replied</span>`;
+  if (entry.event.status === "stale" || entry.event.status === "rejected" || entry.event.status === "failed") {
+    return `<span class="badge peril">Needs re-review</span>`;
+  }
+  return "";
+}
+
 function activitySection(snapshot: DashboardSnapshot, token: string | undefined, ledgerIndex: Map<string, number>): string {
   const stages = [
     readonlyStage("trash", snapshot.buckets.trash.length, trashActivityBody(snapshot.buckets.trash, ledgerIndex)),
@@ -776,13 +986,14 @@ function artifactActionBody(
   key: "needs-review" | "needs-context" | "cleanup" | "resolve",
   rows: DashboardArtifactRow[],
   token: string | undefined,
-  ledgerIndex: Map<string, number>
+  ledgerIndex: Map<string, number>,
+  rowActivity: Map<string, UiSessionHistoryEntry>
 ): string {
   return rows.length === 0
     ? ""
     : `${bulkDecisionControls(key, rows.length, token)}
 <div class="rows">${rows
-      .map((row) => artifactRow(key, row, token, ledgerIndex))
+      .map((row) => artifactRow(key, row, token, ledgerIndex, rowActivity))
       .join("")}</div>`;
 }
 
@@ -790,7 +1001,8 @@ function artifactRow(
   lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
   row: DashboardArtifactRow,
   token: string | undefined,
-  ledgerIndex: Map<string, number>
+  ledgerIndex: Map<string, number>,
+  rowActivity: Map<string, UiSessionHistoryEntry>
 ): string {
   const href = detailHref(row.recordId, row.ledgerPath, token);
   const reason = row.reason.trim() ? escapeHtml(row.reason) : `<span class="muted">(no reason recorded)</span>`;
@@ -798,10 +1010,11 @@ function artifactRow(
   const disposition = row.needsContext
     ? `<span class="badge ctx">${escapeHtml(row.needsContext.label)}</span>`
     : `<span class="badge rec">${escapeHtml(row.recommendation)}</span>`;
+  const queued = rowActivityBadge(rowActivity.get(recordActivityKey(row.recordId, row.ledgerPath ?? "")));
   const last = lastActionLine(row.lastAction);
   return `<article class="queue-row r"${dataLedger(row.ledgerPath, ledgerIndex)}>
 <div>
-<div class="row-head"><span class="id"><a href="${href}">${escapeHtml(row.recordId)}</a></span>${disposition}</div>
+<div class="row-head"><span class="id"><a href="${href}">${escapeHtml(row.recordId)}</a></span>${disposition}${queued}</div>
 <p class="row-path">${escapeHtml(row.path)}</p>
 <p class="row-summary"><strong>Reason:</strong> ${reason}${last}</p>
 <div class="row-meta"><span>${escapeHtml(row.kind)}</span><span>${escapeHtml(row.status)}</span><span>cleanup ${escapeHtml(row.cleanup)}</span></div>
@@ -1127,7 +1340,7 @@ function intentNote(event: UiEvent): string | null {
 function replyItem(reply: UiReply): string {
   const note = replyNote(reply.payload);
   const detail = note ? ` &middot; ${escapeHtml(note)}` : "";
-  return `<li><span class="badge">agent ${escapeHtml(reply.status)}</span> <span class="when">${escapeHtml(reply.createdAt)}</span>${detail}</li>`;
+  return `<li><span class="badge">agent ${escapeHtml(reply.status)}</span> <span class="when">${escapeHtml(reply.createdAt)}</span>${detail}${replyCard(reply)}</li>`;
 }
 
 // Surface the agent's free-text reply note from the first recognized payload field. Replies carry a

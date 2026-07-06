@@ -592,8 +592,9 @@ test("GET / renders the redesigned top fold, queued actions, and non-empty revie
     assert.match(html, /<details class="act danger" id="lane-purge-candidates"[^>]*data-zone="quarantine"/, "non-empty purge card is rendered");
     assert.match(html, /data-ledger="led-0"/, "rows carry stable ledger tokens without raw ledger names in selectors");
 
-    // None of the interactivity introduces script: it is all CSS :has()/<details>.
-    assert.doesNotMatch(html, /<script/i, "the queue selections and collapsibles ship no executable script");
+    // Queue selection remains CSS/form based; the only script is the token-scoped activity poller.
+    assert.match(html, /data-activity-href="\/activity\?token=/, "the only progressive enhancement polls session activity");
+    assert.doesNotMatch(html, /src=/i, "the dashboard must not load external scripts or assets");
   });
 });
 
@@ -635,7 +636,7 @@ test("POST /intents records required-action approvals only after the final submi
     });
 
     assert.equal(response.status, 303);
-    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#required-actions`);
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}&queued=3#session-activity`);
 
     const pending = pollPendingEvents(server.home, server.sessionId);
     assert.equal(pending.length, 3, "one final submit expands selected approvals into exact session events");
@@ -659,6 +660,165 @@ test("POST /intents records required-action approvals only after the final submi
     assert.deepEqual(request.target, { lane: "purge-candidates", registryPath });
     assert.equal(request.payload.request, "review_delete_forever");
     assert.equal(request.payload.label, "Review delete");
+  });
+});
+
+test("POST /intents redirects to a dashboard confirmation with visible queued activity", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", ledgerPath);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}&queued=2#session-activity`);
+
+    const html = await (await server.request("/?queued=2")).text();
+    assert.match(html, /2 decisions queued for agent/i, "dashboard should confirm the submitted batch immediately");
+    assert.match(html, /Session activity/i, "queued work should be visible without opening a detail drawer");
+    assert.match(html, /Pending for agent/i, "activity should distinguish queued work from completed replies");
+    assert.match(html, /cleanup/i, "activity should group queued work by lane/action");
+    assert.match(html, /shf_cleanup_a/);
+    assert.match(html, /shf_cleanup_b/);
+    assert.match(html, /Sent to agent/i, "affected dashboard rows should be visibly marked after submit");
+    assert.match(html, /No execution ran/i, "dry-run/queued states must carry the safety line");
+    assert.match(html, /No files changed yet/i, "the dashboard should make non-mutation explicit before execution");
+
+    const inflated = await (await server.request("/?queued=20")).text();
+    assert.doesNotMatch(inflated, /20 decisions queued for agent/i, "a hand-edited query string must not fake the queued count");
+    assert.match(inflated, /2 decisions queued for agent/i, "the confirmation is bounded by live pending session events");
+  });
+});
+
+test("GET /activity is a token-gated read-only polling fragment that updates after agent replies", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", ledgerPath);
+    assert.equal(
+      (
+        await server.requestRaw("/intents", {
+          method: "POST",
+          headers: { "content-type": "application/x-www-form-urlencoded" },
+          body: params.toString(),
+          redirect: "manual"
+        })
+      ).status,
+      303
+    );
+
+    const beforeEvents = readSessionEvents(server.home, server.sessionId).length;
+    const beforeLedger = readLedger(ledgerPath).map((record) => ({ id: record.id, status: record.status, path: record.path }));
+    const missing = await server.requestRaw("/activity");
+    assert.equal(missing.status, 401, "polling without a token must be refused");
+    const wrong = await server.requestRaw("/activity?token=wrong");
+    assert.equal(wrong.status, 401, "polling with a wrong token must be refused");
+    const cookieOnly = await server.requestRaw("/activity", { headers: { cookie: `artshelf_ui_token=${server.token}` } });
+    assert.equal(cookieOnly.status, 401, "polling must not accept cookie-only tokens");
+
+    let activity = await (await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`)).text();
+    assert.match(activity, /Pending for agent/i);
+    assert.match(activity, /2 decisions/i);
+    assert.deepEqual(
+      readLedger(ledgerPath).map((record) => ({ id: record.id, status: record.status, path: record.path })),
+      beforeLedger,
+      "polling activity must not mutate the ledger"
+    );
+    assert.equal(readSessionEvents(server.home, server.sessionId).length, beforeEvents, "polling activity must not append session events");
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 2);
+    replyToEvent(server.home, server.sessionId, pending[0]!.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        title: "Dispose dry-run prepared",
+        planId: "dispose-plan-123",
+        count: 2,
+        records: ["shf_cleanup_a", "shf_cleanup_b"],
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-123`
+      }
+    });
+
+    activity = await (await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`)).text();
+    assert.match(activity, /Dispose dry-run prepared/i);
+    assert.match(activity, /dispose-plan-123/);
+    assert.match(activity, /shf_cleanup_a/);
+    assert.match(activity, new RegExp(escapeRegExp(`approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-123`)));
+    assert.match(activity, /Dry-run reply/i);
+    assert.match(activity, /No execution ran/i);
+
+    endSession(server.home, server.sessionId);
+    const ended = await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`);
+    assert.equal(ended.status, 401, "after-end polling must be refused");
+  });
+});
+
+test("dashboard progressive enhancement polls only the token-scoped activity endpoint", async () => {
+  const { registryPath } = singleLedger([dueCleanupRecord(fixtureDir())]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request("/");
+    const csp = response.headers.get("content-security-policy") ?? "";
+    const html = await response.text();
+
+    assert.match(html, /id="session-activity"/);
+    assert.match(html, /data-activity-href="\/activity\?token=/, "the browser should poll the same-origin token-scoped path");
+    assert.match(html, /setInterval\([^)]*2500/, "JS-enabled browsers should refresh every ~2-3s");
+    assert.match(csp, /connect-src 'self'/, "polling must be limited to same-origin reads");
+    assert.match(csp, /script-src 'unsafe-inline'/, "only the inline progressive enhancement script is allowed");
+    assert.doesNotMatch(html, /document\.cookie|localStorage|sessionStorage/, "the token must not move into cross-port browser storage");
+    assert.equal(response.headers.get("set-cookie"), null);
+  });
+});
+
+test("activity renders stale and rejected states with safe next action copy", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_a" }), baseRecord({ id: "shf_b" })]);
+
+  await withServer({ registryPath }, async (server) => {
+    assert.equal((await postIntent(server, { type: "inspect_requested", recordId: "shf_a", ledgerPath })).status, 303);
+    assert.equal((await postIntent(server, { type: "dry_run_requested", recordId: "shf_b", ledgerPath })).status, 303);
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    replyToEvent(server.home, server.sessionId, pending[0]!.id, { status: "stale", payload: { reason: "record changed; reload and re-review" } });
+    replyToEvent(server.home, server.sessionId, pending[1]!.id, { status: "rejected", payload: { reason: "approval target no longer matches" } });
+
+    const activity = await (await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`)).text();
+    assert.match(activity, /stale/i);
+    assert.match(activity, /rejected/i);
+    assert.match(activity, /record changed; reload and re-review/i);
+    assert.match(activity, /approval target no longer matches/i);
+    assert.match(activity, /Reload the dashboard before submitting again/i);
   });
 });
 
@@ -943,7 +1103,7 @@ test("POST /intents records row-level required-action approvals as exact pending
     });
 
     assert.equal(response.status, 303);
-    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#required-actions`);
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}&queued=1#session-activity`);
 
     const pending = pollPendingEvents(server.home, server.sessionId);
     assert.equal(pending.length, 1, "one selected row creates one exact pending event");
@@ -1408,7 +1568,7 @@ test("the dashboard recomputes from live state on reload", async () => {
   });
 });
 
-test("responses are script-free, escape record text, and set a strict read-only content policy", async () => {
+test("responses escape record text and keep polling under a strict read-only content policy", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
   const registryPath = join(dir, "ledgers.json");
@@ -1419,9 +1579,11 @@ test("responses are script-free, escape record text, and set a strict read-only 
     const response = await server.request("/");
     const csp = response.headers.get("content-security-policy") ?? "";
     assert.match(csp, /default-src 'none'/, "a strict CSP keeps the read-only page from loading anything external");
+    assert.match(csp, /connect-src 'self'/, "activity polling is same-origin only");
 
     const html = await response.text();
-    assert.doesNotMatch(html, /<script/i, "the read-only surface must not ship executable script");
+    assert.doesNotMatch(html, /src=/i, "the read-only surface must not load external executable code or assets");
+    assert.doesNotMatch(html, /document\.cookie|localStorage|sessionStorage/, "the capability token must not move into browser storage");
     assert.match(html, /&lt;script&gt;/, "record-supplied text must be HTML-escaped, not rendered as markup");
   });
 });
@@ -1726,6 +1888,49 @@ test("the detail drawer shows this record's triage intents and the agent's reply
     html = await (await server.request(detailHref)).text();
     assert.match(html, /completed/i, "the agent's reply status must be visible in the browser history");
     assert.match(html, /trashed via dispose/i, "the agent's reply note must be visible in the browser history");
+  });
+});
+
+test("the detail drawer carries dry-run plan continuity for the exact record", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_a" }), baseRecord({ id: "shf_b" })]);
+
+  await withServer({ registryPath }, async (server) => {
+    assert.equal(
+      (
+        await postIntent(server, {
+          type: "decision_submitted",
+          recordId: "shf_a",
+          ledgerPath,
+          decision: "trash",
+          reason: "superseded export"
+        })
+      ).status,
+      303
+    );
+
+    const [event] = pollPendingEvents(server.home, server.sessionId);
+    replyToEvent(server.home, server.sessionId, event!.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        title: "Dispose dry-run prepared",
+        planId: "dispose-plan-detail",
+        count: 1,
+        records: ["shf_a"],
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-detail`
+      }
+    });
+
+    const aHtml = await (await server.request(`/detail/shf_a?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+    assert.match(aHtml, /Session activity/i);
+    assert.match(aHtml, /Decision:\s*trash/i);
+    assert.match(aHtml, /completed dry-run|awaiting approval/i, "detail should state the continuity status after a dry-run reply");
+    assert.match(aHtml, /dispose-plan-detail/);
+    assert.match(aHtml, new RegExp(escapeRegExp(`approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-detail`)));
+    assert.match(aHtml, /No execution ran/i);
+
+    const bHtml = await (await server.request(`/detail/shf_b?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+    assert.doesNotMatch(bHtml, /dispose-plan-detail/, "another record must not inherit this record's reply card");
   });
 });
 
