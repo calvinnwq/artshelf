@@ -7,6 +7,7 @@ import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from 
 import { readLedger } from "../src/ledger.js";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
 import {
+  appendEvent,
   endSession,
   listApprovalSnapshots,
   pollPendingEvents,
@@ -1098,6 +1099,87 @@ test("prepared dry-run plans can be approved all at once from required actions",
       2,
       "grouped unqueue must not also resubmit checked approve-all fields"
     );
+  });
+});
+
+test("prepared approve all queues only the visible prepared event per live row", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const older = appendEvent(server.home, server.sessionId, {
+      type: "decision_submitted",
+      target: { recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" },
+      payload: { lane: "cleanup", decision: "trash", bulk: false, count: 1 }
+    });
+    const olderPlan = createDisposePlan(ledgerPath, { id: "shf_cleanup_a", action: "trash-resolve", reason: "older review" });
+    replyToEvent(server.home, server.sessionId, older.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        title: "Dispose dry-run prepared",
+        planId: olderPlan.planId,
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan ${olderPlan.planId}`,
+        records: ["shf_cleanup_a"],
+        action: "trash-resolve"
+      }
+    });
+
+    const newer = appendEvent(server.home, server.sessionId, {
+      type: "decision_submitted",
+      target: { recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" },
+      payload: { lane: "cleanup", decision: "trash", bulk: false, count: 1 }
+    });
+    const newerPlan = createDisposePlan(ledgerPath, { id: "shf_cleanup_a", action: "trash-resolve", reason: "newer review" });
+    replyToEvent(server.home, server.sessionId, newer.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        title: "Dispose dry-run prepared",
+        planId: newerPlan.planId,
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan ${newerPlan.planId}`,
+        records: ["shf_cleanup_a"],
+        action: "trash-resolve"
+      }
+    });
+
+    const required = requiredActionsHtml(await (await server.request("/")).text());
+    assert.match(required, new RegExp(escapeRegExp(newerPlan.planId)), "the latest prepared event is visible");
+    assert.doesNotMatch(required, new RegExp(escapeRegExp(olderPlan.planId)), "the older duplicate prepared event is hidden");
+
+    const approvalParams = new URLSearchParams();
+    approvalParams.append("token", server.token);
+    approvalParams.append("type", "required_actions_submitted");
+    approvalParams.append("approval:ready-approval", "approve-plan:all");
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: approvalParams.toString(),
+      redirect: "manual"
+    });
+    assert.equal(response.status, 303);
+
+    const approvalEvents = readSessionEvents(server.home, server.sessionId).filter((event) => event.type === "approval_bundle_submitted");
+    assert.equal(approvalEvents.length, 1, "approve all queues only the visible prepared event");
+    assert.equal(approvalEvents[0]!.payload.preparedEventId, newer.id);
+    const bundle = readApprovalSnapshot(server.home, server.sessionId, approvalEvents[0]!.target.bundleId as string);
+    assert.equal(bundle.targets[0]!.planId, newerPlan.planId);
+
+    const staleParams = new URLSearchParams();
+    staleParams.append("token", server.token);
+    staleParams.append("type", "required_actions_submitted");
+    staleParams.append("approval:ready-approval", `approve-plan:${older.id}`);
+    const staleResponse = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: staleParams.toString(),
+      redirect: "manual"
+    });
+    assert.equal(staleResponse.status, 409);
+    assert.match(await staleResponse.text(), /no longer ready for approval/i);
   });
 });
 

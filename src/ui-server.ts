@@ -445,6 +445,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   }
   const snapshot = buildDashboard(dashboardOptions(options));
   const visibleRows = visibleRequiredActionRows(options, snapshot);
+  const approvablePreparedEvents = approvablePreparedPlanEventIds(options, snapshot);
   const intents: AppendEventInput[] = [];
   const approvalBundles: BuiltApprovalBundleSubmission[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
@@ -456,9 +457,9 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
         throw intentError(400, `Invalid Artshelf UI prepared plan approval "${approval}"`);
       }
       if (lane === "all") {
-        approvalBundles.push(...buildAllPreparedPlanApprovalSubmissions(options));
+        approvalBundles.push(...buildAllPreparedPlanApprovalSubmissions(options, approvablePreparedEvents));
       } else {
-        approvalBundles.push(buildPreparedPlanApprovalSubmission(options, lane));
+        approvalBundles.push(buildPreparedPlanApprovalSubmission(options, lane, approvablePreparedEvents));
       }
       continue;
     }
@@ -506,16 +507,8 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   return { intents, approvalBundles: uniqueApprovalBundles, redirectTarget: { dashboard: "required-actions" } };
 }
 
-function buildAllPreparedPlanApprovalSubmissions(options: UiServerOptions): BuiltApprovalBundleSubmission[] {
-  const submitted = submittedPreparedPlanEventIds(options);
-  const bundles: BuiltApprovalBundleSubmission[] = [];
-  for (const entry of readSessionHistory(options.uiHome, options.sessionId)) {
-    if (entry.event.type !== "decision_submitted" || entry.event.status !== "completed") continue;
-    if (submitted.has(entry.event.id)) continue;
-    const hasPlan = [...entry.replies].reverse().some((candidate) => stringRecordValue(candidate.payload, "planId") !== null);
-    if (!hasPlan) continue;
-    bundles.push(buildPreparedPlanApprovalSubmission(options, encodeURIComponent(entry.event.id)));
-  }
+function buildAllPreparedPlanApprovalSubmissions(options: UiServerOptions, preparedEventIds: Set<string>): BuiltApprovalBundleSubmission[] {
+  const bundles = [...preparedEventIds].map((eventId) => buildPreparedPlanApprovalSubmission(options, encodeURIComponent(eventId), preparedEventIds));
   if (bundles.length === 0) {
     throw intentError(400, "No prepared plans are ready for approval");
   }
@@ -537,7 +530,7 @@ function isQueuedForAgentStatus(status: string): boolean {
   return status === "pending" || status === "acknowledged" || status === "in_progress";
 }
 
-function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEventId: string): BuiltApprovalBundleSubmission {
+function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEventId: string, approvableEventIds?: Set<string>): BuiltApprovalBundleSubmission {
   let eventId: string;
   try {
     eventId = decodeURIComponent(encodedEventId);
@@ -546,6 +539,9 @@ function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEv
   }
   if (!/^event_\d{8}_\d{6}_[0-9a-f]{8}$/.test(eventId)) {
     throw intentError(400, `Invalid Artshelf UI prepared plan event id "${eventId}"`);
+  }
+  if (approvableEventIds !== undefined && !approvableEventIds.has(eventId)) {
+    throw intentError(409, `Prepared plan event ${eventId} is no longer ready for approval`);
   }
 
   const entry = readSessionHistory(options.uiHome, options.sessionId).find((candidate) => candidate.event.id === eventId);
@@ -861,12 +857,21 @@ function filterPreparedRows(rows: DashboardArtifactRow[], prepared: Set<string>)
 }
 
 function livePreparedRowKeys(options: UiServerOptions, snapshot: DashboardSnapshot): Set<string> {
+  return new Set(livePreparedPlanEventIndex(options, snapshot).keys());
+}
+
+function approvablePreparedPlanEventIds(options: UiServerOptions, snapshot: DashboardSnapshot): Set<string> {
+  const submitted = submittedPreparedPlanEventIds(options);
+  return new Set([...livePreparedPlanEventIndex(options, snapshot).values()].filter((eventId) => !submitted.has(eventId)));
+}
+
+function livePreparedPlanEventIndex(options: UiServerOptions, snapshot: DashboardSnapshot): Map<string, string> {
   const liveActionKeys = new Set<string>();
   for (const row of [...snapshot.buckets.needsReview, ...snapshot.buckets.needsContext, ...snapshot.buckets.cleanup, ...snapshot.buckets.resolve]) {
     liveActionKeys.add(recordActivityKey(row.recordId, row.ledgerPath ?? ""));
   }
 
-  const prepared = new Set<string>();
+  const prepared = new Map<string, string>();
   for (const entry of readSessionHistory(options.uiHome, options.sessionId)) {
     if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") continue;
     const recordId = stringRecordValue(entry.event.target, "recordId");
@@ -875,7 +880,7 @@ function livePreparedRowKeys(options: UiServerOptions, snapshot: DashboardSnapsh
     const key = recordActivityKey(recordId, ledgerPath);
     if (!liveActionKeys.has(key)) continue;
     const hasPlan = [...entry.replies].reverse().some((candidate) => stringRecordValue(candidate.payload, "planId") !== null);
-    if (hasPlan) prepared.add(key);
+    if (hasPlan) prepared.set(key, entry.event.id);
   }
   return prepared;
 }
