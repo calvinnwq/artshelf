@@ -308,7 +308,7 @@ function cancelQueuedBrowserEvents(options: UiServerOptions, eventIds: string[])
     if (entry.event.source !== "browser") {
       throw intentError(400, `Queued event ${eventId} was not submitted by the browser`);
     }
-    if (!isQueuedForAgentStatus(entry.event.status)) {
+    if (entry.event.status !== "pending") {
       throw intentError(400, `Queued event ${eventId} is already ${entry.event.status}`);
     }
     return entry;
@@ -444,6 +444,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
     throw intentError(400, "Select at least one required action before submitting to the agent");
   }
   const snapshot = buildDashboard(dashboardOptions(options));
+  const visibleRows = visibleRequiredActionRows(options, snapshot);
   const intents: AppendEventInput[] = [];
   const approvalBundles: BuiltApprovalBundleSubmission[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
@@ -495,11 +496,12 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
     return true;
   });
   for (const [lane, decision] of bulkDecisions) {
-    validateReviewedBulkLaneRows(snapshot, fields, lane);
-    intents.push(...buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision).intents);
+    const rows = visibleRowsForLane(visibleRows, lane);
+    validateReviewedBulkLaneRows(rows, fields, lane);
+    intents.push(...buildBulkDecisionSubmissionFromRows(rows, lane, decision).intents);
   }
   for (const rowDecision of rowDecisions.values()) {
-    intents.push(...buildRowDecisionSubmissionFromSnapshot(snapshot, rowDecision).intents);
+    intents.push(...buildRowDecisionSubmissionFromRows(visibleRowsForLane(visibleRows, rowDecision.lane), rowDecision).intents);
   }
   return { intents, approvalBundles: uniqueApprovalBundles, redirectTarget: { dashboard: "required-actions" } };
 }
@@ -634,6 +636,10 @@ function rowDecisionKey(row: Pick<RowDecisionApproval, "lane" | "recordId" | "le
   return `${row.lane}\0${row.recordId}\0${row.ledgerPath}`;
 }
 
+function recordActivityKey(recordId: string, ledgerPath: string): string {
+  return `${recordId}\0${ledgerPath}`;
+}
+
 function addBulkDecisionApproval(decisions: Map<RowDecisionApproval["lane"], string>, lane: RowDecisionApproval["lane"], decision: string): void {
   const existing = decisions.get(lane);
   if (existing !== undefined && existing !== decision) {
@@ -666,11 +672,11 @@ function rejectConflictingRequiredActionSelections(
 }
 
 function validateReviewedBulkLaneRows(
-  snapshot: DashboardSnapshot,
+  rows: DashboardArtifactRow[],
   fields: Record<string, string[]>,
   lane: "needs-review" | "needs-context" | "cleanup" | "resolve"
 ): void {
-  const current = new Set(dashboardArtifactRowsForLane(snapshot, lane).map((row) => rowDecisionKey({ lane, recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" })));
+  const current = new Set(rows.map((row) => rowDecisionKey({ lane, recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" })));
   const reviewed = reviewedBulkLaneRows(fields, lane);
   if (reviewed.size !== current.size || [...reviewed].some((key) => !current.has(key))) {
     throw intentError(409, `Dashboard lane ${lane} changed since this page loaded; reload the dashboard before submitting bulk approvals`);
@@ -751,12 +757,13 @@ function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<st
   }
 
   const snapshot = buildDashboard(dashboardOptions(options));
-  validateReviewedBulkLaneRows(snapshot, multiFields, lane);
-  return buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision, undefined, fields.reason);
+  const rows = visibleRowsForLane(visibleRequiredActionRows(options, snapshot), lane);
+  validateReviewedBulkLaneRows(rows, multiFields, lane);
+  return buildBulkDecisionSubmissionFromRows(rows, lane, decision, undefined, fields.reason);
 }
 
-function buildBulkDecisionSubmissionFromSnapshot(
-  snapshot: DashboardSnapshot,
+function buildBulkDecisionSubmissionFromRows(
+  rows: DashboardArtifactRow[],
   lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
   decision: string,
   rowDecision?: (row: DashboardArtifactRow) => string,
@@ -768,7 +775,6 @@ function buildBulkDecisionSubmissionFromSnapshot(
       `Invalid Artshelf UI decision intent "${String(decision)}"; expected one of: ${UI_DECISION_INTENTS.join(", ")}`
     );
   }
-  const rows = dashboardArtifactRowsForLane(snapshot, lane);
   if (rows.length === 0) {
     throw intentError(400, `Dashboard lane ${lane} has no records for a bulk decision`);
   }
@@ -795,13 +801,11 @@ function buildBulkDecisionSubmissionFromSnapshot(
   };
 }
 
-function buildRowDecisionSubmissionFromSnapshot(snapshot: DashboardSnapshot, rowDecision: RowDecisionApproval): BuiltIntentSubmission {
+function buildRowDecisionSubmissionFromRows(rows: DashboardArtifactRow[], rowDecision: RowDecisionApproval): BuiltIntentSubmission {
   if (!isDecisionAllowedForLane(rowDecision.lane, rowDecision.decision)) {
     throw intentError(400, `Invalid Artshelf UI decision intent "${rowDecision.decision}" for lane ${rowDecision.lane}`);
   }
-  const row = dashboardArtifactRowsForLane(snapshot, rowDecision.lane).find(
-    (candidate) => candidate.recordId === rowDecision.recordId && candidate.ledgerPath === rowDecision.ledgerPath
-  );
+  const row = rows.find((candidate) => candidate.recordId === rowDecision.recordId && candidate.ledgerPath === rowDecision.ledgerPath);
   if (row === undefined) {
     throw intentError(400, `Dashboard lane ${rowDecision.lane} has no matching row ${rowDecision.recordId} for a row decision`);
   }
@@ -822,25 +826,66 @@ function buildRowDecisionSubmissionFromSnapshot(snapshot: DashboardSnapshot, row
   };
 }
 
+type RequiredActionRows = {
+  needsReview: DashboardArtifactRow[];
+  needsContext: DashboardArtifactRow[];
+  cleanup: DashboardArtifactRow[];
+  resolve: DashboardArtifactRow[];
+};
+
+function visibleRequiredActionRows(options: UiServerOptions, snapshot: DashboardSnapshot): RequiredActionRows {
+  const prepared = livePreparedRowKeys(options, snapshot);
+  return {
+    needsReview: filterPreparedRows(snapshot.buckets.needsReview, prepared),
+    needsContext: filterPreparedRows(snapshot.buckets.needsContext, prepared),
+    cleanup: filterPreparedRows(snapshot.buckets.cleanup, prepared),
+    resolve: filterPreparedRows(snapshot.buckets.resolve, prepared)
+  };
+}
+
+function visibleRowsForLane(rows: RequiredActionRows, lane: "needs-review" | "needs-context" | "cleanup" | "resolve"): DashboardArtifactRow[] {
+  switch (lane) {
+    case "needs-review":
+      return rows.needsReview;
+    case "needs-context":
+      return rows.needsContext;
+    case "cleanup":
+      return rows.cleanup;
+    case "resolve":
+      return rows.resolve;
+  }
+}
+
+function filterPreparedRows(rows: DashboardArtifactRow[], prepared: Set<string>): DashboardArtifactRow[] {
+  return rows.filter((row) => !prepared.has(recordActivityKey(row.recordId, row.ledgerPath ?? "")));
+}
+
+function livePreparedRowKeys(options: UiServerOptions, snapshot: DashboardSnapshot): Set<string> {
+  const liveActionKeys = new Set<string>();
+  for (const row of [...snapshot.buckets.needsReview, ...snapshot.buckets.needsContext, ...snapshot.buckets.cleanup, ...snapshot.buckets.resolve]) {
+    liveActionKeys.add(recordActivityKey(row.recordId, row.ledgerPath ?? ""));
+  }
+
+  const prepared = new Set<string>();
+  for (const entry of readSessionHistory(options.uiHome, options.sessionId)) {
+    if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") continue;
+    const recordId = stringRecordValue(entry.event.target, "recordId");
+    const ledgerPath = stringRecordValue(entry.event.target, "ledgerPath");
+    if (!recordId || !ledgerPath) continue;
+    const key = recordActivityKey(recordId, ledgerPath);
+    if (!liveActionKeys.has(key)) continue;
+    const hasPlan = [...entry.replies].reverse().some((candidate) => stringRecordValue(candidate.payload, "planId") !== null);
+    if (hasPlan) prepared.add(key);
+  }
+  return prepared;
+}
+
 function isDecisionAllowedForLane(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", decision: string): boolean {
   return lane === "resolve" ? decision === "keep" || decision === "resolve" : decision === "keep" || decision === "trash";
 }
 
 function isBulkDecisionLane(value: unknown): value is "needs-review" | "needs-context" | "cleanup" | "resolve" {
   return value === "needs-review" || value === "needs-context" || value === "cleanup" || value === "resolve";
-}
-
-function dashboardArtifactRowsForLane(snapshot: DashboardSnapshot, lane: "needs-review" | "needs-context" | "cleanup" | "resolve"): DashboardArtifactRow[] {
-  switch (lane) {
-    case "needs-review":
-      return snapshot.buckets.needsReview;
-    case "needs-context":
-      return snapshot.buckets.needsContext;
-    case "cleanup":
-      return snapshot.buckets.cleanup;
-    case "resolve":
-      return snapshot.buckets.resolve;
-  }
 }
 
 function buildApprovalInput(options: UiServerOptions, fields: Record<string, string[]>): ApprovalSnapshotInput {

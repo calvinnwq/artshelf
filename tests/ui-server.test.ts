@@ -272,6 +272,10 @@ function appendReviewedLaneRow(
   params.append(`reviewed:${lane}`, `${encodeURIComponent(recordId)}:${encodeURIComponent(ledgerPath)}`);
 }
 
+function reviewedLaneRowValue(recordId: string, ledgerPath: string): string {
+  return `${encodeURIComponent(recordId)}:${encodeURIComponent(ledgerPath)}`;
+}
+
 // Submit a browser triage intent exactly as the rendered HTML form would: a urlencoded POST to
 // /intents carrying the capability token in the body. `noToken` drops it to exercise the write gate.
 function postIntent(
@@ -870,6 +874,118 @@ test("prepared dry-run plans replace original required-action rows with plan app
     const afterCancel = requiredActionsHtml(await (await server.request("/")).text());
     assert.match(afterCancel, new RegExp(`value="${escapeRegExp(approvalValue!)}"`), "the plan approval is still available after unqueue");
     assert.doesNotMatch(afterCancel, new RegExp(`value="${escapeRegExp(approvalValue!)}" checked disabled`), "unqueued approvals return to an available state");
+  });
+});
+
+test("prepared rows are excluded from reviewed bulk expansion", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const rowParams = new URLSearchParams();
+    rowParams.append("token", server.token);
+    rowParams.append("type", "required_actions_submitted");
+    rowParams.append("approval:cleanup", `row-decision:cleanup:trash:${encodeURIComponent("shf_cleanup_a")}:${encodeURIComponent(ledgerPath)}`);
+
+    const rowResponse = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: rowParams.toString(),
+      redirect: "manual"
+    });
+    assert.equal(rowResponse.status, 303);
+
+    const prepared = pollPendingEvents(server.home, server.sessionId)[0]!;
+    assert.equal(prepared.target.recordId, "shf_cleanup_a");
+    const disposePlan = createDisposePlan(ledgerPath, { id: "shf_cleanup_a", action: "trash-resolve", reason: "reviewed" });
+    replyToEvent(server.home, server.sessionId, prepared.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        title: "Dispose dry-run prepared",
+        planId: disposePlan.planId,
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan ${disposePlan.planId}`,
+        records: ["shf_cleanup_a"],
+        action: "trash-resolve"
+      }
+    });
+
+    const html = await (await server.request("/")).text();
+    const reviewedA = reviewedLaneRowValue("shf_cleanup_a", ledgerPath);
+    const reviewedB = reviewedLaneRowValue("shf_cleanup_b", ledgerPath);
+    assert.doesNotMatch(html, new RegExp(`name="reviewed:cleanup" value="${escapeRegExp(reviewedA)}"`));
+    assert.match(html, new RegExp(`name="reviewed:cleanup" value="${escapeRegExp(reviewedB)}"`));
+
+    const bulkParams = new URLSearchParams();
+    bulkParams.append("token", server.token);
+    bulkParams.append("type", "required_actions_submitted");
+    bulkParams.append("approval:cleanup", "decision:cleanup:trash");
+    appendReviewedLaneRow(bulkParams, "cleanup", "shf_cleanup_b", ledgerPath);
+
+    const bulkResponse = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: bulkParams.toString(),
+      redirect: "manual"
+    });
+    assert.equal(bulkResponse.status, 303);
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 1, "bulk approval should expand only visible cleanup rows");
+    assert.equal(pending[0]!.target.recordId, "shf_cleanup_b");
+  });
+});
+
+test("browser unqueue only cancels pending work", async () => {
+  const { registryPath, ledgerPath } = singleLedger([dueCleanupRecord(fixtureDir())]);
+
+  await withServer({ registryPath }, async (server) => {
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "decision_submitted");
+    params.append("lane", "cleanup");
+    params.append("decision", "trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup", ledgerPath);
+
+    const queueResponse = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+    assert.equal(queueResponse.status, 303);
+
+    const event = pollPendingEvents(server.home, server.sessionId)[0]!;
+    replyToEvent(server.home, server.sessionId, event.id, {
+      status: "in_progress",
+      expectedStatus: "pending",
+      payload: { title: "Agent claimed work" }
+    });
+
+    const html = await (await server.request("/")).text();
+    assert.match(html, /in_progress/i, "claimed work stays visible in queue activity");
+    assert.doesNotMatch(html, new RegExp(`name="cancelEventId" value="${escapeRegExp(event.id)}"`), "claimed work is no longer browser-cancellable");
+
+    const cancelParams = new URLSearchParams();
+    cancelParams.append("token", server.token);
+    cancelParams.append("type", "required_actions_submitted");
+    cancelParams.append("cancelEventId", event.id);
+    const cancelResponse = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: cancelParams.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(cancelResponse.status, 400);
+    assert.match(await cancelResponse.text(), /already in_progress/i);
+    assert.equal(readSessionEvents(server.home, server.sessionId).find((entry) => entry.id === event.id)?.status, "in_progress");
   });
 });
 

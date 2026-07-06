@@ -540,7 +540,7 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
   const dashboard = `<main class="review-main">${masthead}<div class="wrap">${mainSurface}</div></main>${agentRail}`;
 
   const reviewSurface = token && (queuedItems.length > 0 || hasCancelableItems)
-    ? `<form class="review-form review-shell" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${reviewedLaneInputs(snapshot)}${dashboard}</form>`
+    ? `<form class="review-form review-shell" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${dashboard}</form>`
     : `<div class="review-shell">${dashboard}</div>`;
 
   const body = reviewSurface;
@@ -656,7 +656,7 @@ function requiredActionsSection(
     cards.length === 0
       ? `<div class="allclear">${ICON.check}<span>You're all caught up - nothing needs review right now.</span></div>`
       : `<div class="acts">${cards.join("")}</div>`;
-  return `<section class="block" id="required-actions"><p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
+  return `<section class="block" id="required-actions">${reviewedLaneInputs(visibleRows)}<p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
 }
 
 function actionCard(
@@ -831,12 +831,12 @@ function approvalFieldName(lane: DashboardBucketKey): string {
   return `approval:${lane}`;
 }
 
-function reviewedLaneInputs(snapshot: DashboardSnapshot): string {
+function reviewedLaneInputs(rows: RequiredActionRows): string {
   return [
-    reviewedArtifactLaneInputs("needs-review", snapshot.buckets.needsReview),
-    reviewedArtifactLaneInputs("needs-context", snapshot.buckets.needsContext),
-    reviewedArtifactLaneInputs("cleanup", snapshot.buckets.cleanup),
-    reviewedArtifactLaneInputs("resolve", snapshot.buckets.resolve)
+    reviewedArtifactLaneInputs("needs-review", rows.needsReview),
+    reviewedArtifactLaneInputs("needs-context", rows.needsContext),
+    reviewedArtifactLaneInputs("cleanup", rows.cleanup),
+    reviewedArtifactLaneInputs("resolve", rows.resolve)
   ].join("");
 }
 
@@ -953,7 +953,7 @@ function activityGroupCards(entries: UiSessionHistoryEntry[], badge: string, ton
 }
 
 function unqueueButtons(entries: UiSessionHistoryEntry[]): string {
-  const queued = entries.filter((entry) => entry.event.source === "browser" && isQueuedForAgentStatus(entry.event.status));
+  const queued = entries.filter((entry) => entry.event.source === "browser" && entry.event.status === "pending");
   if (queued.length === 0) return "";
   if (queued.length === 1) {
     const entry = queued[0]!;
@@ -1182,7 +1182,7 @@ function submittedPreparedPlanEventIds(history: UiSessionHistoryEntry[]): Set<st
 }
 
 function hasCancelableQueuedItems(history: UiSessionHistoryEntry[]): boolean {
-  return history.some((entry) => entry.event.source === "browser" && isQueuedForAgentStatus(entry.event.status));
+  return history.some((entry) => entry.event.source === "browser" && entry.event.status === "pending");
 }
 
 function visibleRequiredActionRows(snapshot: DashboardSnapshot, preparedPlans: Map<string, PreparedPlanApproval>): RequiredActionRows {
