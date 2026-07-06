@@ -17,8 +17,8 @@ Preserve these hard boundaries:
 - read-only commands stay read-only
 - the UI browser only records human triage intents and approval bundles as
   session events; it never mutates ledgers, files, trash, or plans directly
-- `ui dashboard`/`ui detail` and their served views
-  stay read-only and never preview file contents
+- `ui dashboard`/`ui detail` stay read-only and never preview file contents;
+  served dashboard/detail views only write token-bound session events
 - `ui execute` is the only mutating `ui` subcommand and runs one approved
   bundle's exact targets; `ui execute --all` stays refused
 - UI purge runs the same exact-target, approval-gated one-way door as the CLI:

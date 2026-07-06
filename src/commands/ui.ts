@@ -359,11 +359,11 @@ function handleUiDetail(parsed: ParsedArgs, json: boolean): number {
 
 // `artshelf ui serve [--port <port>] [--registry <path>] [--ledger <path>]` - host the dashboard
 // (NGX-535) and artifact detail drawers (NGX-536/538) as a local browser surface. It binds to
-// loopback only, recomputes live state per request, and never reads file contents. The dashboard
-// is display-only; the detail drawer also captures human triage intents (NGX-538) as pending
-// session events but never mutates ledgers, files, trash, or plans directly. The process runs in
-// the foreground until interrupted, so this is the one `ui` subcommand that does not return
-// immediately.
+// loopback only, recomputes live state per request, and never reads file contents. Dashboard and
+// detail forms capture token-bound session events for the agent, including queued dashboard
+// required actions and record-level triage intents, but never mutate ledgers, files, trash, or plans
+// directly. The process runs in the foreground until interrupted, so this is the one `ui` subcommand
+// that does not return immediately.
 async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number> {
   const portRaw = stringFlag(parsed, "port");
   let port: number | undefined;

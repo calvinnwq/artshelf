@@ -117,6 +117,16 @@ const UI_DECISION_INTENT_SET: Record<UiDecisionIntent, true> = {
   defer: true
 };
 
+// Dashboard-level dry-run requests are intentionally narrow: they let a human queue the common
+// "prepare/check/review" work from the dashboard, but still carry no execution authority. Keep this
+// in the session layer because appendEvent is exported and this is the durable pending-queue guard.
+export const UI_DASHBOARD_LANE_REQUESTS: Record<string, string> = {
+  cleanup: "prepare_cleanup_plan",
+  resolve: "check_missing_files",
+  "purge-candidates": "review_delete_forever",
+  "registry-reconcile": "check_source_problems"
+};
+
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
 export const UI_DECISION_INTENTS = Object.keys(UI_DECISION_INTENT_SET) as UiDecisionIntent[];
@@ -300,17 +310,22 @@ export function validateBrowserToken(session: UiSession, token: string): boolean
 // Append a browser event to the durable log. Browser writes are refused once the session has
 // ended and always enter the agent poll queue as pending.
 export function appendEvent(home: string, sessionId: string, input: AppendEventInput): UiEvent {
+  return appendEvents(home, sessionId, [input])[0]!;
+}
+
+export function appendEvents(home: string, sessionId: string, inputs: AppendEventInput[]): UiEvent[] {
   const path = sessionFile(home, sessionId);
   return withUiStorageLock(home, path, () => {
     const session = readSession(home, sessionId);
     if (session.status !== "active") {
       throw new Error(`Artshelf UI session ${sessionId} has ended; browser writes are closed`);
     }
+    if (inputs.length === 0) return [];
     const createdAt = toIso(now());
-    const event = buildEvent(sessionId, input, "browser", createdAt);
-    appendLogLine(home, sessionId, { kind: "event", ...event });
+    const events = inputs.map((input) => buildEvent(sessionId, input, "browser", createdAt));
     writeSession(home, { ...session, updatedAt: createdAt });
-    return event;
+    appendLogLines(home, sessionId, events.map((event) => ({ kind: "event", ...event })));
+    return events;
   });
 }
 
@@ -741,10 +756,28 @@ function validateInspectRequest(target: Record<string, unknown>): void {
   requireRecordTarget(target);
 }
 
-// A dry-run request asks the agent to prepare the appropriate reviewed plan for one exact record; it
-// carries no executable authority, but still must name the record + ledger so it cannot become a
-// vague global planning event.
-function validateDryRunRequest(target: Record<string, unknown>): void {
+// A dry-run request asks the agent to prepare the appropriate reviewed plan. It carries no executable
+// authority. Most requests name one exact record + ledger; dashboard lane buttons may instead name a
+// validated lane + registry snapshot request so the human can ask for the common plan from the
+// dashboard without opening rows one by one.
+function validateDryRunRequest(target: Record<string, unknown>, payload: Record<string, unknown>): void {
+  if (isNonEmptyString(target.lane)) {
+    requireNonEmptyTargetField(target, "registryPath");
+    const expectedRequest = UI_DASHBOARD_LANE_REQUESTS[target.lane];
+    if (expectedRequest === undefined) {
+      throw new Error(`Invalid Artshelf UI dry-run request target.lane "${String(target.lane)}"`);
+    }
+    if (!isNonEmptyString(payload.request)) {
+      throw new Error("Invalid Artshelf UI dry-run request payload.request; expected a non-empty string");
+    }
+    if (payload.request !== expectedRequest) {
+      throw new Error(`Invalid Artshelf UI dry-run request payload.request "${String(payload.request)}" for lane ${target.lane}`);
+    }
+    if (typeof payload.count !== "number" || !Number.isFinite(payload.count) || payload.count < 1) {
+      throw new Error("Invalid Artshelf UI dry-run request payload.count; expected a positive number");
+    }
+    return;
+  }
   requireRecordTarget(target);
 }
 
@@ -819,12 +852,17 @@ function writeSession(home: string, session: UiSession): void {
 }
 
 function appendLogLine(home: string, sessionId: string, line: UiLogLine): void {
+  appendLogLines(home, sessionId, [line]);
+}
+
+function appendLogLines(home: string, sessionId: string, lines: UiLogLine[]): void {
+  if (lines.length === 0) return;
   const path = eventsFile(home, sessionId);
   withUiStorageLock(home, path, () => {
     ensureOwnerOnlyDirectoryTree(home, dirname(path));
     const previous = existsSync(path) ? readFileSync(path, "utf8") : "";
     const separator = previous && !previous.endsWith("\n") ? "\n" : "";
-    atomicWriteFileSync(path, `${previous}${separator}${JSON.stringify(line)}\n`);
+    atomicWriteFileSync(path, `${previous}${separator}${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
   });
 }
 

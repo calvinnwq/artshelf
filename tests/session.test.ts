@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { withPathLock } from "../src/locks.js";
 import {
   appendEvent,
+  appendEvents,
   approvalSnapshotFingerprint,
   endSession,
   isUiDecisionIntent,
@@ -365,6 +366,49 @@ test("appendEvent records a pending browser event surfaced by pollPendingEvents"
   assert.equal(pending[0]?.id, event.id);
 });
 
+test("appendEvents records a generated browser event batch in queue order", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const events = appendEvents(home, session.id, [
+    {
+      type: "comment_added",
+      target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "first" }
+    },
+    {
+      type: "decision_submitted",
+      target: { recordId: "shf_2", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { decision: "keep" }
+    }
+  ]);
+
+  assert.equal(events.length, 2);
+  assert.deepEqual(
+    pollPendingEvents(home, session.id).map((event) => event.id),
+    events.map((event) => event.id)
+  );
+});
+
+test("appendEvents rejects an invalid generated event before recording any batch entries", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvents(home, session.id, [
+        {
+          type: "comment_added",
+          target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+          payload: { text: "valid" }
+        },
+        { type: "unknown_event" as never }
+      ]),
+    /event type/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
 test("appendEvent keeps browser-submitted events pending even when input supplies another status", () => {
   const home = freshHome();
   const session = startUserSession(home);
@@ -642,6 +686,24 @@ test("appendEvent records a dry_run_requested intent against its exact record ta
   assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
 });
 
+test("appendEvent records a dry_run_requested intent against a dashboard lane target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { lane: "cleanup", registryPath: "/registries/ledgers.json" },
+    payload: { request: "prepare_cleanup_plan", count: 2 }
+  });
+
+  assert.equal(event.type, "dry_run_requested");
+  assert.equal(event.status, "pending");
+  assert.equal(event.source, "browser");
+  assert.deepEqual(event.target, { lane: "cleanup", registryPath: "/registries/ledgers.json" });
+  assert.deepEqual(event.payload, { request: "prepare_cleanup_plan", count: 2 });
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
 test("appendEvent rejects a dry-run request missing its exact record or ledger target", () => {
   const home = freshHome();
   const session = startUserSession(home);
@@ -657,6 +719,35 @@ test("appendEvent rejects a dry-run request missing its exact record or ledger t
   assert.throws(
     () => appendEvent(home, session.id, { type: "dry_run_requested", target: { recordId: "shf_1" } }),
     /ledgerPath/i
+  );
+  assert.throws(
+    () => appendEvent(home, session.id, { type: "dry_run_requested", target: { lane: "cleanup" } }),
+    /registryPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects unsupported dashboard lane dry-run requests", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "dry_run_requested",
+        target: { lane: "trash", registryPath: "/registries/ledgers.json" },
+        payload: { request: "prepare_cleanup_plan", count: 1 }
+      }),
+    /target\.lane/
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "dry_run_requested",
+        target: { lane: "cleanup", registryPath: "/registries/ledgers.json" },
+        payload: { request: "review_delete_forever", count: 1 }
+      }),
+    /payload\.request/
   );
   assert.equal(pollPendingEvents(home, session.id).length, 0);
 });

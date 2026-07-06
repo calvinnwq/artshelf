@@ -25,17 +25,12 @@ the mechanics behind those moves.
 
 ## Contract
 
-- Before final/status/handoff/done, check whether the task created, copied,
-  exported, quarantined, backed up, or preserved any non-source file or
-  directory that may outlive this command.
-- Register meaningful eligible artifacts with `artshelf put --json`; otherwise
-  record a clear skip reason.
+- Before final/status/handoff/done, check whether the task created, copied, exported, quarantined, backed up, or preserved any non-source file or directory that may outlive this command.
+- Register meaningful eligible artifacts with `artshelf put --json`; otherwise record a clear skip reason.
 - Include reason, TTL or manual-review, cleanup mode, owner, and labels.
 - Report the Artshelf id anywhere restart or cleanup context matters.
-- Use read-only and dry-run commands freely; execute cleanup, dispose, trash
-  purge, approved bundles, or resolve only after exact human approval.
-- Do not call work done while known eligible artifacts are neither registered
-  nor explicitly skipped.
+- Use read-only and dry-run commands freely; execute cleanup, dispose, trash purge, approved bundles, or resolve only after exact human approval.
+- Do not call work done while known eligible artifacts are neither registered nor explicitly skipped.
 
 ## Setup
 
@@ -109,6 +104,12 @@ Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` for compact decisions; use `--json`
 for full audit/API payloads, custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
 For browser review sessions, use `artshelf ui`, read-only `ui dashboard --json` / `ui detail <record-id> --ledger <path> --json`, token-protected `ui serve [--json]`, `ui bundle <session-id> [<bundle-id>] --json`, `ui execute <session-id> <bundle-id> --json`, `ui poll`, `ui reply`, and `ui end`.
+The served dashboard, detail drawer, and approval workbench share one scriptless template (system fonts, inline styles, CSS `:has()`/`<details>` only - no JavaScript, matching the strict CSP).
+The dashboard now reads top to bottom as compact required-action cards with their CTAs in priority order (one-way-door purge first), an at-a-glance status summary, then collapsed source details.
+Required-action cards own their expandable row lists, and reviewers can queue recommended card approvals, lane-level choices, or individual row choices into one global `Queued for agent` submit bar.
+Bulk lane approvals carry the reviewed row set and are rejected if the lane changes before submit; conflicting card/bulk/row selections are refused.
+Dashboard dry-run lane requests map to `prepare_cleanup_plan`, `check_missing_files`, `review_delete_forever`, or `check_source_problems`.
+Sources are collapsed by default behind the source details drawer.
 Use `ui bundle` to list approved bundles or load one immutable snapshot plus its selected exact targets before live-state revalidation, then `ui execute` (the one mutating `ui` subcommand) to run an approved bundle through the revalidate -> execute -> verify loop, recording one of `executed`/`skipped_stale`/`failed`/`needs_manual_review` per target; dispose-backed targets also bind to the reviewed plan entry digest, so missing or unreadable plans, subject content drift, or same-id plan rewrites become stale before receipts instead of changing reason, subject, target, or retention semantics. `ui execute` runs only the bundle's selected exact targets; there is no `ui execute --all` broad action (it is refused), and a purge-lane target is a one-way door - the approved trashed artifact is physically deleted with no recovery path, independently verified afterward, and stamped with a per-target no-recovery receipt.
 If `ui execute` claimed an approval event as `in_progress` and stopped before final receipts, rerun the same session and bundle id to resume that claim.
 The browser captures triage intents and approval bundles only, with no direct ledger/file/trash/plan mutation and no file-content preview.
@@ -251,7 +252,6 @@ trash and dry-run purge freely; execute `artshelf trash purge --execute --plan-i
 purge execute, verify quiet with `artshelf trash list --all --json` and `artshelf review --all --json`.
 
 ## Safety
-
 - Do not register secrets or credential dumps.
 - Do not use Artshelf as a replacement for git, durable workflow ledgers, or
   backups.

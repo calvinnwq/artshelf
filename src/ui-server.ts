@@ -1,7 +1,7 @@
 import { createServer } from "node:http";
 import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
-import type { BuildDashboardOptions } from "./dashboard.js";
+import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardSnapshot } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
@@ -9,9 +9,11 @@ import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import type { AppendEventInput, ApprovalSnapshotInput } from "./session.js";
 import {
   appendEvent,
+  appendEvents,
   readApprovalSnapshot,
   readSession,
   readSessionHistory,
+  UI_DASHBOARD_LANE_REQUESTS,
   UI_DECISION_INTENTS,
   validateBrowserToken,
   writeApprovalSnapshot
@@ -73,9 +75,10 @@ const BUNDLE_PREFIX = "/bundle/";
 const INTENTS_PATH = "/intents";
 const APPROVE_PATH = "/approve";
 
-// Intents are tiny - a record id, a decision word, a short note - so the request body is capped well
-// below anything a real submission needs; a larger body is a malformed or hostile client.
-const MAX_INTENT_BODY_BYTES = 16 * 1024;
+// Detail-drawer intents are tiny, but the dashboard required-actions form also carries reviewed row
+// targets so bulk approvals can be rejected if a lane changed since render. Keep the cap bounded but
+// large enough for realistic multi-row local review dashboards.
+const MAX_INTENT_BODY_BYTES = 256 * 1024;
 const MAX_APPROVAL_BODY_BYTES = 256 * 1024;
 
 // The only event types a browser may create through /intents. The contract's decision intents (inspect, comment,
@@ -84,7 +87,6 @@ const MAX_APPROVAL_BODY_BYTES = 256 * 1024;
 // bookkeeping types (session_done, approval_bundle_submitted, session_note_added, ...) are not
 // creatable through /intents: approval bundles have their own token-gated /approve submission.
 const BROWSER_INTENT_TYPES: UiEventType[] = ["inspect_requested", "comment_added", "decision_submitted", "dry_run_requested"];
-
 export function createUiServer(options: UiServerOptions): any {
   return createServer((request: any, response: any) => {
     try {
@@ -195,9 +197,11 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
 // ledger/file/trash/plan; it only queues a pending event for the agent to poll.
 async function routeIntentSubmission(options: UiServerOptions, request: any, response: any): Promise<void> {
   let fields: Record<string, string>;
+  let multiFields: Record<string, string[]>;
   try {
     const body = await readRequestBody(request, MAX_INTENT_BODY_BYTES);
-    fields = parseFormUrlEncoded(body);
+    multiFields = parseFormUrlEncodedMulti(body);
+    fields = flattenFormFields(multiFields);
   } catch (error) {
     sendIntentError(response, error);
     return;
@@ -212,17 +216,20 @@ async function routeIntentSubmission(options: UiServerOptions, request: any, res
     return;
   }
 
-  let event;
+  let submission;
   try {
-    const intent = buildIntentInput(fields);
-    intent.target = validateIntentTarget(options, intent.target ?? {});
-    event = appendEvent(options.uiHome, options.sessionId, intent);
+    submission = buildIntentSubmission(options, fields, multiFields);
+    const validatedIntents = submission.intents.map((intent) => {
+      const validated = validateIntentTarget(options, intent.type, intent.target ?? {}, intent.payload ?? {});
+      return { ...intent, target: validated.target, payload: validated.payload };
+    });
+    appendEvents(options.uiHome, options.sessionId, validatedIntents);
   } catch (error) {
     sendIntentError(response, error);
     return;
   }
 
-  sendRedirect(response, 303, detailRedirect(event.target, fields.token ?? ""));
+  sendRedirect(response, 303, intentRedirect(submission.redirectTarget, fields.token ?? ""));
 }
 
 // Record one reviewed approval bundle (NGX-539). The form carries the source immutable bundle id plus
@@ -289,6 +296,191 @@ function authorizeBrowserWrite(options: UiServerOptions, token: string): boolean
 // types are accepted; the exact-target and payload-shape rules live in the session log's validators,
 // so this stays a thin mapping. A blank optional decision reason is dropped rather than forwarded so
 // the decision validator (which rejects a present-but-blank reason) still accepts the intent.
+type BuiltIntentSubmission = {
+  intents: AppendEventInput[];
+  redirectTarget: Record<string, unknown>;
+};
+
+function buildIntentSubmission(
+  options: UiServerOptions,
+  fields: Record<string, string>,
+  multiFields: Record<string, string[]> = {}
+): BuiltIntentSubmission {
+  if (fields.type === "required_actions_submitted") {
+    return buildRequiredActionsSubmission(options, multiFields, approvalSelections(multiFields));
+  }
+  if (fields.type === "decision_submitted" && fields.lane !== undefined) {
+    return buildBulkDecisionSubmission(options, fields, multiFields);
+  }
+  const intent = buildIntentInput(fields);
+  return { intents: [intent], redirectTarget: intent.target ?? {} };
+}
+
+function approvalSelections(fields: Record<string, string[]>): string[] {
+  const selections = fields.approval ? [...fields.approval] : [];
+  for (const [key, values] of Object.entries(fields)) {
+    if (!key.startsWith("approval:")) continue;
+    const distinct = [...new Set(values.filter((value) => isNonBlank(value)))];
+    if (distinct.length > 1) {
+      throw intentError(400, `Conflicting Artshelf UI approval values for ${key}`);
+    }
+    const selected = distinct[0];
+    if (selected !== undefined) selections.push(selected);
+  }
+  return [...new Set(selections.filter((value) => isNonBlank(value)))];
+}
+
+function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record<string, string[]>, approvals: string[]): BuiltIntentSubmission {
+  if (approvals.length === 0) {
+    throw intentError(400, "Select at least one required action before submitting to the agent");
+  }
+  const snapshot = buildDashboard(dashboardOptions(options));
+  const intents: AppendEventInput[] = [];
+  const rowDecisions = new Map<string, RowDecisionApproval>();
+  const bulkDecisions = new Map<RowDecisionApproval["lane"], string>();
+  for (const approval of approvals) {
+    const [kind, lane, action, extra] = approval.split(":");
+    if (kind === "row-decision") {
+      const parsed = parseRowDecisionApproval(approval);
+      addRowDecisionApproval(rowDecisions, parsed);
+      continue;
+    }
+    if (extra !== undefined || !isNonBlank(action)) {
+      throw intentError(400, `Invalid Artshelf UI required action approval "${approval}"`);
+    }
+    if (kind === "decision") {
+      if (!isBulkDecisionLane(lane)) {
+        throw intentError(400, `Invalid Artshelf UI required action decision lane "${lane}"`);
+      }
+      addBulkDecisionApproval(bulkDecisions, lane, action);
+    } else if (kind === "request") {
+      if (!isDashboardRequestLane(lane)) {
+        throw intentError(400, `Invalid Artshelf UI required action request lane "${String(lane)}"`);
+      }
+      const expectedRequest = UI_DASHBOARD_LANE_REQUESTS[lane];
+      if (action !== expectedRequest) {
+        throw intentError(400, `Invalid Artshelf UI required action request "${action}" for lane ${lane}`);
+      }
+      intents.push({ type: "dry_run_requested", target: { lane }, payload: { request: action, label: requiredActionRequestLabel(lane) } });
+    } else {
+      throw intentError(400, `Invalid Artshelf UI required action approval "${approval}"`);
+    }
+  }
+  rejectConflictingRequiredActionSelections(bulkDecisions, rowDecisions);
+  for (const [lane, decision] of bulkDecisions) {
+    validateReviewedBulkLaneRows(snapshot, fields, lane);
+    intents.push(...buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision).intents);
+  }
+  for (const rowDecision of rowDecisions.values()) {
+    intents.push(...buildRowDecisionSubmissionFromSnapshot(snapshot, rowDecision).intents);
+  }
+  return { intents, redirectTarget: { dashboard: "required-actions" } };
+}
+
+type RowDecisionApproval = {
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve";
+  decision: string;
+  recordId: string;
+  ledgerPath: string;
+};
+
+function parseRowDecisionApproval(approval: string): RowDecisionApproval {
+  const [kind, lane, decision, encodedRecordId, encodedLedgerPath, extra] = approval.split(":");
+  if (
+    kind !== "row-decision" ||
+    extra !== undefined ||
+    lane === undefined ||
+    !isBulkDecisionLane(lane) ||
+    decision === undefined ||
+    !(UI_DECISION_INTENTS as string[]).includes(decision) ||
+    !isNonBlank(encodedRecordId) ||
+    !isNonBlank(encodedLedgerPath)
+  ) {
+    throw intentError(400, `Invalid Artshelf UI row approval "${approval}"`);
+  }
+  try {
+    const recordId = decodeURIComponent(encodedRecordId);
+    const ledgerPath = decodeURIComponent(encodedLedgerPath);
+    if (!isNonBlank(recordId) || !isNonBlank(ledgerPath)) throw new Error("blank row target");
+    return { lane, decision, recordId, ledgerPath };
+  } catch {
+    throw intentError(400, `Invalid Artshelf UI row approval "${approval}"`);
+  }
+}
+
+function rowDecisionKey(row: Pick<RowDecisionApproval, "lane" | "recordId" | "ledgerPath">): string {
+  return `${row.lane}\0${row.recordId}\0${row.ledgerPath}`;
+}
+
+function addBulkDecisionApproval(decisions: Map<RowDecisionApproval["lane"], string>, lane: RowDecisionApproval["lane"], decision: string): void {
+  const existing = decisions.get(lane);
+  if (existing !== undefined && existing !== decision) {
+    throw intentError(400, `Conflicting Artshelf UI selections for ${lane}: choose one bulk decision`);
+  }
+  decisions.set(lane, decision);
+}
+
+function addRowDecisionApproval(decisions: Map<string, RowDecisionApproval>, decision: RowDecisionApproval): void {
+  const key = rowDecisionKey(decision);
+  const existing = decisions.get(key);
+  if (existing !== undefined && existing.decision !== decision.decision) {
+    throw intentError(400, `Conflicting Artshelf UI row selections for ${decision.lane}: choose one decision for ${decision.recordId}`);
+  }
+  decisions.set(key, decision);
+}
+
+function rejectConflictingRequiredActionSelections(
+  bulkDecisions: Map<RowDecisionApproval["lane"], string>,
+  rowDecisions: Map<string, RowDecisionApproval>
+): void {
+  const bulkLanes = new Set(bulkDecisions.keys());
+  const conflictingLanes = [...new Set([...rowDecisions.values()].map((decision) => decision.lane).filter((lane) => bulkLanes.has(lane)))];
+  if (conflictingLanes.length > 0) {
+    throw intentError(
+      400,
+      `Conflicting Artshelf UI selections for ${conflictingLanes.join(", ")}: choose either the card/bulk approval or individual row choices, not both`
+    );
+  }
+}
+
+function validateReviewedBulkLaneRows(
+  snapshot: DashboardSnapshot,
+  fields: Record<string, string[]>,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve"
+): void {
+  const current = new Set(dashboardArtifactRowsForLane(snapshot, lane).map((row) => rowDecisionKey({ lane, recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" })));
+  const reviewed = reviewedBulkLaneRows(fields, lane);
+  if (reviewed.size !== current.size || [...reviewed].some((key) => !current.has(key))) {
+    throw intentError(409, `Dashboard lane ${lane} changed since this page loaded; reload the dashboard before submitting bulk approvals`);
+  }
+}
+
+function reviewedBulkLaneRows(fields: Record<string, string[]>, lane: "needs-review" | "needs-context" | "cleanup" | "resolve"): Set<string> {
+  const values = fields[`reviewed:${lane}`] ?? [];
+  const rows = new Set<string>();
+  for (const value of values) {
+    const [encodedRecordId, encodedLedgerPath, extra] = value.split(":");
+    if (extra !== undefined || !isNonBlank(encodedRecordId) || !isNonBlank(encodedLedgerPath)) {
+      throw intentError(400, `Invalid Artshelf UI reviewed row target for lane ${lane}`);
+    }
+    try {
+      const recordId = decodeURIComponent(encodedRecordId);
+      const ledgerPath = decodeURIComponent(encodedLedgerPath);
+      if (!isNonBlank(recordId) || !isNonBlank(ledgerPath)) throw new Error("blank reviewed target");
+      rows.add(rowDecisionKey({ lane, recordId, ledgerPath }));
+    } catch {
+      throw intentError(400, `Invalid Artshelf UI reviewed row target for lane ${lane}`);
+    }
+  }
+  return rows;
+}
+
+function requiredActionRequestLabel(lane: DashboardBucketKey): string {
+  if (lane === "purge-candidates") return "Review delete";
+  if (lane === "registry-reconcile") return "Check source";
+  return UI_DASHBOARD_LANE_REQUESTS[lane] ?? lane;
+}
+
 function buildIntentInput(fields: Record<string, string>): AppendEventInput {
   const type = fields.type ?? "";
   if (!isBrowserIntentType(type)) {
@@ -298,6 +490,7 @@ function buildIntentInput(fields: Record<string, string>): AppendEventInput {
   const target: Record<string, unknown> = {};
   if (fields.recordId !== undefined) target.recordId = fields.recordId;
   if (fields.ledgerPath !== undefined) target.ledgerPath = fields.ledgerPath;
+  if (fields.lane !== undefined) target.lane = fields.lane;
 
   const payload: Record<string, unknown> = {};
   if (type === "comment_added") {
@@ -314,9 +507,118 @@ function buildIntentInput(fields: Record<string, string>): AppendEventInput {
     }
     payload.decision = fields.decision;
     if (isNonBlank(fields.reason)) payload.reason = fields.reason;
+  } else if (type === "dry_run_requested") {
+    if (isNonBlank(fields.request)) payload.request = fields.request;
+    if (isNonBlank(fields.label)) payload.label = fields.label;
   }
 
   return { type, target, payload };
+}
+
+function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<string, string>, multiFields: Record<string, string[]>): BuiltIntentSubmission {
+  const lane = fields.lane ?? "";
+  if (!isBulkDecisionLane(lane)) {
+    throw intentError(400, `Invalid Artshelf UI bulk decision lane "${lane}"`);
+  }
+  const decision = fields.decision;
+  if (decision === undefined || !isDecisionAllowedForLane(lane, decision)) {
+    throw intentError(
+      400,
+      `Invalid Artshelf UI decision intent "${String(decision)}"; expected one of: ${UI_DECISION_INTENTS.join(", ")}`
+    );
+  }
+
+  const snapshot = buildDashboard(dashboardOptions(options));
+  validateReviewedBulkLaneRows(snapshot, multiFields, lane);
+  return buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision, undefined, fields.reason);
+}
+
+function buildBulkDecisionSubmissionFromSnapshot(
+  snapshot: DashboardSnapshot,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  decision: string,
+  rowDecision?: (row: DashboardArtifactRow) => string,
+  reason?: string
+): BuiltIntentSubmission {
+  if (!isDecisionAllowedForLane(lane, decision)) {
+    throw intentError(
+      400,
+      `Invalid Artshelf UI decision intent "${String(decision)}"; expected one of: ${UI_DECISION_INTENTS.join(", ")}`
+    );
+  }
+  const rows = dashboardArtifactRowsForLane(snapshot, lane);
+  if (rows.length === 0) {
+    throw intentError(400, `Dashboard lane ${lane} has no records for a bulk decision`);
+  }
+
+  return {
+    intents: rows.map((row) => {
+      const decisionForRow = rowDecision?.(row) ?? decision;
+      if (!isDecisionAllowedForLane(lane, decisionForRow)) {
+        throw intentError(400, `Invalid Artshelf UI decision intent "${decisionForRow}" for lane ${lane}`);
+      }
+      return {
+        type: "decision_submitted",
+        target: { recordId: row.recordId, ledgerPath: row.ledgerPath },
+        payload: {
+          decision: decisionForRow,
+          lane,
+          bulk: true,
+          count: rows.length,
+          ...(isNonBlank(reason) ? { reason } : {})
+        }
+      };
+    }),
+    redirectTarget: { lane }
+  };
+}
+
+function buildRowDecisionSubmissionFromSnapshot(snapshot: DashboardSnapshot, rowDecision: RowDecisionApproval): BuiltIntentSubmission {
+  if (!isDecisionAllowedForLane(rowDecision.lane, rowDecision.decision)) {
+    throw intentError(400, `Invalid Artshelf UI decision intent "${rowDecision.decision}" for lane ${rowDecision.lane}`);
+  }
+  const row = dashboardArtifactRowsForLane(snapshot, rowDecision.lane).find(
+    (candidate) => candidate.recordId === rowDecision.recordId && candidate.ledgerPath === rowDecision.ledgerPath
+  );
+  if (row === undefined) {
+    throw intentError(400, `Dashboard lane ${rowDecision.lane} has no matching row ${rowDecision.recordId} for a row decision`);
+  }
+  return {
+    intents: [
+      {
+        type: "decision_submitted",
+        target: { recordId: row.recordId, ledgerPath: row.ledgerPath },
+        payload: {
+          decision: rowDecision.decision,
+          lane: rowDecision.lane,
+          bulk: false,
+          count: 1
+        }
+      }
+    ],
+    redirectTarget: { lane: rowDecision.lane }
+  };
+}
+
+function isDecisionAllowedForLane(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", decision: string): boolean {
+  return lane === "resolve" ? decision === "keep" || decision === "resolve" : decision === "keep" || decision === "trash";
+}
+
+function isBulkDecisionLane(value: unknown): value is "needs-review" | "needs-context" | "cleanup" | "resolve" {
+  return value === "needs-review" || value === "needs-context" || value === "cleanup" || value === "resolve";
+}
+
+function dashboardArtifactRowsForLane(snapshot: DashboardSnapshot, lane: "needs-review" | "needs-context" | "cleanup" | "resolve"): DashboardArtifactRow[] {
+  switch (lane) {
+    case "needs-review":
+      return snapshot.buckets.needsReview;
+    case "needs-context":
+      return snapshot.buckets.needsContext;
+    case "cleanup":
+      return snapshot.buckets.cleanup;
+    case "resolve":
+      return snapshot.buckets.resolve;
+  }
 }
 
 function buildApprovalInput(options: UiServerOptions, fields: Record<string, string[]>): ApprovalSnapshotInput {
@@ -342,7 +644,16 @@ function isBrowserIntentType(value: string): value is UiEventType {
 // render from a real detail drawer, but a same-machine client with the token could still POST by
 // hand; the server therefore verifies that the record exists in a ledger inside this served scope and
 // enriches the compact target with the human-readable ledger name when the registry knows one.
-function validateIntentTarget(options: UiServerOptions, target: Record<string, unknown>): Record<string, unknown> {
+function validateIntentTarget(
+  options: UiServerOptions,
+  type: UiEventType,
+  target: Record<string, unknown>,
+  payload: Record<string, unknown>
+): { target: Record<string, unknown>; payload: Record<string, unknown> } {
+  if (typeof target.lane === "string" || target.lane !== undefined) {
+    return validateDashboardLaneTarget(options, type, target, payload);
+  }
+
   const recordId = typeof target.recordId === "string" ? target.recordId : "";
   const requestedLedgerPath = typeof target.ledgerPath === "string" ? target.ledgerPath : "";
   if (!isNonBlank(recordId)) throw intentError(400, "Invalid Artshelf UI event target.recordId; expected a non-empty string");
@@ -359,12 +670,60 @@ function validateIntentTarget(options: UiServerOptions, target: Record<string, u
     const detailOptions: BuildArtifactDetailOptions = { recordId, ledgerPath };
     if (options.registryPath !== undefined) detailOptions.registryPath = options.registryPath;
     const detail = buildArtifactDetail(detailOptions);
-    return detail.ledgerName
+    const validatedTarget = detail.ledgerName
       ? { ...target, recordId: detail.recordId, ledgerPath: detail.ledgerPath, ledgerName: detail.ledgerName }
       : { ...target, recordId: detail.recordId, ledgerPath: detail.ledgerPath };
+    return { target: validatedTarget, payload };
   } catch (error) {
     throw intentError(400, `Invalid intent target: ${errorMessage(error)}`);
   }
+}
+
+function validateDashboardLaneTarget(
+  options: UiServerOptions,
+  type: UiEventType,
+  target: Record<string, unknown>,
+  payload: Record<string, unknown>
+): { target: Record<string, unknown>; payload: Record<string, unknown> } {
+  if (type !== "dry_run_requested") {
+    throw intentError(400, "Dashboard lane buttons may only record dry-run request intents");
+  }
+  const lane = target.lane;
+  if (!isDashboardRequestLane(lane)) {
+    throw intentError(400, `Invalid Artshelf UI dashboard lane "${String(lane)}"`);
+  }
+  const expectedRequest = UI_DASHBOARD_LANE_REQUESTS[lane];
+  if (payload.request !== expectedRequest) {
+    throw intentError(400, `Invalid Artshelf UI dashboard request "${String(payload.request)}" for lane ${lane}`);
+  }
+
+  const snapshot = buildDashboard(dashboardOptions(options));
+  const count = dashboardLaneCount(snapshot, lane);
+  if (count <= 0) {
+    throw intentError(400, `Dashboard lane ${lane} has no work to request`);
+  }
+
+  const validatedTarget: Record<string, unknown> = { lane, registryPath: normalizeRegistryPath(options.registryPath) };
+  if (options.ledgerPath !== undefined) validatedTarget.ledgerPath = normalizeLedgerPath(options.ledgerPath);
+  return {
+    target: validatedTarget,
+    payload: {
+      request: expectedRequest,
+      ...(typeof payload.label === "string" && payload.label.trim().length > 0 ? { label: payload.label } : {}),
+      count
+    }
+  };
+}
+
+function isDashboardRequestLane(value: unknown): value is DashboardBucketKey {
+  return typeof value === "string" && Object.prototype.hasOwnProperty.call(UI_DASHBOARD_LANE_REQUESTS, value);
+}
+
+function dashboardLaneCount(snapshot: DashboardSnapshot, lane: DashboardBucketKey): number {
+  if (lane === "registry-reconcile") {
+    return snapshot.counts["registry-reconcile"] + snapshot.ledgers.filter((ledger) => !ledger.ok).length;
+  }
+  return snapshot.counts[lane] ?? 0;
 }
 
 function isNonBlank(value: string | undefined): value is string {
@@ -381,6 +740,18 @@ function detailRedirect(target: Record<string, unknown>, token: string): string 
   if (token) params.push(`token=${encodeURIComponent(token)}`);
   const query = params.length > 0 ? `?${params.join("&")}` : "";
   return `${DETAIL_PREFIX}${encodeURIComponent(recordId)}${query}`;
+}
+
+function intentRedirect(target: Record<string, unknown>, token: string): string {
+  if (target.dashboard === "required-actions") {
+    const query = token ? `?token=${encodeURIComponent(token)}` : "";
+    return `/${query}#required-actions`;
+  }
+  if (typeof target.lane === "string") {
+    const query = token ? `?token=${encodeURIComponent(token)}` : "";
+    return `/${query}#lane-${encodeURIComponent(target.lane)}`;
+  }
+  return detailRedirect(target, token);
 }
 
 function bundleRedirect(bundleId: string, token: string): string {
@@ -410,10 +781,7 @@ function readRequestBody(request: any, limitBytes: number): Promise<string> {
   });
 }
 
-// Minimal application/x-www-form-urlencoded parsing for the flat intent fields, mirroring the read
-// surface's query decoding (+ -> space, percent-decoding). Later duplicate keys win.
-function parseFormUrlEncoded(body: string): Record<string, string> {
-  const multi = parseFormUrlEncodedMulti(body);
+function flattenFormFields(multi: Record<string, string[]>): Record<string, string> {
   const fields: Record<string, string> = {};
   for (const [key, values] of Object.entries(multi)) fields[key] = values[values.length - 1] ?? "";
   return fields;

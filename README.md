@@ -123,7 +123,7 @@ everyone confirms the next read-only review is quiet.
   registry mutations take a cross-process lock so overlapping commands never
   lose records or leave a half-written ledger.
 - **`--json` on every command**, so agents can act on structured output.
-- **`artshelf ui` keeps browser review non-mutating and routes execution through `ui execute`**, with read-only dashboard/detail/bundle views plus a session loop where the browser captures human triage intents and approval bundles while the agent polls, runs the approved bundle through exact-target approval-gated paths, verifies live state, and replies with receipts.
+- **`artshelf ui` keeps browser review non-mutating and routes execution through `ui execute`**, with read-only CLI snapshots, served dashboard/detail/bundle pages that only write session events, and a session loop where the browser captures human triage intents and approval bundles while the agent polls, runs the approved bundle through exact-target approval-gated paths, verifies live state, and replies with receipts.
 - **`--agent` on `review`/`status`/`doctor`, `ledgers prune --dry-run`,
   `dispose --dry-run`, and `get --inspect`**, a compact, token-efficient decision packet for agents,
   while the default render stays human-scannable.
@@ -241,12 +241,16 @@ directory so the renderer, schema, and examples travel together.
 The `artshelf ui` command family exposes the agent-mediated review loop plus read-only review views.
 Use `artshelf ui dashboard --json` for a multi-ledger snapshot with needs-review, needs-context, cleanup, resolve, trash, purge-candidates, registry/reconcile, and recent-receipts buckets.
 Use `artshelf ui detail <record-id> --ledger <path> --json` for the artifact detail drawer: metadata, path label, original reason, provenance, audit trail, existence facts, inspect-card recommendation, needs-context badge, and last action.
-Both views are read-only and never preview file contents.
+The read-only dashboard/detail views never preview file contents.
 Run `artshelf ui serve [--scope user|repo] [--port <port>] [--json]` to open those same dashboard and detail surfaces as a local browser page; it binds to loopback (127.0.0.1) only, recomputes live state on every request, ships no script and no file contents, requires the active UI session capability token printed in the serve URL, and runs in the foreground until you press Ctrl-C.
 The served pages also expose `GET /bundle/<bundle-id>`: an approval workbench that reopens one persisted approval bundle and shows the deliberately selected exact targets, the exact action, and the reviewed-only rows.
 With the active token, its scriptless form lets a reviewer keep or deselect rows and submit a revised non-empty subset through `POST /approve`, creating a new immutable approval snapshot without editing the original bundle or executing a workflow.
 That approval submit carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle instead of trusting hidden browser target JSON.
-On the served page the dashboard stays display-only, while the detail drawer adds scriptless forms that capture lightweight human triage intents - inspect, comment, keep/trash/resolve/defer, and dry-run request - as pending session events for the agent to act on after approval.
+On the served page the dashboard presents compact required-action cards before the status summary and collapsed source details.
+Reviewers can queue recommended card approvals, lane-level keep/trash/resolve choices, individual row choices, and dashboard dry-run requests into one `Queued for agent` submit bar, while conflicting card/bulk/row selections are refused.
+Bulk lane approvals carry the reviewed row set from the loaded dashboard and are rejected if the lane changed before submit.
+Dashboard dry-run requests enter the agent queue as lane events: cleanup prepares a cleanup plan, resolve checks missing files, purge-candidates requests delete review, and registry/reconcile checks source problems.
+The detail drawer adds record-level forms for inspect, comment, keep/trash/resolve/defer, and dry-run requests.
 The session command defaults to user-level, multi-ledger review, stores sessions under `~/.artshelf/ui`, and accepts `--scope repo` or `--ledger <path>` when a narrower session is needed.
 Set `ARTSHELF_UI_HOME` only for tests or controlled hosts that need to move that durable session home.
 The browser side records exact-target triage intents and approval bundle submissions into the session log; agents poll with `artshelf ui poll <session-id> --json`, use `artshelf ui execute` for approved bundles or run existing approval-gated Artshelf commands after human approval, reply with receipts through `artshelf ui reply`, and close the session with `artshelf ui end`.

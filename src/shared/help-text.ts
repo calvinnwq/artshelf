@@ -40,7 +40,7 @@ Available Commands:
   (start)     Start or resume a browser review session (default, no subcommand)
   dashboard   Show the read-only multi-ledger review dashboard
   detail      Show the read-only artifact detail drawer for one record
-  serve       Serve the read-only dashboard and drawers in a local browser
+  serve       Serve dashboard and drawers in a local browser
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
   bundle      Load or list persisted approval bundles for the agent
@@ -532,11 +532,16 @@ workbench as a local browser surface. It binds to loopback (127.0.0.1) only,
 never a wildcard interface, and recomputes live state on every request. Pages
 require the active UI session capability token printed in the serve URL; ending
 that session revokes browser access. The pages carry no script and embed no file
-contents. The dashboard only displays state; the detail drawer captures human
-triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) and
-the bundle workbench captures revised approval selections as pending session
-events through token-bound POSTs, but never mutates ledgers, files, trash, or plans
-directly. Approval posts carry only the source bundle id and selected target ids;
+contents. The dashboard lets reviewers queue recommended lane approvals and then
+submit the selected work as pending session events. Bulk lane approvals are bound
+to the reviewed row set and stale or conflicting card/bulk/row selections are
+rejected before they enter the agent queue. Dashboard dry-run lane requests map
+to prepare_cleanup_plan, check_missing_files, review_delete_forever, or
+check_source_problems. The detail drawer captures
+record-level triage intents (inspect, comment, keep/trash/resolve/defer, dry-run
+request), and the bundle workbench captures revised approval selections through
+token-bound POSTs, but never mutates ledgers, files, trash, or plans directly.
+Approval posts carry only the source bundle id and selected target ids;
 the server rehydrates target context from the stored bundle instead of trusting
 hidden browser target JSON. The process runs in the foreground; press Ctrl-C to
 stop it.
