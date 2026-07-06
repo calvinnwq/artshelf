@@ -321,7 +321,11 @@ function approvalSelections(fields: Record<string, string[]>): string[] {
   const selections = fields.approval ? [...fields.approval] : [];
   for (const [key, values] of Object.entries(fields)) {
     if (!key.startsWith("approval:")) continue;
-    const selected = values.filter((value) => isNonBlank(value)).at(-1);
+    const distinct = [...new Set(values.filter((value) => isNonBlank(value)))];
+    if (distinct.length > 1) {
+      throw intentError(400, `Conflicting Artshelf UI approval values for ${key}`);
+    }
+    const selected = distinct[0];
     if (selected !== undefined) selections.push(selected);
   }
   return [...new Set(selections.filter((value) => isNonBlank(value)))];

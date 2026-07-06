@@ -619,7 +619,7 @@ test("POST /intents records required-action approvals only after the final submi
     const params = new URLSearchParams();
     params.append("token", server.token);
     params.append("type", "required_actions_submitted");
-    params.append("approval:cleanup", "decision:cleanup:keep");
+    params.append("approval:cleanup", "decision:cleanup:trash");
     params.append("approval:cleanup", "decision:cleanup:trash");
     params.append("approval:purge-candidates", "request:purge-candidates:review_delete_forever");
     params.append("approval:needs-review", "");
@@ -646,7 +646,7 @@ test("POST /intents records required-action approvals only after the final submi
         .filter((event) => event.type === "decision_submitted")
         .map((event) => event.payload.decision),
       ["trash", "trash"],
-      "the last selected lane-scoped value wins within a bulk choice group"
+      "duplicate identical lane-scoped values are tolerated"
     );
     assert.deepEqual(
       pending
@@ -659,6 +659,40 @@ test("POST /intents records required-action approvals only after the final submi
     assert.deepEqual(request.target, { lane: "purge-candidates", registryPath });
     assert.equal(request.payload.request, "review_delete_forever");
     assert.equal(request.payload.label, "Review delete");
+  });
+});
+
+test("POST /intents rejects conflicting repeated required-action approval values", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:keep");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", ledgerPath);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Conflicting Artshelf UI approval values for approval:cleanup/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "conflicting repeated approvals must not enter the agent queue");
   });
 });
 
