@@ -102,7 +102,7 @@ a:hover{ text-decoration-color:var(--accent); }
 code{ font-family:var(--mono); font-size:.92em; }
 .num{ font-variant-numeric:tabular-nums; }
 .muted{ color:var(--ink-3); }
-.wrap{ max-width:1080px; margin:0 auto; padding:0 24px 72px; }
+.wrap{ max-width:1040px; margin:0 auto; padding:0 24px 72px; }
 .eyebrow{ font:600 11px/1 var(--mono); letter-spacing:.16em; text-transform:uppercase; color:var(--ink-3); margin:0 0 14px; display:flex; align-items:center; gap:8px; }
 .eyebrow::after{ content:""; flex:1; height:1px; background:linear-gradient(90deg,var(--line),transparent); }
 section.block{ margin-top:36px; }
@@ -122,7 +122,15 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .guard svg{ flex:none; margin-top:1px; color:var(--accent); }
 
 /* ---- required actions ---- */
-.review-form{ display:block; margin:0; }
+.review-form{ margin:0; }
+.review-shell{ min-height:100vh; display:grid; grid-template-columns:minmax(0,1fr) minmax(340px,400px); gap:0; align-items:stretch; }
+.review-main{ min-width:0; }
+.agent-rail{ min-width:0; min-height:100vh; background:var(--surface); border-left:1px solid var(--line); }
+.agent-rail-inner{ position:sticky; top:0; height:100vh; display:flex; flex-direction:column; gap:12px; overflow:auto; padding:18px; }
+.agent-rail .block{ margin-top:0; }
+.agent-rail-title{ display:flex; align-items:center; justify-content:space-between; gap:10px; padding:0 2px; font:600 11px/1 var(--mono); letter-spacing:.14em; text-transform:uppercase; color:var(--ink-3); }
+.agent-rail-title span:last-child{ letter-spacing:0; text-transform:none; font:12px/1.35 var(--sans); color:var(--ink-3); }
+.agent-rail .required-submit{ position:sticky; top:0; z-index:4; background:var(--surface); }
 .acts{ display:grid; grid-template-columns:1fr; gap:8px; }
 .act{ position:relative; display:block; background:var(--surface); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); overflow:hidden; }
 .act > summary{ list-style:none; cursor:pointer; display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; gap:10px 13px; align-items:center; padding:10px 12px; }
@@ -149,13 +157,14 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .approve-choice:has(input:checked) .approve{ display:none; }
 .approve-choice:has(input:checked) .queued{ display:inline; }
 .approve-choice:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
+.approve-choice.submitted,.bulk-choice.submitted,.row-choice.submitted{ opacity:1!important; pointer-events:none; cursor:not-allowed; filter:none!important; }
 .act:has(.row-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(> summary .approve-choice input:checked) .row-actions .row-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(.bulk-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(> summary .approve-choice input:checked) .lane-actions .bulk-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
-.required-submit{ position:sticky; bottom:0; z-index:4; margin-top:16px; padding:12px 14px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; background:var(--surface); border:1px solid var(--line-2); border-radius:12px; box-shadow:0 -8px 28px -18px rgba(0,0,0,.45), var(--shadow); }
+.required-submit{ padding:12px 14px; display:grid; gap:10px; background:var(--surface); border:1px solid var(--line-2); border-radius:12px; box-shadow:var(--shadow); }
 .required-submit .copy{ color:var(--ink-2); font-size:12.5px; }
-.required-submit button{ border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:9px; padding:10px 14px; font:700 13px/1 var(--sans); cursor:pointer; }
+.required-submit button{ width:100%; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:9px; padding:10px 14px; font:700 13px/1 var(--sans); cursor:pointer; }
 .act .cta{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start; padding:8px 13px; border-radius:8px; font:600 13px/1 var(--sans); text-decoration:none; border:1px solid transparent; color:#fff; cursor:pointer; }
 .act .cta svg{ transition:transform .14s ease; } .act .cta:hover svg{ transform:translateX(3px); }
 .act.danger .cta{ background:var(--danger); } .act.attn .cta{ background:var(--attn); } .act.go .cta{ background:var(--accent); }
@@ -163,7 +172,8 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .act .cta.calm{ background:var(--surface-2); color:var(--ink); border-color:var(--line-2); }
 .act .cta.keep{ background:var(--good-soft); color:var(--good); border-color:var(--good-line); }
 .act .cta.trash{ background:var(--danger); color:#fff; border-color:var(--danger); }
-@media (max-width:720px){ .act > summary{ grid-template-columns:auto auto minmax(0,1fr); } .act-actions{ grid-column:2 / -1; justify-self:start; justify-content:flex-start; } .act .n{ min-width:28px; } }
+@media (max-width:980px){ .review-shell{ min-height:0; grid-template-columns:1fr; } .agent-rail{ order:2; min-height:0; border-left:0; border-top:1px solid var(--line); } .agent-rail-inner{ position:static; height:auto; overflow:visible; } .agent-rail .required-submit{ position:static; } .session-activity{ flex:none; overflow:visible; } }
+@media (max-width:720px){ .wrap{ padding:0 16px 56px; } .review-shell{ gap:0; } .act > summary{ grid-template-columns:auto auto minmax(0,1fr); } .act-actions{ grid-column:2 / -1; justify-self:start; justify-content:flex-start; } .act .n{ min-width:28px; } }
 @media (prefers-color-scheme: dark){ .act.danger .cta,.act.attn .cta,.act.go .cta,.approve-choice,.required-submit button{ color:#0e120f; } }
 .allclear{ display:flex; align-items:center; gap:12px; padding:18px 20px; background:var(--good-soft); border:1px solid var(--good-line); border-radius:13px; color:var(--good); font-weight:600; }
 
@@ -257,8 +267,12 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .review-form:has(input[name="approval:registry-reconcile"][value="request:registry-reconcile:check_source_problems"]:checked) .queued-list li[data-approval-value="request:registry-reconcile:check_source_problems"]{ display:list-item; }
 .rows{ display:grid; gap:0; }
 .queue-row{ display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,auto); gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); background:var(--surface); }
+.approval-row{ grid-template-columns:minmax(0,1fr) minmax(160px,240px); }
 .queue-row:last-child{ border-bottom:0; }
 .queue-row:hover{ background:var(--surface-2); }
+.approval-target{ grid-column:1 / -1; margin-top:2px; padding-top:10px; border-top:1px solid var(--line); }
+.approval-target summary{ cursor:pointer; font:700 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); }
+.approval-target code{ display:block; margin-top:7px; color:var(--ink-2); white-space:normal; overflow-wrap:anywhere; word-break:break-word; }
 .row-head{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px; }
 .id{ font:600 12.5px/1.3 var(--mono); white-space:nowrap; }
 .id a{ text-decoration:none; } .id a:hover{ text-decoration:underline; }
@@ -293,7 +307,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .legend .pip{ width:8px; height:8px; border-radius:50%; }
 
 /* ---- session activity ---- */
-.session-activity{ background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:16px 18px; }
+.session-activity{ background:var(--surface); border:1px solid var(--line); border-radius:14px; box-shadow:var(--shadow); padding:16px 18px; flex:1; min-height:0; overflow:auto; }
 .session-head{ display:flex; flex-wrap:wrap; gap:8px 12px; align-items:center; justify-content:space-between; margin-bottom:10px; }
 .session-head .title{ font:650 15px/1.2 var(--sans); }
 .session-confirm{ margin:0 0 12px; padding:10px 12px; border:1px solid var(--good-line); background:var(--good-soft); color:var(--good); border-radius:9px; font-weight:700; }
@@ -305,11 +319,16 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .safety-line{ margin:8px 0 0; font-weight:700; color:var(--accent-ink); font-size:13px; }
 .activity-list{ display:grid; gap:8px; margin-top:12px; }
 .activity-card{ border:1px solid var(--line); background:var(--raise); border-radius:10px; padding:11px 12px; }
+.activity-card.good{ border-color:var(--good-line); background:var(--good-soft); }
+.activity-card.warn{ border-color:var(--attn-line); background:var(--attn-soft); }
 .activity-card.bad{ border-color:var(--danger-line); background:var(--danger-soft); }
 .activity-card .topline{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:5px; }
 .activity-card .name{ font-weight:700; }
 .activity-card .detail{ margin:0; color:var(--ink-2); font-size:12.5px; }
 .activity-card .mono{ font-family:var(--mono); font-size:12px; color:var(--ink-2); word-break:break-all; }
+.activity-actions{ display:flex; flex-wrap:wrap; gap:6px; margin-top:9px; }
+.unqueue-btn{ border:1px solid var(--attn-line); background:var(--surface); color:var(--attn); border-radius:8px; padding:6px 9px; font:700 12px/1 var(--sans); cursor:pointer; }
+.unqueue-btn:hover{ border-color:var(--attn); background:var(--attn-soft); }
 .reply-card{ margin-top:8px; padding:9px 10px; border:1px solid var(--good-line); background:var(--good-soft); border-radius:9px; }
 .reply-card.final{ border-color:var(--accent); background:var(--accent-soft); }
 .reply-card.bad{ border-color:var(--danger-line); background:var(--danger-soft); }
@@ -418,6 +437,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
   .decide{ position:static; }
   .stage .hint{ display:none; }
   .queue-row{ grid-template-columns:1fr; }
+  .approval-row{ grid-template-columns:1fr; }
   .row-side{ align-items:flex-start; text-align:left; }
   .dbtns{ grid-template-columns:1fr; }
   .approve-actions{ margin-left:-16px; margin-right:-16px; padding-left:16px; padding-right:16px; }
@@ -476,6 +496,7 @@ export type DashboardSessionActivityRender = {
   submittedCount?: number | null;
   activityHref?: string;
   scriptNonce?: string;
+  includeScript?: boolean;
 };
 
 export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string, activity: DashboardSessionActivityRender = {}): string {
@@ -486,37 +507,43 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const ledgerIndex = new Map(ledgers.map((ledger, i) => [ledger.path, i]));
   const history = activity.history ?? [];
   const rowActivity = recordActivityIndex(history);
+  const pendingActions = pendingActionIndex(history);
+  const preparedPlans = livePreparedPlanIndex(preparedPlanIndex(history), snapshot);
+  const visibleRows = visibleRequiredActionRows(snapshot, preparedPlans);
 
-  const actionCount = counts["needs-review"] + counts["needs-context"] + counts.cleanup + counts.resolve;
+  const actionCount = visibleRows.needsReview.length + visibleRows.needsContext.length + visibleRows.cleanup.length + visibleRows.resolve.length + preparedPlans.size;
   const problemsCount = counts["registry-reconcile"] + badLedgers;
   const doneCount = counts["recent-receipts"];
-  const queuedItems = queuedApprovalItems(snapshot, badLedgers);
-  const activityOptions: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string } = {
+  const queuedItems = queuedApprovalItems(snapshot, badLedgers, visibleRows, preparedPlans);
+  const hasCancelableItems = hasCancelableQueuedItems(history);
+  const activityOptions: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {
     submittedCount: activity.submittedCount ?? null
   };
   if (activity.activityHref !== undefined) activityOptions.activityHref = activity.activityHref;
   if (activity.scriptNonce !== undefined) activityOptions.scriptNonce = activity.scriptNonce;
-  const dashboard = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity)}
-${renderDashboardActivityFragment(history, activityOptions)}
+  if (activity.includeScript !== undefined) activityOptions.includeScript = activity.includeScript;
+  const mainSurface = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity, pendingActions, preparedPlans, visibleRows)}
 ${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
 ${ledgerHealthSection(ledgers)}
 ${activitySection(snapshot, token, ledgerIndex)}`;
-
-  const reviewSurface = token && queuedItems.length > 0
-    ? `<form class="review-form" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${reviewedLaneInputs(snapshot)}${dashboard}${globalSubmitBar(queuedItems)}</form>`
-    : dashboard;
-
-  const body = `<header class="top">
+  const masthead = `<header class="top">
 <div class="wrap">
 <div class="brand"><span class="dot"></span>Artshelf &middot; Human Review</div>
 <h1>Review dashboard</h1>
 <div class="meta"><span><b>${ledgers.length}</b> ledger(s) &middot; <b>${okLedgers}</b> healthy</span><span>generated <b>${escapeHtml(snapshot.generatedAt)}</b></span><span>registry <b>${escapeHtml(snapshot.registryPath)}</b></span></div>
 <div class="guard">${ICON.shield}<span>${escapeHtml(REVIEW_SURFACE_NOTE)}</span></div>
 </div>
-</header>
-<div class="wrap">
-${reviewSurface}
-</div>`;
+</header>`;
+  const agentRail = `<aside class="agent-rail" aria-label="Agent loop">
+<div class="agent-rail-inner"><div class="agent-rail-title"><span>Agent loop</span><span>poll, queue, reply</span></div>${token && queuedItems.length > 0 ? globalSubmitBar(queuedItems) : ""}${renderDashboardActivityFragment(history, activityOptions)}</div>
+</aside>`;
+  const dashboard = `<main class="review-main">${masthead}<div class="wrap">${mainSurface}</div></main>${agentRail}`;
+
+  const reviewSurface = token && (queuedItems.length > 0 || hasCancelableItems)
+    ? `<form class="review-form review-shell" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${reviewedLaneInputs(snapshot)}${dashboard}</form>`
+    : `<div class="review-shell">${dashboard}</div>`;
+
+  const body = reviewSurface;
   return page("Artshelf review dashboard", body);
 }
 
@@ -529,10 +556,16 @@ function requiredActionsSection(
   badLedgers: number,
   token: string | undefined,
   ledgerIndex: Map<string, number>,
-  rowActivity: Map<string, UiSessionHistoryEntry>
+  rowActivity: Map<string, UiSessionHistoryEntry>,
+  pendingActions: PendingActionIndex,
+  preparedPlans: Map<string, PreparedPlanApproval>,
+  visibleRows: RequiredActionRows
 ): string {
   const counts = snapshot.counts;
   const cards: string[] = [];
+  if (preparedPlans.size > 0) {
+    cards.push(preparedPlanApprovalCard([...preparedPlans.values()], ledgerIndex));
+  }
   if (counts["purge-candidates"] > 0) {
     cards.push(
       actionCard(
@@ -542,64 +575,64 @@ function requiredActionsSection(
         "Can delete forever",
         "Prepare delete review",
         "before anything is purged.",
-        token ? approvalChoice("request", "purge-candidates", "review_delete_forever", "Approve") : "",
+        token ? approvalChoice("request", "purge-candidates", "review_delete_forever", "Approve", isLaneRequestQueued(pendingActions, "purge-candidates", "review_delete_forever")) : "",
         purgeActionBody(snapshot.buckets.purgeCandidates, ledgerIndex)
       )
     );
   }
-  if (counts["needs-review"] > 0) {
+  if (visibleRows.needsReview.length > 0) {
     cards.push(
       actionCard(
         "attn",
         "needs-review",
-        counts["needs-review"],
+        visibleRows.needsReview.length,
         "Needs a decision",
         "Move to trash",
         "unless a row looks worth keeping.",
-        token ? approvalChoice("decision", "needs-review", "trash", "Approve") : "",
-        artifactActionBody("needs-review", snapshot.buckets.needsReview, token, ledgerIndex, rowActivity)
+        token ? approvalChoice("decision", "needs-review", "trash", "Approve", areRowsQueuedForDecision(pendingActions, "needs-review", visibleRows.needsReview, "trash")) : "",
+        artifactActionBody("needs-review", visibleRows.needsReview, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
   }
-  if (counts["needs-context"] > 0) {
+  if (visibleRows.needsContext.length > 0) {
     cards.push(
       actionCard(
         "attn",
         "needs-context",
-        counts["needs-context"],
+        visibleRows.needsContext.length,
         "Needs details",
         "Move to trash",
         "unless missing context changes the decision.",
-        token ? approvalChoice("decision", "needs-context", "trash", "Approve") : "",
-        artifactActionBody("needs-context", snapshot.buckets.needsContext, token, ledgerIndex, rowActivity)
+        token ? approvalChoice("decision", "needs-context", "trash", "Approve", areRowsQueuedForDecision(pendingActions, "needs-context", visibleRows.needsContext, "trash")) : "",
+        artifactActionBody("needs-context", visibleRows.needsContext, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
   }
-  if (counts.cleanup > 0) {
+  if (visibleRows.cleanup.length > 0) {
     cards.push(
       actionCard(
         "calm",
         "cleanup",
-        counts.cleanup,
+        visibleRows.cleanup.length,
         "Ready to clean up",
         "Move to trash",
         "because they are due and appear unused.",
-        token ? approvalChoice("decision", "cleanup", "trash", "Approve") : "",
-        artifactActionBody("cleanup", snapshot.buckets.cleanup, token, ledgerIndex, rowActivity)
+        token ? approvalChoice("decision", "cleanup", "trash", "Approve", areRowsQueuedForDecision(pendingActions, "cleanup", visibleRows.cleanup, "trash")) : "",
+        artifactActionBody("cleanup", visibleRows.cleanup, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
   }
-  if (counts.resolve > 0) {
+  if (visibleRows.resolve.length > 0) {
     cards.push(
       actionCard(
         "calm",
         "resolve",
-        counts.resolve,
+        visibleRows.resolve.length,
         "Missing files",
         "Resolve records",
         "because their files are already gone.",
-        token ? approvalChoice("decision", "resolve", "resolve", "Approve") : "",
-        artifactActionBody("resolve", snapshot.buckets.resolve, token, ledgerIndex, rowActivity)
+        token ? approvalChoice("decision", "resolve", "resolve", "Approve", areRowsQueuedForDecision(pendingActions, "resolve", visibleRows.resolve, "resolve")) : "",
+        artifactActionBody("resolve", visibleRows.resolve, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
   }
@@ -613,7 +646,7 @@ function requiredActionsSection(
         "Source problems",
         "Check sources",
         "before cleanup decisions.",
-        token ? approvalChoice("request", "registry-reconcile", "check_source_problems", "Approve") : "",
+        token ? approvalChoice("request", "registry-reconcile", "check_source_problems", "Approve", isLaneRequestQueued(pendingActions, "registry-reconcile", "check_source_problems")) : "",
         problemActionBody(snapshot.buckets.registryReconcile, ledgerIndex)
       )
     );
@@ -649,30 +682,97 @@ ${control || ""}
 </details>`;
 }
 
-function approvalChoice(kind: "decision" | "request", lane: DashboardBucketKey, action: string, label: string): string {
+function approvalChoice(kind: "decision" | "request", lane: DashboardBucketKey, action: string, label: string, submitted = false): string {
   const value = `${kind}:${lane}:${action}`;
-  return `<div class="act-actions"><label class="approve-choice" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"><span class="approve">${escapeHtml(label)}</span><span class="queued">Queued</span></label></div>`;
+  return `<div class="act-actions"><label class="approve-choice${submitted ? " submitted" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"${submitted ? " checked disabled" : ""}><span class="approve">${escapeHtml(label)}</span><span class="queued">Queued</span></label></div>`;
+}
+
+type PreparedPlanApproval = {
+  eventId: string;
+  recordId: string;
+  ledgerPath: string;
+  ledgerName: string;
+  lane: string;
+  planId: string;
+  action: string;
+  actionLabel: string;
+  approvalTarget: string;
+  submitted: boolean;
+};
+
+function preparedPlanApprovalCard(plans: PreparedPlanApproval[], ledgerIndex: Map<string, number>): string {
+  const rows = plans.map((plan) => preparedPlanRow(plan, ledgerIndex)).join("");
+  const allSubmitted = plans.every((plan) => plan.submitted);
+  return `<details class="act attn" id="lane-ready-approval" data-zone="action" data-rail="attn" open>
+<summary>
+<span class="toggle-copy">${ICON.chevron}</span>
+<div class="n num">${plans.length}</div>
+<div class="act-main"><p class="name">Ready for approval</p>
+<p class="rec"><span class="rec-label">Agent prepared</span> <span class="rec-action">Approve execution</span> after reviewing the exact plan target.</p></div>
+<div class="act-actions"><label class="approve-choice${allSubmitted ? " submitted" : ""}" data-approval-value="approve-plan:all"><input type="checkbox" name="approval:ready-approval" value="approve-plan:all"${allSubmitted ? " checked disabled" : ""}><span class="approve">Approve all</span><span class="queued">Queued</span></label></div>
+</summary>
+<div class="act-body"><div class="rows">${rows}</div></div>
+</details>`;
+}
+
+function preparedPlanRow(plan: PreparedPlanApproval, ledgerIndex: Map<string, number>): string {
+  const approvalValue = `approve-plan:${encodeURIComponent(plan.eventId)}`;
+  const submitted = plan.submitted;
+  return `<article class="queue-row r approval-row"${dataLedger(plan.ledgerPath, ledgerIndex)}>
+<div>
+<div class="row-head"><span class="id">${escapeHtml(plan.recordId)}</span><span class="badge ctx">Ready for approval</span></div>
+<p class="row-summary"><strong>${escapeHtml(plan.actionLabel)}.</strong> Agent prepared a reviewed plan; approve only if this exact target is correct.</p>
+<div class="row-meta"><span>lane ${escapeHtml(plan.lane)}</span><span>plan ${escapeHtml(plan.planId)}</span></div>
+</div>
+<div class="row-side">
+<span class="src">${escapeHtml(plan.ledgerName)}</span>
+<span class="badge">Plan prepared</span>
+<label class="row-choice${submitted ? " submitted" : ""}" data-approval-value="${escapeHtml(approvalValue)}"><input type="checkbox" name="approval:ready-approval" value="${escapeHtml(approvalValue)}"${submitted ? " checked disabled" : ""}><span class="choose">Approve</span><span class="queued">Queued</span></label>
+</div>
+<details class="approval-target">
+<summary>Approval target</summary>
+<code>${escapeHtml(plan.approvalTarget)}</code>
+</details>
+</article>`;
 }
 
 type QueuedApprovalItem = { value: string; label: string };
 
-function queuedApprovalItems(snapshot: DashboardSnapshot, badLedgers: number): QueuedApprovalItem[] {
+type RequiredActionRows = {
+  needsReview: DashboardArtifactRow[];
+  needsContext: DashboardArtifactRow[];
+  cleanup: DashboardArtifactRow[];
+  resolve: DashboardArtifactRow[];
+};
+
+function queuedApprovalItems(
+  snapshot: DashboardSnapshot,
+  badLedgers: number,
+  rows: RequiredActionRows,
+  preparedPlans: Map<string, PreparedPlanApproval>
+): QueuedApprovalItem[] {
   const counts = snapshot.counts;
   const items: QueuedApprovalItem[] = [];
+  if (preparedPlans.size > 0) {
+    items.push({ value: "approve-plan:all", label: `Approve all ${preparedPlans.size} prepared plan(s)` });
+  }
+  for (const plan of preparedPlans.values()) {
+    items.push({ value: `approve-plan:${encodeURIComponent(plan.eventId)}`, label: `Approve ${plan.recordId} plan ${plan.planId}` });
+  }
   if (counts["purge-candidates"] > 0) {
     items.push({ value: "request:purge-candidates:review_delete_forever", label: `Prepare delete review for ${counts["purge-candidates"]} row(s)` });
   }
-  addDecisionQueuedItems(items, "needs-review", counts["needs-review"], "needs a decision");
-  addRowDecisionQueuedItems(items, "needs-review", snapshot.buckets.needsReview, "needs a decision");
-  addDecisionQueuedItems(items, "needs-context", counts["needs-context"], "needs details");
-  addRowDecisionQueuedItems(items, "needs-context", snapshot.buckets.needsContext, "needs details");
-  addDecisionQueuedItems(items, "cleanup", counts.cleanup, "ready to clean up");
-  addRowDecisionQueuedItems(items, "cleanup", snapshot.buckets.cleanup, "ready to clean up");
-  if (counts.resolve > 0) {
-    items.push({ value: "decision:resolve:keep", label: `Keep ${counts.resolve} missing file row(s)` });
-    items.push({ value: "decision:resolve:resolve", label: `Resolve ${counts.resolve} missing file row(s)` });
+  addDecisionQueuedItems(items, "needs-review", rows.needsReview.length, "needs a decision");
+  addRowDecisionQueuedItems(items, "needs-review", rows.needsReview, "needs a decision");
+  addDecisionQueuedItems(items, "needs-context", rows.needsContext.length, "needs details");
+  addRowDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details");
+  addDecisionQueuedItems(items, "cleanup", rows.cleanup.length, "ready to clean up");
+  addRowDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up");
+  if (rows.resolve.length > 0) {
+    items.push({ value: "decision:resolve:keep", label: `Keep ${rows.resolve.length} missing file row(s)` });
+    items.push({ value: "decision:resolve:resolve", label: `Resolve ${rows.resolve.length} missing file row(s)` });
   }
-  addResolveRowQueuedItems(items, snapshot.buckets.resolve);
+  addResolveRowQueuedItems(items, rows.resolve);
   const problems = counts["registry-reconcile"] + badLedgers;
   if (problems > 0) {
     items.push({ value: "request:registry-reconcile:check_source_problems", label: `Check ${problems} source problem(s)` });
@@ -800,46 +900,44 @@ function ledgerHealthSection(ledgers: DashboardLedgerStatus[]): string {
 
 export function renderDashboardActivityFragment(
   history: UiSessionHistoryEntry[],
-  options: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string } = {}
+  options: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {}
 ): string {
-  const pending = history.filter((entry) => entry.event.status === "pending");
-  const replies = history.filter((entry) => entry.replies.length > 0);
+  const queued = history.filter((entry) => isQueuedForAgentStatus(entry.event.status));
+  const handled = history.filter((entry) => entry.event.status === "completed" || entry.event.status === "cancelled");
   const problem = history.filter((entry) => ["stale", "rejected", "failed"].includes(entry.event.status));
   const executionRan = history.some((entry) => entry.replies.some((reply) => isExecutionReply(reply)));
   const confirmation =
     options.submittedCount && options.submittedCount > 0
       ? `<p class="session-confirm">${options.submittedCount} decisions queued for agent</p>`
       : "";
-  const empty =
-    history.length === 0
-      ? `<p class="empty">No queued session activity yet.</p>`
-      : `<div class="activity-list">${history.map(activityEntryCard).join("")}</div>`;
-  const pendingGroups = pending.length > 0 ? `<div class="activity-list">${pendingGroupCards(pending).join("")}</div>` : "";
+  const activityRows = [
+    ...activityGroupCards(queued, "Queued", "warn"),
+    ...activityGroupCards(handled, "Handled by agent", "good"),
+    ...activityGroupCards(problem, "Needs re-review", "bad")
+  ];
+  const activityBody = activityRows.length > 0 ? `<div class="activity-list">${activityRows.join("")}</div>` : `<p class="empty">No queued work yet.</p>`;
   const activityHref = options.activityHref ? ` data-activity-href="${escapeHtml(options.activityHref)}"` : "";
-  const script = options.activityHref ? activityPollScript(options.scriptNonce) : "";
-  const safety = executionRan
-    ? "Execution receipts are shown below. The browser still did not execute files, ledgers, trash, or plans."
-    : "No execution ran. No files changed yet.";
+  const script = options.activityHref && options.includeScript !== false ? activityPollScript(options.scriptNonce) : "";
+  const safety = executionRan ? "Execution receipt received. Browser did not execute files." : "No execution ran.";
   return `<section class="block session-activity" id="session-activity"${activityHref}>
-<div class="session-head"><span class="title">Session activity</span><span class="muted">agent handoff loop</span></div>
+<div class="session-head"><span class="title">Queue activity</span><span class="muted">live status</span></div>
 ${confirmation}
 <div class="activity-stats">
-<span class="activity-chip warn">Pending for agent: <span class="num">${pending.length}</span></span>
-<span class="activity-chip good">Agent replies: <span class="num">${replies.length}</span></span>
-<span class="activity-chip${problem.length > 0 ? " bad" : ""}">Stale / rejected / failed: <span class="num">${problem.length}</span></span>
+<span class="activity-chip warn">Queued: <span class="num">${queued.length}</span></span>
+<span class="activity-chip good">Handled: <span class="num">${handled.length}</span></span>
+<span class="activity-chip${problem.length > 0 ? " bad" : ""}">Needs review: <span class="num">${problem.length}</span></span>
 </div>
 <p class="safety-line">${escapeHtml(safety)}</p>
-${pendingGroups}
-${empty}
+${activityBody}
 </section>${script}`;
 }
 
 function activityPollScript(nonce?: string): string {
   const nonceAttribute = nonce ? ` nonce="${escapeHtml(nonce)}"` : "";
-  return `<script${nonceAttribute}>(function(){var href=(document.getElementById("session-activity")||{}).dataset&&document.getElementById("session-activity").dataset.activityHref;if(!href)return;async function refresh(){var current=document.getElementById("session-activity");if(!current)return;try{var response=await fetch(href,{cache:"no-store",credentials:"omit"});if(response.ok)current.outerHTML=await response.text();}catch(_error){}}setInterval(refresh,2500);})();</script>`;
+  return `<script${nonceAttribute}>(function(){function activityHref(){var current=document.getElementById("session-activity");return current&&current.dataset?current.dataset.activityHref:"";}function hasQueuedSelections(){var form=document.querySelector(".review-form");return !!(form&&form.querySelector('input[name^="approval:"]:checked:not(:disabled)'));}async function refreshRequiredActions(){var current=document.getElementById("required-actions");if(!current||hasQueuedSelections())return;try{var response=await fetch(window.location.pathname+window.location.search,{cache:"no-store",credentials:"omit"});if(!response.ok)return;var html=await response.text();var doc=new DOMParser().parseFromString(html,"text/html");var next=doc.getElementById("required-actions");if(next)current.replaceWith(next);}catch(_error){}}async function refresh(){var href=activityHref();var current=document.getElementById("session-activity");if(!href||!current)return;try{var response=await fetch(href,{cache:"no-store",credentials:"omit"});if(!response.ok)return;var next=await response.text();var changed=current.outerHTML!==next;current.outerHTML=next;if(changed)refreshRequiredActions();}catch(_error){}}setInterval(refresh,2500);refresh();})();</script>`;
 }
 
-function pendingGroupCards(entries: UiSessionHistoryEntry[]): string[] {
+function activityGroupCards(entries: UiSessionHistoryEntry[], badge: string, tone: "good" | "warn" | "bad"): string[] {
   const groups = new Map<string, { label: string; entries: UiSessionHistoryEntry[] }>();
   for (const entry of entries) {
     const label = activityGroupLabel(entry.event);
@@ -849,20 +947,27 @@ function pendingGroupCards(entries: UiSessionHistoryEntry[]): string[] {
   }
   return [...groups.values()].map((group) => {
     const targets = group.entries.map((entry) => eventTargetLabel(entry.event)).filter((value) => value.length > 0).join(", ");
-    return `<article class="activity-card"><div class="topline"><span class="badge">Pending for agent</span><span class="name">${group.entries.length} ${group.entries.length === 1 ? "decision" : "decisions"}: ${escapeHtml(group.label)}</span></div><p class="detail">${escapeHtml(targets)}</p></article>`;
+    const actions = tone === "warn" ? unqueueButtons(group.entries) : "";
+    return `<article class="activity-card ${tone}"><div class="topline"><span class="badge">${escapeHtml(badge)}</span><span class="badge">${escapeHtml(compactStatusLabel(group.entries))}</span><span class="name">${group.entries.length} ${group.entries.length === 1 ? "item" : "items"}: ${escapeHtml(group.label)}</span></div>${targets ? `<p class="detail">${escapeHtml(targets)}</p>` : ""}${actions}</article>`;
   });
 }
 
-function activityEntryCard(entry: UiSessionHistoryEntry): string {
-  const bad = ["stale", "rejected", "failed"].includes(entry.event.status);
-  const replyCards = entry.replies.map((reply) => replyCard(reply)).join("");
-  const recovery = bad ? `<p class="detail"><strong>Safe next action:</strong> Reload the dashboard before submitting again.</p>` : "";
-  const note = intentNote(entry.event);
-  return `<article class="activity-card${bad ? " bad" : ""}">
-<div class="topline"><span class="badge">${escapeHtml(entry.event.status)}</span><span class="name">${escapeHtml(intentLabel(entry.event))}</span><span class="when">${escapeHtml(entry.event.createdAt)}</span></div>
-<p class="detail">${escapeHtml(eventTargetLabel(entry.event))}${note ? ` &middot; ${escapeHtml(note)}` : ""}</p>
-${replyCards}${recovery}
-</article>`;
+function unqueueButtons(entries: UiSessionHistoryEntry[]): string {
+  const queued = entries.filter((entry) => entry.event.source === "browser" && isQueuedForAgentStatus(entry.event.status));
+  if (queued.length === 0) return "";
+  if (queued.length === 1) {
+    const entry = queued[0]!;
+    const label = eventTargetLabel(entry.event);
+    const title = label ? ` title="Unqueue ${escapeHtml(label)}"` : "";
+    return `<div class="activity-actions"><button class="unqueue-btn" type="submit" name="cancelEventId" value="${escapeHtml(entry.event.id)}"${title}>Unqueue</button></div>`;
+  }
+  const ids = queued.map((entry) => entry.event.id).join(",");
+  return `<div class="activity-actions"><button class="unqueue-btn" type="submit" name="cancelEventIds" value="${escapeHtml(ids)}">Unqueue all ${queued.length}</button></div>`;
+}
+
+function compactStatusLabel(entries: UiSessionHistoryEntry[]): string {
+  const statuses = [...new Set(entries.map((entry) => entry.event.status))];
+  return statuses.length === 1 ? statuses[0] ?? "unknown" : statuses.join(" / ");
 }
 
 function replyCard(reply: UiReply): string {
@@ -1035,6 +1140,140 @@ function recordActivityIndex(history: UiSessionHistoryEntry[]): Map<string, UiSe
   return index;
 }
 
+function preparedPlanIndex(history: UiSessionHistoryEntry[]): Map<string, PreparedPlanApproval> {
+  const index = new Map<string, PreparedPlanApproval>();
+  const submittedPlanEvents = submittedPreparedPlanEventIds(history);
+  for (const entry of history) {
+    if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") continue;
+    const recordId = typeof entry.event.target.recordId === "string" ? entry.event.target.recordId : "";
+    const ledgerPath = typeof entry.event.target.ledgerPath === "string" ? entry.event.target.ledgerPath : "";
+    if (!recordId || !ledgerPath) continue;
+    const reply = [...entry.replies].reverse().find((candidate) => stringPayload(candidate.payload, "planId") !== null);
+    if (!reply) continue;
+    const planId = stringPayload(reply.payload, "planId");
+    if (!planId) continue;
+    const action = stringPayload(reply.payload, "action") ?? decisionActionLabel(typeof entry.event.payload.decision === "string" ? entry.event.payload.decision : "");
+    const approvalTarget = stringPayload(reply.payload, "approvalTarget") ?? stringPayload(reply.payload, "approvalPhrase") ?? "";
+    index.set(recordActivityKey(recordId, ledgerPath), {
+      eventId: entry.event.id,
+      recordId,
+      ledgerPath,
+      ledgerName: typeof entry.event.target.ledgerName === "string" ? entry.event.target.ledgerName : "ledger",
+      lane: typeof entry.event.payload.lane === "string" ? entry.event.payload.lane : "record",
+      planId,
+      action,
+      actionLabel: planActionLabel(action),
+      approvalTarget: approvalTarget || `approve plan ${planId}`,
+      submitted: submittedPlanEvents.has(entry.event.id)
+    });
+  }
+  return index;
+}
+
+function submittedPreparedPlanEventIds(history: UiSessionHistoryEntry[]): Set<string> {
+  const ids = new Set<string>();
+  for (const entry of history) {
+    if (entry.event.type !== "approval_bundle_submitted") continue;
+    if (!isQueuedForAgentStatus(entry.event.status)) continue;
+    const preparedEventId = typeof entry.event.payload.preparedEventId === "string" ? entry.event.payload.preparedEventId : "";
+    if (preparedEventId) ids.add(preparedEventId);
+  }
+  return ids;
+}
+
+function hasCancelableQueuedItems(history: UiSessionHistoryEntry[]): boolean {
+  return history.some((entry) => entry.event.source === "browser" && isQueuedForAgentStatus(entry.event.status));
+}
+
+function visibleRequiredActionRows(snapshot: DashboardSnapshot, preparedPlans: Map<string, PreparedPlanApproval>): RequiredActionRows {
+  return {
+    needsReview: filterPreparedRows(snapshot.buckets.needsReview, preparedPlans),
+    needsContext: filterPreparedRows(snapshot.buckets.needsContext, preparedPlans),
+    cleanup: filterPreparedRows(snapshot.buckets.cleanup, preparedPlans),
+    resolve: filterPreparedRows(snapshot.buckets.resolve, preparedPlans)
+  };
+}
+
+function filterPreparedRows(rows: DashboardArtifactRow[], preparedPlans: Map<string, PreparedPlanApproval>): DashboardArtifactRow[] {
+  return rows.filter((row) => !preparedPlans.has(recordActivityKey(row.recordId, row.ledgerPath ?? "")));
+}
+
+function livePreparedPlanIndex(preparedPlans: Map<string, PreparedPlanApproval>, snapshot: DashboardSnapshot): Map<string, PreparedPlanApproval> {
+  const liveActionKeys = new Set<string>();
+  for (const row of [...snapshot.buckets.needsReview, ...snapshot.buckets.needsContext, ...snapshot.buckets.cleanup, ...snapshot.buckets.resolve]) {
+    liveActionKeys.add(recordActivityKey(row.recordId, row.ledgerPath ?? ""));
+  }
+  return new Map([...preparedPlans].filter(([key]) => liveActionKeys.has(key)));
+}
+
+function decisionActionLabel(decision: string): string {
+  if (decision === "trash") return "trash-resolve";
+  if (decision === "resolve") return "resolve-only";
+  return decision;
+}
+
+function planActionLabel(action: string): string {
+  if (action === "trash-resolve") return "Trash and resolve";
+  if (action === "resolve-only") return "Resolve only";
+  if (action === "keep") return "Keep";
+  if (action === "snooze") return "Snooze";
+  return action || "Prepared action";
+}
+
+type PendingActionIndex = {
+  laneRequests: Set<string>;
+  rowDecisions: Map<string, string>;
+};
+
+function pendingActionIndex(history: UiSessionHistoryEntry[]): PendingActionIndex {
+  const index: PendingActionIndex = { laneRequests: new Set(), rowDecisions: new Map() };
+  for (const entry of history) {
+    if (!isQueuedForAgentStatus(entry.event.status)) continue;
+    if (entry.event.type === "dry_run_requested") {
+      const lane = typeof entry.event.target.lane === "string" ? entry.event.target.lane : typeof entry.event.payload.lane === "string" ? entry.event.payload.lane : "";
+      const request = typeof entry.event.payload.request === "string" ? entry.event.payload.request : "";
+      if (lane && request) index.laneRequests.add(laneActionKey(lane, request));
+      continue;
+    }
+    if (entry.event.type !== "decision_submitted") continue;
+    const lane = typeof entry.event.payload.lane === "string" ? entry.event.payload.lane : "";
+    const decision = typeof entry.event.payload.decision === "string" ? entry.event.payload.decision : "";
+    const recordId = typeof entry.event.target.recordId === "string" ? entry.event.target.recordId : "";
+    const ledgerPath = typeof entry.event.target.ledgerPath === "string" ? entry.event.target.ledgerPath : "";
+    if (lane && decision && recordId && ledgerPath) index.rowDecisions.set(rowDecisionActionKey(lane, recordId, ledgerPath), decision);
+  }
+  return index;
+}
+
+function isQueuedForAgentStatus(status: UiEvent["status"]): boolean {
+  return status === "pending" || status === "acknowledged" || status === "in_progress";
+}
+
+function isLaneRequestQueued(index: PendingActionIndex, lane: DashboardBucketKey, request: string): boolean {
+  return index.laneRequests.has(laneActionKey(lane, request));
+}
+
+function queuedRowDecision(index: PendingActionIndex, lane: "needs-review" | "needs-context" | "cleanup" | "resolve", row: DashboardArtifactRow): string | null {
+  return index.rowDecisions.get(rowDecisionActionKey(lane, row.recordId, row.ledgerPath ?? "")) ?? null;
+}
+
+function areRowsQueuedForDecision(
+  index: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[],
+  decision: string
+): boolean {
+  return rows.length > 0 && rows.every((row) => queuedRowDecision(index, lane, row) === decision);
+}
+
+function laneActionKey(lane: string, action: string): string {
+  return `${lane}\0${action}`;
+}
+
+function rowDecisionActionKey(lane: string, recordId: string, ledgerPath: string): string {
+  return `${lane}\0${recordId}\0${ledgerPath}`;
+}
+
 function recordActivityKey(recordId: string, ledgerPath: string): string {
   return `${recordId}\0${ledgerPath}`;
 }
@@ -1080,13 +1319,14 @@ function artifactActionBody(
   rows: DashboardArtifactRow[],
   token: string | undefined,
   ledgerIndex: Map<string, number>,
-  rowActivity: Map<string, UiSessionHistoryEntry>
+  rowActivity: Map<string, UiSessionHistoryEntry>,
+  pendingActions: PendingActionIndex
 ): string {
   return rows.length === 0
     ? ""
-    : `${bulkDecisionControls(key, rows.length, token)}
+    : `${bulkDecisionControls(key, rows, token, pendingActions)}
 <div class="rows">${rows
-      .map((row) => artifactRow(key, row, token, ledgerIndex, rowActivity))
+      .map((row) => artifactRow(key, row, token, ledgerIndex, rowActivity, pendingActions))
       .join("")}</div>`;
 }
 
@@ -1095,7 +1335,8 @@ function artifactRow(
   row: DashboardArtifactRow,
   token: string | undefined,
   ledgerIndex: Map<string, number>,
-  rowActivity: Map<string, UiSessionHistoryEntry>
+  rowActivity: Map<string, UiSessionHistoryEntry>,
+  pendingActions: PendingActionIndex
 ): string {
   const href = detailHref(row.recordId, row.ledgerPath, token);
   const reason = row.reason.trim() ? escapeHtml(row.reason) : `<span class="muted">(no reason recorded)</span>`;
@@ -1116,17 +1357,29 @@ function artifactRow(
 <span class="src">${escapeHtml(row.ledgerName)}</span>
 <span class="age">${escapeHtml(row.age)}${due}</span>
 <a class="badge" href="${href}">Details</a>
-${rowDecisionControls(lane, row, token)}
+${rowDecisionControls(lane, row, token, pendingActions)}
 </div>
 </article>`;
 }
 
-function rowDecisionControls(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", row: DashboardArtifactRow, token: string | undefined): string {
+function rowDecisionControls(
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  row: DashboardArtifactRow,
+  token: string | undefined,
+  pendingActions: PendingActionIndex
+): string {
   if (!token) return "";
+  const queuedDecision = queuedRowDecision(pendingActions, lane, row);
   const choices =
     lane === "resolve"
-      ? [rowDecisionChoice(lane, row, "keep", "Keep"), rowDecisionChoice(lane, row, "resolve", "Resolve")]
-      : [rowDecisionChoice(lane, row, "keep", "Keep"), rowDecisionChoice(lane, row, "trash", "Trash", true)];
+      ? [
+        rowDecisionChoice(lane, row, "keep", "Keep", false, queuedDecision),
+        rowDecisionChoice(lane, row, "resolve", "Resolve", false, queuedDecision)
+      ]
+      : [
+        rowDecisionChoice(lane, row, "keep", "Keep", false, queuedDecision),
+        rowDecisionChoice(lane, row, "trash", "Trash", true, queuedDecision)
+      ];
   return `<div class="row-actions">${choices.join("")}</div>`;
 }
 
@@ -1135,11 +1388,14 @@ function rowDecisionChoice(
   row: DashboardArtifactRow,
   decision: "keep" | "trash" | "resolve",
   label: string,
-  danger = false
+  danger = false,
+  queuedDecision: string | null = null
 ): string {
   const value = rowDecisionValue(lane, row, decision);
   const name = rowDecisionFieldName(lane, row);
-  return `<label class="row-choice${danger ? " danger" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(value)}"><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
+  const submitted = queuedDecision === decision;
+  const disabled = queuedDecision !== null;
+  return `<label class="row-choice${danger ? " danger" : ""}${submitted ? " submitted" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(value)}"${submitted ? " checked" : ""}${disabled ? " disabled" : ""}><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
 }
 
 function rowDecisionValue(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", row: DashboardArtifactRow, decision: "keep" | "trash" | "resolve"): string {
@@ -1150,25 +1406,45 @@ function rowDecisionFieldName(lane: "needs-review" | "needs-context" | "cleanup"
   return `approval:${lane}:row:${encodeURIComponent(row.recordId)}:${encodeURIComponent(row.ledgerPath ?? "")}`;
 }
 
-function bulkDecisionControls(key: DashboardBucketKey, count: number, token: string | undefined): string {
+function bulkDecisionControls(
+  key: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[],
+  token: string | undefined,
+  pendingActions: PendingActionIndex
+): string {
   if (!token) return "";
   const lane = LANES[key];
+  const submittedDecision = queuedBulkDecision(pendingActions, key, rows);
   const choices =
     key === "resolve"
-      ? [bulkDecisionChoice(key, "keep", "Keep all"), bulkDecisionChoice(key, "resolve", "Resolve all")]
-      : [bulkDecisionChoice(key, "keep", "Keep all"), bulkDecisionChoice(key, "trash", "Trash all", true)];
+      ? [bulkDecisionChoice(key, "keep", "Keep all", false, submittedDecision), bulkDecisionChoice(key, "resolve", "Resolve all", false, submittedDecision)]
+      : [bulkDecisionChoice(key, "keep", "Keep all", false, submittedDecision), bulkDecisionChoice(key, "trash", "Trash all", true, submittedDecision)];
   return `<div class="lane-actions">
 <div class="choice-row"><span class="lbl">Queue</span>
 ${choices.join("\n")}
-<span class="lane-copy">${count} ${escapeHtml(lane.title.toLowerCase())} row(s)</span>
+<span class="lane-copy">${rows.length} ${escapeHtml(lane.title.toLowerCase())} row(s)</span>
 </div>
 </div>
 `;
 }
 
-function bulkDecisionChoice(lane: DashboardBucketKey, decision: string, label: string, danger = false): string {
+function queuedBulkDecision(
+  pendingActions: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[]
+): string | null {
+  const decisions = lane === "resolve" ? ["keep", "resolve"] : ["keep", "trash"];
+  for (const decision of decisions) {
+    if (areRowsQueuedForDecision(pendingActions, lane, rows, decision)) return decision;
+  }
+  return null;
+}
+
+function bulkDecisionChoice(lane: DashboardBucketKey, decision: string, label: string, danger = false, submittedDecision: string | null = null): string {
   const value = `decision:${lane}:${decision}`;
-  return `<label class="bulk-choice${danger ? " danger" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
+  const submitted = submittedDecision === decision;
+  const disabled = submittedDecision !== null;
+  return `<label class="bulk-choice${danger ? " danger" : ""}${submitted ? " submitted" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"${submitted ? " checked" : ""}${disabled ? " disabled" : ""}><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
 }
 
 function dueLabel(dueState: string): string {
