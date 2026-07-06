@@ -24,12 +24,12 @@ import type {
 // Read-only HTML rendering for the Artshelf UI v1 browser surface (NGX-535 dashboard, NGX-536
 // detail drawer, NGX-537 needs-context, NGX-539 approval workbench). These are pure functions: they
 // take the existing read-only domain snapshots and return a self-contained HTML document with inline
-// styles and no scripts. The dashboard is display-only; detail pages carry no executable code or file
-// contents and expose only token-bound triage-intent forms, never direct ledger/file/trash/plan
-// mutation affordances. The loopback server (src/ui-server.ts) wires these to live state and sets the
-// strict CSP (default-src 'none'; style-src 'unsafe-inline'; form-action 'self') the markup honors:
-// no scripts, no external assets, no <img>, no web fonts. Interactivity (collapsible
-// stages, selection state) is therefore expressed entirely in CSS (:has(), <details>, :checked).
+// styles and no scripts. Dashboard and detail pages carry no executable code or file contents; their
+// forms only post token-bound session events and never expose direct ledger/file/trash/plan mutation
+// affordances. The loopback server (src/ui-server.ts) wires these to live state and sets the strict
+// CSP (default-src 'none'; style-src 'unsafe-inline'; form-action 'self') the markup honors: no
+// scripts, no external assets, no <img>, no web fonts. Interactivity (collapsible stages, selection
+// state) is therefore expressed entirely in CSS (:has(), <details>, :checked).
 
 // Escape the five HTML metacharacters so record-supplied text (reasons, paths, ids) is always
 // rendered as text, never markup. Every dynamic value in these pages routes through here.

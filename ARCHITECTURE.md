@@ -108,12 +108,16 @@ The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
 `artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
 sessions, serves token-protected loopback dashboard/detail/bundle pages, returns
 compact `--json` review and bundle snapshots, and runs the poll/reply/execute/end agent
-loop. The browser captures human triage intents and approval bundles but never
-mutates ledgers, files, trash, or plans directly - the agent executes an approved
-bundle through `ui execute` (the one mutating `ui` subcommand), which revalidates
-live state, requires exact target and reviewed dispose-plan entry matches, runs the
-existing approval-gated paths for exact targets only, verifies live state after, and
-replies per-target receipts.
+loop. The served dashboard lets reviewers queue recommended card approvals,
+lane-level choices, individual row choices, and dashboard dry-run requests for one
+final submit to the agent; reviewed bulk rows are bound to the page snapshot and
+stale or conflicting card/bulk/row choices are rejected before anything enters the
+agent queue. The browser captures human triage intents and approval bundles but
+never mutates ledgers, files, trash, or plans directly - the agent executes an
+approved bundle through `ui execute` (the one mutating `ui` subcommand), which
+revalidates live state, requires exact target and reviewed dispose-plan entry
+matches, runs the existing approval-gated paths for exact targets only, verifies
+live state after, and replies per-target receipts.
 
 ### Domain files
 
@@ -160,10 +164,12 @@ Current root ownership:
   optionally
 - `ui-server.ts`: token-protected loopback HTTP server for dashboard/detail browser pages, the
   approval-bundle workbench page (NGX-539 `GET /bundle/<id>`), human triage intent
-  capture, and approval-bundle submission. It accepts safe browser reads, recomputes live state
-  per request, appends exact-target intents through the token-bound `/intents` endpoint, records
-  revised approval selections through token-bound `/approve`, refuses every other mutating method,
-  and never embeds file contents or scripts
+  capture, dashboard required-action submission, and approval-bundle submission. It accepts safe
+  browser reads, recomputes live state per request, appends exact-target record intents plus
+  reviewed-row-bound dashboard choices through the token-bound `/intents` endpoint, records revised
+  approval selections through token-bound `/approve`, rejects stale dashboard lane submissions and
+  conflicting card/bulk/row choices, refuses every other mutating method, and never embeds file
+  contents or scripts
 - `ui-execute.ts`: agent-side approved-bundle execution (NGX-540/NGX-541) - the one mutating UI path. It
   loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
   bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
