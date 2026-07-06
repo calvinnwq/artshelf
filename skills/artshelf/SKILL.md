@@ -25,17 +25,12 @@ the mechanics behind those moves.
 
 ## Contract
 
-- Before final/status/handoff/done, check whether the task created, copied,
-  exported, quarantined, backed up, or preserved any non-source file or
-  directory that may outlive this command.
-- Register meaningful eligible artifacts with `artshelf put --json`; otherwise
-  record a clear skip reason.
+- Before final/status/handoff/done, check whether the task created, copied, exported, quarantined, backed up, or preserved any non-source file or directory that may outlive this command.
+- Register meaningful eligible artifacts with `artshelf put --json`; otherwise record a clear skip reason.
 - Include reason, TTL or manual-review, cleanup mode, owner, and labels.
 - Report the Artshelf id anywhere restart or cleanup context matters.
-- Use read-only and dry-run commands freely; execute cleanup, dispose, trash
-  purge, approved bundles, or resolve only after exact human approval.
-- Do not call work done while known eligible artifacts are neither registered
-  nor explicitly skipped.
+- Use read-only and dry-run commands freely; execute cleanup, dispose, trash purge, approved bundles, or resolve only after exact human approval.
+- Do not call work done while known eligible artifacts are neither registered nor explicitly skipped.
 
 ## Setup
 
