@@ -1310,6 +1310,54 @@ test("invalid prepared plans restore the original required-action row", async ()
   });
 });
 
+test("stale prepared dispose plans restore the original required-action row", async () => {
+  const dir = fixtureDir();
+  const artifactPath = realFile(dir, "cleanup-a.txt");
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: artifactPath })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const prepared = appendEvent(server.home, server.sessionId, {
+      type: "decision_submitted",
+      target: { recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" },
+      payload: { lane: "cleanup", decision: "trash", bulk: false, count: 1 }
+    });
+    const plan = createDisposePlan(ledgerPath, { id: "shf_cleanup_a", action: "trash-resolve", reason: "reviewed" });
+    replyToEvent(server.home, server.sessionId, prepared.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        title: "Dispose dry-run prepared",
+        planId: plan.planId,
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan ${plan.planId}`,
+        records: ["shf_cleanup_a"],
+        action: "trash-resolve"
+      }
+    });
+    writeFileSync(artifactPath, "changed after dry-run");
+
+    const required = requiredActionsHtml(await (await server.request("/")).text());
+    assert.doesNotMatch(required, /Ready for approval/i, "stale plans must not replace the original row");
+    assert.match(required, /Ready to clean up/i, "the original cleanup row returns for review");
+    assert.match(required, new RegExp(`name="reviewed:cleanup" value="${escapeRegExp(reviewedLaneRowValue("shf_cleanup_a", ledgerPath))}"`));
+
+    const staleApprovalParams = new URLSearchParams();
+    staleApprovalParams.append("token", server.token);
+    staleApprovalParams.append("type", "required_actions_submitted");
+    staleApprovalParams.append("approval:ready-approval", `approve-plan:${prepared.id}`);
+    const staleApproval = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: staleApprovalParams.toString(),
+      redirect: "manual"
+    });
+    assert.equal(staleApproval.status, 409);
+    assert.match(await staleApproval.text(), /no longer ready for approval/i);
+  });
+});
+
 test("executed prepared approvals leave required actions instead of returning to ready approval", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "primary", "ledger.jsonl");

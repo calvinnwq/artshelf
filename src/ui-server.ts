@@ -4,7 +4,7 @@ import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardSnapshot } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
-import { disposePlanEntryDigest, readDisposePlanEntry } from "./dispose.js";
+import { disposePlanEntryDigest, disposePlanEntrySubjectStaleForExecute, readDisposePlanEntry } from "./dispose.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import {
   renderApprovalWorkbenchPage,
@@ -603,6 +603,9 @@ function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEv
   if (planEntry.id !== recordId) {
     throw intentError(409, `Prepared plan ${planId} no longer matches record ${recordId}`);
   }
+  if (disposePlanEntrySubjectStaleForExecute(planEntry)) {
+    throw intentError(409, `Prepared plan ${planId} is no longer reviewable because its target changed`);
+  }
 
   const target: UiApprovalTarget = {
     targetId: recordId,
@@ -960,6 +963,7 @@ function reviewablePreparedPlanEventId(options: UiServerOptions, entry: UiSessio
   if (!planId) return null;
   try {
     const planEntry = readDisposePlanEntry(ledgerPath, planId);
+    if (disposePlanEntrySubjectStaleForExecute(planEntry)) return null;
     return planEntry.id === recordId ? entry.event.id : null;
   } catch {
     return null;
