@@ -9,6 +9,7 @@ import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import type { AppendEventInput, ApprovalSnapshotInput } from "./session.js";
 import {
   appendEvent,
+  appendEvents,
   readApprovalSnapshot,
   readSession,
   readSessionHistory,
@@ -222,9 +223,7 @@ async function routeIntentSubmission(options: UiServerOptions, request: any, res
       const validated = validateIntentTarget(options, intent.type, intent.target ?? {}, intent.payload ?? {});
       return { ...intent, target: validated.target, payload: validated.payload };
     });
-    for (const intent of validatedIntents) {
-      appendEvent(options.uiHome, options.sessionId, intent);
-    }
+    appendEvents(options.uiHome, options.sessionId, validatedIntents);
   } catch (error) {
     sendIntentError(response, error);
     return;
@@ -338,12 +337,12 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   const snapshot = buildDashboard(dashboardOptions(options));
   const intents: AppendEventInput[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
-  const bulkDecisions: Array<{ lane: "needs-review" | "needs-context" | "cleanup" | "resolve"; decision: string }> = [];
+  const bulkDecisions = new Map<RowDecisionApproval["lane"], string>();
   for (const approval of approvals) {
     const [kind, lane, action, extra] = approval.split(":");
     if (kind === "row-decision") {
       const parsed = parseRowDecisionApproval(approval);
-      rowDecisions.set(rowDecisionKey(parsed), parsed);
+      addRowDecisionApproval(rowDecisions, parsed);
       continue;
     }
     if (extra !== undefined || !isNonBlank(action)) {
@@ -353,7 +352,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
       if (!isBulkDecisionLane(lane)) {
         throw intentError(400, `Invalid Artshelf UI required action decision lane "${lane}"`);
       }
-      bulkDecisions.push({ lane, decision: action });
+      addBulkDecisionApproval(bulkDecisions, lane, action);
     } else if (kind === "request") {
       if (!isDashboardRequestLane(lane)) {
         throw intentError(400, `Invalid Artshelf UI required action request lane "${String(lane)}"`);
@@ -368,9 +367,9 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
     }
   }
   rejectConflictingRequiredActionSelections(bulkDecisions, rowDecisions);
-  for (const bulk of bulkDecisions) {
-    validateReviewedBulkLaneRows(snapshot, fields, bulk.lane);
-    intents.push(...buildBulkDecisionSubmissionFromSnapshot(snapshot, bulk.lane, bulk.decision).intents);
+  for (const [lane, decision] of bulkDecisions) {
+    validateReviewedBulkLaneRows(snapshot, fields, lane);
+    intents.push(...buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision).intents);
   }
   for (const rowDecision of rowDecisions.values()) {
     intents.push(...buildRowDecisionSubmissionFromSnapshot(snapshot, rowDecision).intents);
@@ -413,11 +412,28 @@ function rowDecisionKey(row: Pick<RowDecisionApproval, "lane" | "recordId" | "le
   return `${row.lane}\0${row.recordId}\0${row.ledgerPath}`;
 }
 
+function addBulkDecisionApproval(decisions: Map<RowDecisionApproval["lane"], string>, lane: RowDecisionApproval["lane"], decision: string): void {
+  const existing = decisions.get(lane);
+  if (existing !== undefined && existing !== decision) {
+    throw intentError(400, `Conflicting Artshelf UI selections for ${lane}: choose one bulk decision`);
+  }
+  decisions.set(lane, decision);
+}
+
+function addRowDecisionApproval(decisions: Map<string, RowDecisionApproval>, decision: RowDecisionApproval): void {
+  const key = rowDecisionKey(decision);
+  const existing = decisions.get(key);
+  if (existing !== undefined && existing.decision !== decision.decision) {
+    throw intentError(400, `Conflicting Artshelf UI row selections for ${decision.lane}: choose one decision for ${decision.recordId}`);
+  }
+  decisions.set(key, decision);
+}
+
 function rejectConflictingRequiredActionSelections(
-  bulkDecisions: Array<{ lane: "needs-review" | "needs-context" | "cleanup" | "resolve"; decision: string }>,
+  bulkDecisions: Map<RowDecisionApproval["lane"], string>,
   rowDecisions: Map<string, RowDecisionApproval>
 ): void {
-  const bulkLanes = new Set(bulkDecisions.map((decision) => decision.lane));
+  const bulkLanes = new Set(bulkDecisions.keys());
   const conflictingLanes = [...new Set([...rowDecisions.values()].map((decision) => decision.lane).filter((lane) => bulkLanes.has(lane)))];
   if (conflictingLanes.length > 0) {
     throw intentError(

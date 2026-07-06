@@ -7,6 +7,7 @@ import { test } from "node:test";
 import { withPathLock } from "../src/locks.js";
 import {
   appendEvent,
+  appendEvents,
   approvalSnapshotFingerprint,
   endSession,
   isUiDecisionIntent,
@@ -363,6 +364,49 @@ test("appendEvent records a pending browser event surfaced by pollPendingEvents"
   const pending = pollPendingEvents(home, session.id);
   assert.equal(pending.length, 1);
   assert.equal(pending[0]?.id, event.id);
+});
+
+test("appendEvents records a generated browser event batch in queue order", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const events = appendEvents(home, session.id, [
+    {
+      type: "comment_added",
+      target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "first" }
+    },
+    {
+      type: "decision_submitted",
+      target: { recordId: "shf_2", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { decision: "keep" }
+    }
+  ]);
+
+  assert.equal(events.length, 2);
+  assert.deepEqual(
+    pollPendingEvents(home, session.id).map((event) => event.id),
+    events.map((event) => event.id)
+  );
+});
+
+test("appendEvents rejects an invalid generated event before recording any batch entries", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvents(home, session.id, [
+        {
+          type: "comment_added",
+          target: { recordId: "shf_1", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl" },
+          payload: { text: "valid" }
+        },
+        { type: "unknown_event" as never }
+      ]),
+    /event type/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
 });
 
 test("appendEvent keeps browser-submitted events pending even when input supplies another status", () => {

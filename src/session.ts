@@ -310,17 +310,22 @@ export function validateBrowserToken(session: UiSession, token: string): boolean
 // Append a browser event to the durable log. Browser writes are refused once the session has
 // ended and always enter the agent poll queue as pending.
 export function appendEvent(home: string, sessionId: string, input: AppendEventInput): UiEvent {
+  return appendEvents(home, sessionId, [input])[0]!;
+}
+
+export function appendEvents(home: string, sessionId: string, inputs: AppendEventInput[]): UiEvent[] {
   const path = sessionFile(home, sessionId);
   return withUiStorageLock(home, path, () => {
     const session = readSession(home, sessionId);
     if (session.status !== "active") {
       throw new Error(`Artshelf UI session ${sessionId} has ended; browser writes are closed`);
     }
+    if (inputs.length === 0) return [];
     const createdAt = toIso(now());
-    const event = buildEvent(sessionId, input, "browser", createdAt);
-    appendLogLine(home, sessionId, { kind: "event", ...event });
+    const events = inputs.map((input) => buildEvent(sessionId, input, "browser", createdAt));
     writeSession(home, { ...session, updatedAt: createdAt });
-    return event;
+    appendLogLines(home, sessionId, events.map((event) => ({ kind: "event", ...event })));
+    return events;
   });
 }
 
@@ -847,12 +852,17 @@ function writeSession(home: string, session: UiSession): void {
 }
 
 function appendLogLine(home: string, sessionId: string, line: UiLogLine): void {
+  appendLogLines(home, sessionId, [line]);
+}
+
+function appendLogLines(home: string, sessionId: string, lines: UiLogLine[]): void {
+  if (lines.length === 0) return;
   const path = eventsFile(home, sessionId);
   withUiStorageLock(home, path, () => {
     ensureOwnerOnlyDirectoryTree(home, dirname(path));
     const previous = existsSync(path) ? readFileSync(path, "utf8") : "";
     const separator = previous && !previous.endsWith("\n") ? "\n" : "";
-    atomicWriteFileSync(path, `${previous}${separator}${JSON.stringify(line)}\n`);
+    atomicWriteFileSync(path, `${previous}${separator}${lines.map((line) => JSON.stringify(line)).join("\n")}\n`);
   });
 }
 
