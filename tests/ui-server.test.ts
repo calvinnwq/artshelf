@@ -715,6 +715,11 @@ test("POST /intents redirects to a dashboard confirmation with visible queued ac
     assert.match(html, /shf_cleanup_b/);
     assert.match(html, /Sent to agent/i, "affected dashboard rows should be visibly marked after submit");
     assert.match(html, /No execution ran/i, "dry-run/queued states must carry the safety line");
+    assert.match(
+      html,
+      /<button type="submit" disabled>Submit selected to agent<\/button>/,
+      "a queued-only dashboard should not render an active empty submit"
+    );
     const required = requiredActionsHtml(html);
     assert.match(
       required,
@@ -847,6 +852,11 @@ test("prepared dry-run plans replace original required-action rows with plan app
     const queuedHtml = await (await server.request("/")).text();
     const queuedRequired = requiredActionsHtml(queuedHtml);
     assert.match(queuedRequired, new RegExp(`value="${escapeRegExp(approvalValue!)}" checked disabled`), "queued prepared approvals render as submitted");
+    assert.match(
+      queuedHtml,
+      /<button type="submit" disabled>Submit selected to agent<\/button>/,
+      "a queued-only prepared approval should not render an active empty submit"
+    );
     assert.match(queuedHtml, new RegExp(`name="cancelEventId" value="${escapeRegExp(approvalEvent!.id)}"`), "queued work can be unqueued from the activity rail");
 
     const cancelParams = new URLSearchParams();

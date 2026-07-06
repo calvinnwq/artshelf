@@ -165,6 +165,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .required-submit{ padding:12px 14px; display:grid; gap:10px; background:var(--surface); border:1px solid var(--line-2); border-radius:12px; box-shadow:var(--shadow); }
 .required-submit .copy{ color:var(--ink-2); font-size:12.5px; }
 .required-submit button{ width:100%; border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:9px; padding:10px 14px; font:700 13px/1 var(--sans); cursor:pointer; }
+.required-submit button[disabled]{ background:var(--surface-2); border-color:var(--line-2); color:var(--ink-3); cursor:not-allowed; }
 .act .cta{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start; padding:8px 13px; border-radius:8px; font:600 13px/1 var(--sans); text-decoration:none; border:1px solid transparent; color:#fff; cursor:pointer; }
 .act .cta svg{ transition:transform .14s ease; } .act .cta:hover svg{ transform:translateX(3px); }
 .act.danger .cta{ background:var(--danger); } .act.attn .cta{ background:var(--attn); } .act.go .cta{ background:var(--accent); }
@@ -515,7 +516,7 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const actionCount = visibleRows.needsReview.length + visibleRows.needsContext.length + visibleRows.cleanup.length + visibleRows.resolve.length + preparedPlans.size;
   const problemsCount = counts["registry-reconcile"] + badLedgers;
   const doneCount = counts["recent-receipts"];
-  const queuedItems = queuedApprovalItems(snapshot, badLedgers, visibleRows, preparedPlans);
+  const queuedItems = queuedApprovalItems(snapshot, badLedgers, visibleRows, preparedPlans, pendingActions);
   const hasCancelableItems = hasCancelableQueuedItems(history);
   const activityOptions: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {
     submittedCount: activity.submittedCount ?? null
@@ -737,7 +738,7 @@ function preparedPlanRow(plan: PreparedPlanApproval, ledgerIndex: Map<string, nu
 </article>`;
 }
 
-type QueuedApprovalItem = { value: string; label: string };
+type QueuedApprovalItem = { value: string; label: string; submittable: boolean };
 
 type RequiredActionRows = {
   needsReview: DashboardArtifactRow[];
@@ -750,59 +751,87 @@ function queuedApprovalItems(
   snapshot: DashboardSnapshot,
   badLedgers: number,
   rows: RequiredActionRows,
-  preparedPlans: Map<string, PreparedPlanApproval>
+  preparedPlans: Map<string, PreparedPlanApproval>,
+  pendingActions: PendingActionIndex
 ): QueuedApprovalItem[] {
   const counts = snapshot.counts;
   const items: QueuedApprovalItem[] = [];
   if (preparedPlans.size > 0) {
-    items.push({ value: "approve-plan:all", label: `Approve all ${preparedPlans.size} prepared plan(s)` });
+    items.push({
+      value: "approve-plan:all",
+      label: `Approve all ${preparedPlans.size} prepared plan(s)`,
+      submittable: [...preparedPlans.values()].some((plan) => !plan.submitted)
+    });
   }
   for (const plan of preparedPlans.values()) {
-    items.push({ value: `approve-plan:${encodeURIComponent(plan.eventId)}`, label: `Approve ${plan.recordId} plan ${plan.planId}` });
+    items.push({
+      value: `approve-plan:${encodeURIComponent(plan.eventId)}`,
+      label: `Approve ${plan.recordId} plan ${plan.planId}`,
+      submittable: !plan.submitted
+    });
   }
   if (counts["purge-candidates"] > 0) {
-    items.push({ value: "request:purge-candidates:review_delete_forever", label: `Prepare delete review for ${counts["purge-candidates"]} row(s)` });
+    items.push({
+      value: "request:purge-candidates:review_delete_forever",
+      label: `Prepare delete review for ${counts["purge-candidates"]} row(s)`,
+      submittable: !isLaneRequestQueued(pendingActions, "purge-candidates", "review_delete_forever")
+    });
   }
-  addDecisionQueuedItems(items, "needs-review", rows.needsReview.length, "needs a decision");
-  addRowDecisionQueuedItems(items, "needs-review", rows.needsReview, "needs a decision");
-  addDecisionQueuedItems(items, "needs-context", rows.needsContext.length, "needs details");
-  addRowDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details");
-  addDecisionQueuedItems(items, "cleanup", rows.cleanup.length, "ready to clean up");
-  addRowDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up");
+  addDecisionQueuedItems(items, "needs-review", rows.needsReview, "needs a decision", pendingActions);
+  addRowDecisionQueuedItems(items, "needs-review", rows.needsReview, "needs a decision", pendingActions);
+  addDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details", pendingActions);
+  addRowDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details", pendingActions);
+  addDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up", pendingActions);
+  addRowDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up", pendingActions);
   if (rows.resolve.length > 0) {
-    items.push({ value: "decision:resolve:keep", label: `Keep ${rows.resolve.length} missing file row(s)` });
-    items.push({ value: "decision:resolve:resolve", label: `Resolve ${rows.resolve.length} missing file row(s)` });
+    const submittable = areBulkChoicesSubmittable(pendingActions, "resolve", rows.resolve);
+    items.push({ value: "decision:resolve:keep", label: `Keep ${rows.resolve.length} missing file row(s)`, submittable });
+    items.push({ value: "decision:resolve:resolve", label: `Resolve ${rows.resolve.length} missing file row(s)`, submittable });
   }
-  addResolveRowQueuedItems(items, rows.resolve);
+  addResolveRowQueuedItems(items, rows.resolve, pendingActions);
   const problems = counts["registry-reconcile"] + badLedgers;
   if (problems > 0) {
-    items.push({ value: "request:registry-reconcile:check_source_problems", label: `Check ${problems} source problem(s)` });
+    items.push({
+      value: "request:registry-reconcile:check_source_problems",
+      label: `Check ${problems} source problem(s)`,
+      submittable: !isLaneRequestQueued(pendingActions, "registry-reconcile", "check_source_problems")
+    });
   }
   return items;
 }
 
-function addDecisionQueuedItems(items: QueuedApprovalItem[], lane: "needs-review" | "needs-context" | "cleanup", count: number, label: string): void {
-  if (count === 0) return;
-  items.push({ value: `decision:${lane}:keep`, label: `Keep ${count} ${label} row(s)` });
-  items.push({ value: `decision:${lane}:trash`, label: `Trash ${count} ${label} row(s)` });
+function addDecisionQueuedItems(
+  items: QueuedApprovalItem[],
+  lane: "needs-review" | "needs-context" | "cleanup",
+  rows: DashboardArtifactRow[],
+  label: string,
+  pendingActions: PendingActionIndex
+): void {
+  if (rows.length === 0) return;
+  const submittable = areBulkChoicesSubmittable(pendingActions, lane, rows);
+  items.push({ value: `decision:${lane}:keep`, label: `Keep ${rows.length} ${label} row(s)`, submittable });
+  items.push({ value: `decision:${lane}:trash`, label: `Trash ${rows.length} ${label} row(s)`, submittable });
 }
 
 function addRowDecisionQueuedItems(
   items: QueuedApprovalItem[],
   lane: "needs-review" | "needs-context" | "cleanup",
   rows: DashboardArtifactRow[],
-  label: string
+  label: string,
+  pendingActions: PendingActionIndex
 ): void {
   for (const row of rows) {
-    items.push({ value: rowDecisionValue(lane, row, "keep"), label: `Keep ${row.recordId} (${label})` });
-    items.push({ value: rowDecisionValue(lane, row, "trash"), label: `Trash ${row.recordId} (${label})` });
+    const submittable = queuedRowDecision(pendingActions, lane, row) === null;
+    items.push({ value: rowDecisionValue(lane, row, "keep"), label: `Keep ${row.recordId} (${label})`, submittable });
+    items.push({ value: rowDecisionValue(lane, row, "trash"), label: `Trash ${row.recordId} (${label})`, submittable });
   }
 }
 
-function addResolveRowQueuedItems(items: QueuedApprovalItem[], rows: DashboardArtifactRow[]): void {
+function addResolveRowQueuedItems(items: QueuedApprovalItem[], rows: DashboardArtifactRow[], pendingActions: PendingActionIndex): void {
   for (const row of rows) {
-    items.push({ value: rowDecisionValue("resolve", row, "keep"), label: `Keep ${row.recordId} (missing file)` });
-    items.push({ value: rowDecisionValue("resolve", row, "resolve"), label: `Resolve ${row.recordId} (missing file)` });
+    const submittable = queuedRowDecision(pendingActions, "resolve", row) === null;
+    items.push({ value: rowDecisionValue("resolve", row, "keep"), label: `Keep ${row.recordId} (missing file)`, submittable });
+    items.push({ value: rowDecisionValue("resolve", row, "resolve"), label: `Resolve ${row.recordId} (missing file)`, submittable });
   }
 }
 
@@ -811,7 +840,8 @@ function globalSubmitBar(items: QueuedApprovalItem[]): string {
     .map((item) => `<li data-approval-value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</li>`)
     .join("");
   const style = queuedApprovalVisibilityStyles(items);
-  return `${style}<div class="required-submit"><div><span class="copy">Queued for agent</span><span class="queued-empty">Nothing selected yet.</span><ul class="queued-list">${list}</ul></div><button type="submit">Submit selected to agent</button></div>`;
+  const disabled = items.some((item) => item.submittable) ? "" : " disabled";
+  return `${style}<div class="required-submit"><div><span class="copy">Queued for agent</span><span class="queued-empty">Nothing selected yet.</span><ul class="queued-list">${list}</ul></div><button type="submit"${disabled}>Submit selected to agent</button></div>`;
 }
 
 function queuedApprovalVisibilityStyles(items: QueuedApprovalItem[]): string {
@@ -1440,6 +1470,14 @@ function queuedBulkDecision(
     if (areRowsQueuedForDecision(pendingActions, lane, rows, decision)) return decision;
   }
   return null;
+}
+
+function areBulkChoicesSubmittable(
+  pendingActions: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[]
+): boolean {
+  return rows.length > 0 && rows.every((row) => queuedRowDecision(pendingActions, lane, row) === null);
 }
 
 function bulkDecisionChoice(lane: DashboardBucketKey, decision: string, label: string, danger = false, submittedDecision: string | null = null): string {
