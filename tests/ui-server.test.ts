@@ -796,9 +796,45 @@ test("dashboard progressive enhancement polls only the token-scoped activity end
     assert.match(html, /data-activity-href="\/activity\?token=/, "the browser should poll the same-origin token-scoped path");
     assert.match(html, /setInterval\([^)]*2500/, "JS-enabled browsers should refresh every ~2-3s");
     assert.match(csp, /connect-src 'self'/, "polling must be limited to same-origin reads");
-    assert.match(csp, /script-src 'unsafe-inline'/, "only the inline progressive enhancement script is allowed");
+    const nonce = csp.match(/script-src 'nonce-([^']+)'/)?.[1] ?? "";
+    assert.match(csp, /script-src 'nonce-[^']+'/);
+    assert.doesNotMatch(csp, /script-src 'unsafe-inline'/, "dashboard script execution is bound to the poller nonce");
+    assert.match(html, new RegExp(`<script nonce="${escapeRegExp(nonce)}"`), "the poller carries the CSP nonce");
     assert.doesNotMatch(html, /document\.cookie|localStorage|sessionStorage/, "the token must not move into cross-port browser storage");
     assert.equal(response.headers.get("set-cookie"), null);
+  });
+});
+
+test("non-dashboard responses keep the scriptless content policy", async () => {
+  const { registryPath, ledgerPath } = singleLedger([baseRecord({ id: "shf_a" })]);
+
+  await withServer({ registryPath }, async (server) => {
+    const bundle = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-resolve",
+      targets: [
+        {
+          targetId: "shf_a",
+          ledgerPath,
+          registryPath: null,
+          recordPath: "/tmp/shf_a",
+          planId: null,
+          actionType: "trash-resolve",
+          label: "trash shf_a"
+        }
+      ],
+      selectedTargetIds: ["shf_a"],
+      reviewed: {}
+    });
+
+    for (const path of [`/detail/shf_a?ledger=${encodeURIComponent(ledgerPath)}`, `/bundle/${bundle.id}`, "/activity", "/missing"]) {
+      const response = await server.request(path);
+      const csp = response.headers.get("content-security-policy") ?? "";
+      const html = await response.text();
+      assert.match(csp, /script-src 'none'/, `${path} must not allow script execution`);
+      assert.match(csp, /connect-src 'none'/, `${path} must not allow browser fetches`);
+      assert.doesNotMatch(csp, /script-src 'unsafe-inline'/, `${path} must not allow inline scripts`);
+      assert.doesNotMatch(html, /<script/i, `${path} must not render executable script`);
+    }
   });
 });
 
@@ -2244,9 +2280,19 @@ test("browser approves a bundle, the agent executes it, and the receipt lands in
     assert.equal(entry!.replies.length, 2);
     assert.equal(entry!.replies[0]?.status, "in_progress");
     assert.equal(entry!.replies[1]?.status, "completed");
-    const receipts = entry!.replies[1]!.payload.receipts as Array<{ targetId: string; outcome: string }>;
+    const receipts = entry!.replies[1]!.payload.receipts as Array<{ targetId: string; outcome: string; label: string; detail: string }>;
     assert.deepEqual(receipts.map((r) => r.targetId), ["shf_backup"]);
     assert.deepEqual(receipts.map((r) => r.outcome), ["executed"]);
+
+    const activityHtml = await (await server.request("/activity")).text();
+    assert.match(activityHtml, /Final execution receipt/i);
+    assert.match(activityHtml, /status<\/dt><dd>executed/);
+    assert.match(activityHtml, /counts<\/dt><dd class="mono">executed 1 &middot; skipped_stale 0 &middot; failed 0 &middot; needs_manual_review 0/);
+    assert.match(activityHtml, /<span class="badge">executed<\/span>/);
+    assert.match(activityHtml, /shf_backup/);
+    assert.match(activityHtml, new RegExp(escapeRegExp(receipts[0]!.label)));
+    assert.match(activityHtml, new RegExp(escapeRegExp(receipts[0]!.detail)));
+    assert.match(activityHtml, new RegExp(escapeRegExp(ledgerPath)));
   });
 });
 

@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardSnapshot } from "./dashboard.js";
@@ -30,9 +31,10 @@ import type { UiEventType, UiSessionHistoryEntry } from "./types.js";
 // drawer, NGX-537 needs-context presentation, NGX-538 human triage intents, NGX-539 token-gated
 // approval-bundle workbench). It binds to 127.0.0.1 only and answers safe GET/HEAD reads by
 // recomputing live state from the read-only domain cores and rendering it as HTML. The read pages
-// carry no script and embed no file contents. The NGX-539 GET /bundle/<id> page renders one persisted
-// immutable approval snapshot as selected vs reviewed rows and the exact action. Submitting a
-// revised subset creates a new immutable approval snapshot for the agent to revalidate.
+// embed no file contents. The dashboard has a nonce-bound activity poller; the detail and bundle
+// pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable approval
+// snapshot as selected vs reviewed rows and the exact action. Submitting a revised subset creates a
+// new immutable approval snapshot for the agent to revalidate.
 //
 // The write paths are POST /intents for lightweight triage intents and POST /approve for immutable
 // approval snapshots. Both are guarded by the session capability token and append pending events for
@@ -63,13 +65,10 @@ export type UiServerHandle = {
 // read-only slice does not open - so the host is fixed here.
 const LOOPBACK_HOST = "127.0.0.1";
 
+const SCRIPTLESS_CONTENT_SECURITY_POLICY =
+  "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'self'";
+
 const SECURITY_HEADERS: Record<string, string> = {
-  // Forbid everything but our own inline styles and same-origin form submission: no scripts, no
-  // external fetches, no embedded file content can load - enforcing the no-preview, no-script
-  // boundary at the browser. `form-action 'self'` opens only the server's token-gated forms
-  // (/intents and /approve); the browser still executes nothing and mutates no ledger, file, trash,
-  // or plan - it only records intents and approval bundles for the agent.
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   // Always recompute from live state; never let a browser serve a stale dashboard from cache.
@@ -181,14 +180,17 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
   if (pathname === "/" || pathname === "/dashboard") {
     const history = dashboardSessionHistory(options);
     const queued = parseQueuedNotice(query, history);
+    const scriptNonce = uiScriptNonce();
     sendHtml(
       response,
       200,
       renderDashboardPage(buildDashboard(dashboardOptions(options)), access.token, {
         history,
         submittedCount: queued,
-        activityHref: activityHref(access.token)
-      })
+        activityHref: activityHref(access.token),
+        scriptNonce
+      }),
+      { "Content-Security-Policy": dashboardContentSecurityPolicy(scriptNonce) }
     );
     return;
   }
@@ -1020,18 +1022,26 @@ function authorizeBrowserRead(options: UiServerOptions, _request: any, query: st
   return { ok: true, token };
 }
 
+function uiScriptNonce(): string {
+  return randomBytes(16).toString("base64");
+}
+
+function dashboardContentSecurityPolicy(scriptNonce: string): string {
+  return `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${scriptNonce}'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'self'`;
+}
+
 function sendHtml(response: any, status: number, html: string, headers: Record<string, string> = {}): void {
-  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", ...SECURITY_HEADERS, ...headers });
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": SCRIPTLESS_CONTENT_SECURITY_POLICY, ...SECURITY_HEADERS, ...headers });
   response.end(html);
 }
 
 function sendText(response: any, status: number, text: string): void {
-  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", ...SECURITY_HEADERS });
+  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Content-Security-Policy": SCRIPTLESS_CONTENT_SECURITY_POLICY, ...SECURITY_HEADERS });
   response.end(text);
 }
 
 function sendRedirect(response: any, status: number, location: string): void {
-  response.writeHead(status, { Location: location, "Content-Type": "text/plain; charset=utf-8", ...SECURITY_HEADERS });
+  response.writeHead(status, { Location: location, "Content-Type": "text/plain; charset=utf-8", "Content-Security-Policy": SCRIPTLESS_CONTENT_SECURITY_POLICY, ...SECURITY_HEADERS });
   response.end(`Intent recorded. Continue at ${location}`);
 }
 

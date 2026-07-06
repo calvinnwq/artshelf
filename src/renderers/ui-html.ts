@@ -24,12 +24,12 @@ import type {
 // Read-only HTML rendering for the Artshelf UI v1 browser surface (NGX-535 dashboard, NGX-536
 // detail drawer, NGX-537 needs-context, NGX-539 approval workbench). These are pure functions: they
 // take the existing read-only domain snapshots and return a self-contained HTML document with inline
-// styles and no scripts. Dashboard and detail pages carry no executable code or file contents; their
-// forms only post token-bound session events and never expose direct ledger/file/trash/plan mutation
-// affordances. The loopback server (src/ui-server.ts) wires these to live state and sets the strict
-// CSP (default-src 'none'; style-src 'unsafe-inline'; form-action 'self') the markup honors: no
-// scripts, no external assets, no <img>, no web fonts. Interactivity (collapsible stages, selection
-// state) is therefore expressed entirely in CSS (:has(), <details>, :checked).
+// styles. Detail and bundle pages carry no executable code or file contents; the dashboard may carry
+// a nonce-bound activity poller. Forms only post token-bound session events and never expose direct
+// ledger/file/trash/plan mutation affordances. The loopback server (src/ui-server.ts) wires these to
+// live state and sets the strict CSP the markup honors: no external assets, no <img>, no web fonts.
+// Interactivity (collapsible stages, selection state) is expressed entirely in CSS (:has(),
+// <details>, :checked).
 
 // Escape the five HTML metacharacters so record-supplied text (reasons, paths, ids) is always
 // rendered as text, never markup. Every dynamic value in these pages routes through here.
@@ -318,6 +318,13 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .reply-card dl{ display:grid; grid-template-columns:max-content minmax(0,1fr); gap:4px 10px; margin:6px 0 0; font-size:12.5px; }
 .reply-card dt{ font:700 10px/1 var(--mono); letter-spacing:.06em; text-transform:uppercase; color:var(--ink-3); }
 .reply-card dd{ margin:0; word-break:break-word; }
+.receipt-list{ display:grid; gap:7px; margin-top:8px; }
+.receipt-row{ border:1px solid var(--line-2); background:color-mix(in srgb,var(--raise) 72%, transparent); border-radius:8px; padding:8px 9px; }
+.receipt-row.good{ border-color:var(--good-line); }
+.receipt-row.warn{ border-color:var(--attn-line); }
+.receipt-row.bad{ border-color:var(--danger-line); }
+.receipt-topline{ display:flex; flex-wrap:wrap; gap:7px; align-items:center; margin-bottom:4px; }
+.receipt-topline .name{ font-weight:700; min-width:0; overflow-wrap:anywhere; }
 
 /* ---- detail drawer ---- */
 .rec-head{ display:flex; flex-wrap:wrap; align-items:center; gap:10px 12px; }
@@ -468,6 +475,7 @@ export type DashboardSessionActivityRender = {
   history?: UiSessionHistoryEntry[];
   submittedCount?: number | null;
   activityHref?: string;
+  scriptNonce?: string;
 };
 
 export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string, activity: DashboardSessionActivityRender = {}): string {
@@ -483,10 +491,11 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const problemsCount = counts["registry-reconcile"] + badLedgers;
   const doneCount = counts["recent-receipts"];
   const queuedItems = queuedApprovalItems(snapshot, badLedgers);
-  const activityOptions: { submittedCount?: number | null; activityHref?: string } = {
+  const activityOptions: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string } = {
     submittedCount: activity.submittedCount ?? null
   };
   if (activity.activityHref !== undefined) activityOptions.activityHref = activity.activityHref;
+  if (activity.scriptNonce !== undefined) activityOptions.scriptNonce = activity.scriptNonce;
   const dashboard = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity)}
 ${renderDashboardActivityFragment(history, activityOptions)}
 ${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
@@ -791,7 +800,7 @@ function ledgerHealthSection(ledgers: DashboardLedgerStatus[]): string {
 
 export function renderDashboardActivityFragment(
   history: UiSessionHistoryEntry[],
-  options: { submittedCount?: number | null; activityHref?: string } = {}
+  options: { submittedCount?: number | null; activityHref?: string; scriptNonce?: string } = {}
 ): string {
   const pending = history.filter((entry) => entry.event.status === "pending");
   const replies = history.filter((entry) => entry.replies.length > 0);
@@ -807,7 +816,7 @@ export function renderDashboardActivityFragment(
       : `<div class="activity-list">${history.map(activityEntryCard).join("")}</div>`;
   const pendingGroups = pending.length > 0 ? `<div class="activity-list">${pendingGroupCards(pending).join("")}</div>` : "";
   const activityHref = options.activityHref ? ` data-activity-href="${escapeHtml(options.activityHref)}"` : "";
-  const script = options.activityHref ? activityPollScript() : "";
+  const script = options.activityHref ? activityPollScript(options.scriptNonce) : "";
   const safety = executionRan
     ? "Execution receipts are shown below. The browser still did not execute files, ledgers, trash, or plans."
     : "No execution ran. No files changed yet.";
@@ -825,8 +834,9 @@ ${empty}
 </section>${script}`;
 }
 
-function activityPollScript(): string {
-  return `<script>(function(){var href=(document.getElementById("session-activity")||{}).dataset&&document.getElementById("session-activity").dataset.activityHref;if(!href)return;async function refresh(){var current=document.getElementById("session-activity");if(!current)return;try{var response=await fetch(href,{cache:"no-store",credentials:"omit"});if(response.ok)current.outerHTML=await response.text();}catch(_error){}}setInterval(refresh,2500);})();</script>`;
+function activityPollScript(nonce?: string): string {
+  const nonceAttribute = nonce ? ` nonce="${escapeHtml(nonce)}"` : "";
+  return `<script${nonceAttribute}>(function(){var href=(document.getElementById("session-activity")||{}).dataset&&document.getElementById("session-activity").dataset.activityHref;if(!href)return;async function refresh(){var current=document.getElementById("session-activity");if(!current)return;try{var response=await fetch(href,{cache:"no-store",credentials:"omit"});if(response.ok)current.outerHTML=await response.text();}catch(_error){}}setInterval(refresh,2500);})();</script>`;
 }
 
 function pendingGroupCards(entries: UiSessionHistoryEntry[]): string[] {
@@ -862,11 +872,16 @@ function replyCard(reply: UiReply): string {
   const count = numberPayload(reply.payload, "count");
   const records = stringArrayPayload(reply.payload, "records");
   const execution = isExecutionReply(reply);
+  const executionStatus = stringPayload(reply.payload, "executionStatus");
+  const executionCounts = executionCountsPayload(reply.payload);
+  const executionReceipts = executionReceiptsPayload(reply.payload);
   const bad = ["stale", "rejected", "failed"].includes(reply.status);
   const dryRun = !execution && (planId !== null || /dry-run/i.test(title));
   const kind = execution ? "Final execution receipt" : dryRun ? "Dry-run reply" : "Agent reply";
   const fields = [
     planId ? `<dt>plan</dt><dd class="mono">${escapeHtml(planId)}</dd>` : "",
+    executionStatus ? `<dt>status</dt><dd>${escapeHtml(executionStatus)}</dd>` : "",
+    executionCounts ? `<dt>counts</dt><dd class="mono">${executionCounts.map(([key, value]) => `${escapeHtml(key)} ${value}`).join(" &middot; ")}</dd>` : "",
     count !== null ? `<dt>count</dt><dd>${count}</dd>` : "",
     records.length > 0 ? `<dt>records</dt><dd class="mono">${escapeHtml(records.join(", "))}</dd>` : "",
     approvalTarget ? `<dt>approval</dt><dd class="mono">${escapeHtml(approvalTarget)}</dd>` : ""
@@ -879,6 +894,7 @@ function replyCard(reply: UiReply): string {
 ${continuity}
 ${note ? `<p class="detail">${escapeHtml(note)}</p>` : ""}
 ${fields ? `<dl>${fields}</dl>` : ""}
+${executionReceipts.length > 0 ? executionReceiptRows(executionReceipts) : ""}
 </div>`;
 }
 
@@ -895,6 +911,83 @@ function replyTitle(reply: UiReply): string {
 
 function isExecutionReply(reply: UiReply): boolean {
   return typeof reply.payload.executionStatus === "string" || Array.isArray(reply.payload.receipts);
+}
+
+const EXECUTION_OUTCOMES = ["executed", "skipped_stale", "failed", "needs_manual_review"];
+
+type ExecutionReceiptPayload = {
+  targetId: string;
+  label: string;
+  actionType: string;
+  ledgerPath: string;
+  outcome: string;
+  detail: string;
+  evidence: Record<string, unknown> | null;
+};
+
+function executionCountsPayload(payload: Record<string, unknown>): Array<[string, number]> | null {
+  const counts = payload.counts;
+  if (!isRecord(counts)) return null;
+  const entries = EXECUTION_OUTCOMES.flatMap((key): Array<[string, number]> => {
+    const value = counts[key];
+    return typeof value === "number" && Number.isFinite(value) ? [[key, value]] : [];
+  });
+  return entries.length > 0 ? entries : null;
+}
+
+function executionReceiptsPayload(payload: Record<string, unknown>): ExecutionReceiptPayload[] {
+  const receipts = payload.receipts;
+  if (!Array.isArray(receipts)) return [];
+  return receipts.flatMap((receipt): ExecutionReceiptPayload[] => {
+    if (!isRecord(receipt)) return [];
+    const targetId = stringRecordValue(receipt, "targetId");
+    const outcome = stringRecordValue(receipt, "outcome");
+    if (!targetId || !outcome) return [];
+    return [
+      {
+        targetId,
+        outcome,
+        label: stringRecordValue(receipt, "label") ?? targetId,
+        actionType: stringRecordValue(receipt, "actionType") ?? "",
+        ledgerPath: stringRecordValue(receipt, "ledgerPath") ?? "",
+        detail: stringRecordValue(receipt, "detail") ?? "",
+        evidence: isRecord(receipt.evidence) ? receipt.evidence : null
+      }
+    ];
+  });
+}
+
+function executionReceiptRows(receipts: ExecutionReceiptPayload[]): string {
+  const rows = receipts.map((receipt) => {
+    const fields = [
+      `<dt>target</dt><dd class="mono">${escapeHtml(receipt.targetId)}</dd>`,
+      receipt.actionType ? `<dt>action</dt><dd>${escapeHtml(receipt.actionType)}</dd>` : "",
+      receipt.ledgerPath ? `<dt>ledger</dt><dd class="mono">${escapeHtml(receipt.ledgerPath)}</dd>` : "",
+      receipt.evidence ? `<dt>evidence</dt><dd class="mono">${escapeHtml(JSON.stringify(receipt.evidence))}</dd>` : ""
+    ].join("");
+    return `<article class="receipt-row ${receiptOutcomeClass(receipt.outcome)}">
+<div class="receipt-topline"><span class="badge">${escapeHtml(receipt.outcome)}</span><span class="name">${escapeHtml(receipt.label)}</span></div>
+${receipt.detail ? `<p class="detail">${escapeHtml(receipt.detail)}</p>` : ""}
+<dl>${fields}</dl>
+</article>`;
+  });
+  return `<div class="receipt-list">${rows.join("")}</div>`;
+}
+
+function receiptOutcomeClass(outcome: string): string {
+  if (outcome === "executed") return "good";
+  if (outcome === "skipped_stale" || outcome === "needs_manual_review") return "warn";
+  if (outcome === "failed") return "bad";
+  return "";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function stringRecordValue(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
 function stringPayload(payload: Record<string, unknown>, key: string): string | null {
