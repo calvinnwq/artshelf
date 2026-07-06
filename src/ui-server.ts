@@ -183,14 +183,16 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
     const history = dashboardSessionHistory(options);
     const queued = parseQueuedNotice(query, history);
     const scriptNonce = uiScriptNonce();
+    const snapshot = buildDashboard(dashboardOptions(options));
     sendHtml(
       response,
       200,
-      renderDashboardPage(buildDashboard(dashboardOptions(options)), access.token, {
+      renderDashboardPage(snapshot, access.token, {
         history,
         submittedCount: queued,
         activityHref: activityHref(access.token),
-        scriptNonce
+        scriptNonce,
+        reviewablePreparedPlanEventIds: reviewablePreparedPlanEventIds(options, snapshot)
       }),
       { "Content-Security-Policy": dashboardContentSecurityPolicy(scriptNonce) }
     );
@@ -446,6 +448,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   const snapshot = buildDashboard(dashboardOptions(options));
   const visibleRows = visibleRequiredActionRows(options, snapshot);
   const approvablePreparedEvents = approvablePreparedPlanEventIds(options, snapshot);
+  const pendingActions = pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId));
   const intents: AppendEventInput[] = [];
   const approvalBundles: BuiltApprovalBundleSubmission[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
@@ -484,6 +487,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
       if (action !== expectedRequest) {
         throw intentError(400, `Invalid Artshelf UI required action request "${action}" for lane ${lane}`);
       }
+      rejectQueuedLaneRequest(pendingActions, lane, action);
       intents.push({ type: "dry_run_requested", target: { lane }, payload: { request: action, label: requiredActionRequestLabel(lane) } });
     } else {
       throw intentError(400, `Invalid Artshelf UI required action approval "${approval}"`);
@@ -499,9 +503,11 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   for (const [lane, decision] of bulkDecisions) {
     const rows = visibleRowsForLane(visibleRows, lane);
     validateReviewedBulkLaneRows(rows, fields, lane);
+    rejectQueuedRowDecisions(pendingActions, lane, rows);
     intents.push(...buildBulkDecisionSubmissionFromRows(rows, lane, decision).intents);
   }
   for (const rowDecision of rowDecisions.values()) {
+    rejectQueuedRowDecision(pendingActions, rowDecision);
     intents.push(...buildRowDecisionSubmissionFromRows(visibleRowsForLane(visibleRows, rowDecision.lane), rowDecision).intents);
   }
   return { intents, approvalBundles: uniqueApprovalBundles, redirectTarget: { dashboard: "required-actions" } };
@@ -528,6 +534,31 @@ function submittedPreparedPlanEventIds(options: UiServerOptions): Set<string> {
 
 function isQueuedForAgentStatus(status: string): boolean {
   return status === "pending" || status === "acknowledged" || status === "in_progress";
+}
+
+type PendingActionIndex = {
+  laneRequests: Set<string>;
+  rowDecisions: Map<string, string>;
+};
+
+function pendingActionIndex(history: UiSessionHistoryEntry[]): PendingActionIndex {
+  const index: PendingActionIndex = { laneRequests: new Set(), rowDecisions: new Map() };
+  for (const entry of history) {
+    if (!isQueuedForAgentStatus(entry.event.status)) continue;
+    if (entry.event.type === "dry_run_requested") {
+      const lane = stringRecordValue(entry.event.target, "lane") ?? stringRecordValue(entry.event.payload, "lane");
+      const request = stringRecordValue(entry.event.payload, "request");
+      if (lane && request) index.laneRequests.add(laneActionKey(lane, request));
+      continue;
+    }
+    if (entry.event.type !== "decision_submitted") continue;
+    const lane = stringRecordValue(entry.event.payload, "lane");
+    const decision = stringRecordValue(entry.event.payload, "decision");
+    const recordId = stringRecordValue(entry.event.target, "recordId");
+    const ledgerPath = stringRecordValue(entry.event.target, "ledgerPath");
+    if (lane && decision && recordId && ledgerPath) index.rowDecisions.set(rowDecisionActionKey(lane, recordId, ledgerPath), decision);
+  }
+  return index;
 }
 
 function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEventId: string, approvableEventIds?: Set<string>): BuiltApprovalBundleSubmission {
@@ -634,6 +665,37 @@ function rowDecisionKey(row: Pick<RowDecisionApproval, "lane" | "recordId" | "le
 
 function recordActivityKey(recordId: string, ledgerPath: string): string {
   return `${recordId}\0${ledgerPath}`;
+}
+
+function laneActionKey(lane: string, action: string): string {
+  return `${lane}\0${action}`;
+}
+
+function rowDecisionActionKey(lane: string, recordId: string, ledgerPath: string): string {
+  return `${lane}\0${recordId}\0${ledgerPath}`;
+}
+
+function rejectQueuedLaneRequest(index: PendingActionIndex, lane: string, request: string): void {
+  if (index.laneRequests.has(laneActionKey(lane, request))) {
+    throw intentError(409, `Dashboard lane ${lane} request is already queued for the agent`);
+  }
+}
+
+function rejectQueuedRowDecision(index: PendingActionIndex, row: Pick<RowDecisionApproval, "lane" | "recordId" | "ledgerPath">): void {
+  const decision = index.rowDecisions.get(rowDecisionActionKey(row.lane, row.recordId, row.ledgerPath));
+  if (decision !== undefined) {
+    throw intentError(409, `Dashboard row ${row.recordId} in lane ${row.lane} is already queued for the agent`);
+  }
+}
+
+function rejectQueuedRowDecisions(
+  index: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[]
+): void {
+  for (const row of rows) {
+    rejectQueuedRowDecision(index, { lane, recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" });
+  }
 }
 
 function addBulkDecisionApproval(decisions: Map<RowDecisionApproval["lane"], string>, lane: RowDecisionApproval["lane"], decision: string): void {
@@ -755,6 +817,7 @@ function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<st
   const snapshot = buildDashboard(dashboardOptions(options));
   const rows = visibleRowsForLane(visibleRequiredActionRows(options, snapshot), lane);
   validateReviewedBulkLaneRows(rows, multiFields, lane);
+  rejectQueuedRowDecisions(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId)), lane, rows);
   return buildBulkDecisionSubmissionFromRows(rows, lane, decision, undefined, fields.reason);
 }
 
@@ -865,6 +928,10 @@ function approvablePreparedPlanEventIds(options: UiServerOptions, snapshot: Dash
   return new Set([...livePreparedPlanEventIndex(options, snapshot).values()].filter((eventId) => !submitted.has(eventId)));
 }
 
+function reviewablePreparedPlanEventIds(options: UiServerOptions, snapshot: DashboardSnapshot): Set<string> {
+  return new Set(livePreparedPlanEventIndex(options, snapshot).values());
+}
+
 function livePreparedPlanEventIndex(options: UiServerOptions, snapshot: DashboardSnapshot): Map<string, string> {
   const liveActionKeys = new Set<string>();
   for (const row of [...snapshot.buckets.needsReview, ...snapshot.buckets.needsContext, ...snapshot.buckets.cleanup, ...snapshot.buckets.resolve]) {
@@ -873,16 +940,32 @@ function livePreparedPlanEventIndex(options: UiServerOptions, snapshot: Dashboar
 
   const prepared = new Map<string, string>();
   for (const entry of readSessionHistory(options.uiHome, options.sessionId)) {
-    if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") continue;
     const recordId = stringRecordValue(entry.event.target, "recordId");
     const ledgerPath = stringRecordValue(entry.event.target, "ledgerPath");
     if (!recordId || !ledgerPath) continue;
     const key = recordActivityKey(recordId, ledgerPath);
     if (!liveActionKeys.has(key)) continue;
-    const hasPlan = [...entry.replies].reverse().some((candidate) => stringRecordValue(candidate.payload, "planId") !== null);
-    if (hasPlan) prepared.set(key, entry.event.id);
+    if (reviewablePreparedPlanEventId(options, entry) !== null) prepared.set(key, entry.event.id);
   }
   return prepared;
+}
+
+function reviewablePreparedPlanEventId(options: UiServerOptions, entry: UiSessionHistoryEntry): string | null {
+  if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") return null;
+  const recordId = stringRecordValue(entry.event.target, "recordId");
+  const requestedLedgerPath = stringRecordValue(entry.event.target, "ledgerPath");
+  if (!recordId || !requestedLedgerPath) return null;
+  const ledgerPath = scopedDetailLedgerPath(options, requestedLedgerPath);
+  if (ledgerPath === null) return null;
+  const reply = [...entry.replies].reverse().find((candidate) => stringRecordValue(candidate.payload, "planId") !== null);
+  const planId = reply ? stringRecordValue(reply.payload, "planId") : null;
+  if (!planId) return null;
+  try {
+    const planEntry = readDisposePlanEntry(ledgerPath, planId);
+    return planEntry.id === recordId ? entry.event.id : null;
+  } catch {
+    return null;
+  }
 }
 
 function isDecisionAllowedForLane(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", decision: string): boolean {
@@ -965,9 +1048,13 @@ function validateDashboardLaneTarget(
     throw intentError(400, `Invalid Artshelf UI dashboard lane "${String(lane)}"`);
   }
   const expectedRequest = UI_DASHBOARD_LANE_REQUESTS[lane];
+  if (!expectedRequest) {
+    throw intentError(400, `Invalid Artshelf UI dashboard lane "${lane}"`);
+  }
   if (payload.request !== expectedRequest) {
     throw intentError(400, `Invalid Artshelf UI dashboard request "${String(payload.request)}" for lane ${lane}`);
   }
+  rejectQueuedLaneRequest(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId)), lane, expectedRequest);
 
   const snapshot = buildDashboard(dashboardOptions(options));
   const count = dashboardLaneCount(snapshot, lane);

@@ -497,6 +497,7 @@ export type DashboardSessionActivityRender = {
   activityHref?: string;
   scriptNonce?: string;
   includeScript?: boolean;
+  reviewablePreparedPlanEventIds?: Set<string>;
 };
 
 export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string, activity: DashboardSessionActivityRender = {}): string {
@@ -508,7 +509,7 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const history = activity.history ?? [];
   const rowActivity = recordActivityIndex(history);
   const pendingActions = pendingActionIndex(history);
-  const preparedPlans = livePreparedPlanIndex(preparedPlanIndex(history), snapshot);
+  const preparedPlans = livePreparedPlanIndex(preparedPlanIndex(history, activity.reviewablePreparedPlanEventIds), snapshot);
   const visibleRows = visibleRequiredActionRows(snapshot, preparedPlans);
 
   const actionCount = visibleRows.needsReview.length + visibleRows.needsContext.length + visibleRows.cleanup.length + visibleRows.resolve.length + preparedPlans.size;
@@ -1140,11 +1141,12 @@ function recordActivityIndex(history: UiSessionHistoryEntry[]): Map<string, UiSe
   return index;
 }
 
-function preparedPlanIndex(history: UiSessionHistoryEntry[]): Map<string, PreparedPlanApproval> {
+function preparedPlanIndex(history: UiSessionHistoryEntry[], reviewableEventIds?: Set<string>): Map<string, PreparedPlanApproval> {
   const index = new Map<string, PreparedPlanApproval>();
   const submittedPlanEvents = submittedPreparedPlanEventIds(history);
   for (const entry of history) {
     if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") continue;
+    if (reviewableEventIds !== undefined && !reviewableEventIds.has(entry.event.id)) continue;
     const recordId = typeof entry.event.target.recordId === "string" ? entry.event.target.recordId : "";
     const ledgerPath = typeof entry.event.target.ledgerPath === "string" ? entry.event.target.ledgerPath : "";
     if (!recordId || !ledgerPath) continue;
