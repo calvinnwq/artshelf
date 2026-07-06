@@ -990,6 +990,45 @@ test("browser unqueue only cancels pending work", async () => {
   });
 });
 
+test("grouped unqueue can cancel more than fifty pending events", async () => {
+  const { registryPath, ledgerPath } = singleLedger([dueCleanupRecord(fixtureDir())]);
+
+  await withServer({ registryPath }, async (server) => {
+    const events = Array.from({ length: 51 }, (_, index) =>
+      appendEvent(server.home, server.sessionId, {
+        type: "decision_submitted",
+        target: { recordId: `shf_cleanup_${index}`, ledgerPath, ledgerName: "primary" },
+        payload: { lane: "cleanup", decision: "trash" }
+      })
+    );
+
+    const queuedHtml = await (await server.request("/")).text();
+    const batchCancel = queuedHtml.match(/name="cancelEventIds" value="([^"]+)"/)?.[1];
+    assert.ok(batchCancel, "large grouped queues should render one grouped unqueue action");
+    assert.deepEqual(batchCancel!.split(",").sort(), events.map((event) => event.id).sort());
+    assert.equal((queuedHtml.match(/name="cancelEventId"/g) ?? []).length, 0, "large grouped queues should not fall back to per-item buttons");
+
+    const cancelParams = new URLSearchParams();
+    cancelParams.append("token", server.token);
+    cancelParams.append("type", "required_actions_submitted");
+    cancelParams.append("cancelEventIds", batchCancel!);
+    const cancelResponse = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: cancelParams.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(cancelResponse.status, 303);
+    assert.equal(
+      readSessionEvents(server.home, server.sessionId).filter((event) => events.some((queued) => queued.id === event.id && event.status === "cancelled")).length,
+      events.length,
+      "grouped unqueue cancels every pending event in a large group"
+    );
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "large grouped unqueue clears the agent poll queue");
+  });
+});
+
 test("prepared dry-run plans can be approved all at once from required actions", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "primary", "ledger.jsonl");

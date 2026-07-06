@@ -295,15 +295,13 @@ function queuedCancellationEventIds(fields: Record<string, string>): string[] {
 
 function cancelQueuedBrowserEvents(options: UiServerOptions, eventIds: string[]): void {
   if (eventIds.length === 0) return;
-  if (eventIds.length > 50) {
-    throw intentError(400, "Too many queued events selected for cancellation");
-  }
   const history = readSessionHistory(options.uiHome, options.sessionId);
+  const historyById = new Map(history.map((entry) => [entry.event.id, entry]));
   const entries = eventIds.map((eventId) => {
     if (!/^event_\d{8}_\d{6}_[0-9a-f]{8}$/.test(eventId)) {
       throw intentError(400, `Invalid Artshelf UI queued event id "${eventId}"`);
     }
-    const entry = history.find((candidate) => candidate.event.id === eventId);
+    const entry = historyById.get(eventId);
     if (entry === undefined) {
       throw intentError(400, `Queued event ${eventId} was not found`);
     }
