@@ -240,12 +240,6 @@ delete files:
 artshelf resolve <id> --status resolved --reason "<specific reason>" --ledger <ledger-path> --json
 ```
 
-For batches, ask for exact approval:
-
-```text
-approve artshelf resolve missing ledger <ledger-path> ids <id...>
-```
-
 ## Purge
 
 Trash purge is separate from cleanup and needs its own reviewed purge plan. List
