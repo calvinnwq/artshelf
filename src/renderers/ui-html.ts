@@ -158,6 +158,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .approve-choice:has(input:checked) .queued{ display:inline; }
 .approve-choice:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
 .approve-choice.submitted,.bulk-choice.submitted,.row-choice.submitted{ opacity:1!important; pointer-events:none; cursor:not-allowed; filter:none!important; }
+.approve-choice.disabled,.bulk-choice.disabled{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(.row-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(> summary .approve-choice input:checked) .row-actions .row-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(.bulk-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
@@ -586,6 +587,7 @@ function requiredActionsSection(
     );
   }
   if (visibleRows.needsReview.length > 0) {
+    const trashState = laneDecisionChoiceState(pendingActions, "needs-review", visibleRows.needsReview, "trash");
     cards.push(
       actionCard(
         "attn",
@@ -594,12 +596,13 @@ function requiredActionsSection(
         "Needs a decision",
         "Move to trash",
         "unless a row looks worth keeping.",
-        token ? approvalChoice("decision", "needs-review", "trash", "Approve", areRowsQueuedForDecision(pendingActions, "needs-review", visibleRows.needsReview, "trash")) : "",
+        token ? approvalChoice("decision", "needs-review", "trash", "Approve", trashState.submitted, trashState.disabled) : "",
         artifactActionBody("needs-review", visibleRows.needsReview, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
   }
   if (visibleRows.needsContext.length > 0) {
+    const trashState = laneDecisionChoiceState(pendingActions, "needs-context", visibleRows.needsContext, "trash");
     cards.push(
       actionCard(
         "attn",
@@ -608,12 +611,13 @@ function requiredActionsSection(
         "Needs details",
         "Move to trash",
         "unless missing context changes the decision.",
-        token ? approvalChoice("decision", "needs-context", "trash", "Approve", areRowsQueuedForDecision(pendingActions, "needs-context", visibleRows.needsContext, "trash")) : "",
+        token ? approvalChoice("decision", "needs-context", "trash", "Approve", trashState.submitted, trashState.disabled) : "",
         artifactActionBody("needs-context", visibleRows.needsContext, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
   }
   if (visibleRows.cleanup.length > 0) {
+    const trashState = laneDecisionChoiceState(pendingActions, "cleanup", visibleRows.cleanup, "trash");
     cards.push(
       actionCard(
         "calm",
@@ -622,12 +626,13 @@ function requiredActionsSection(
         "Ready to clean up",
         "Move to trash",
         "because they are due and appear unused.",
-        token ? approvalChoice("decision", "cleanup", "trash", "Approve", areRowsQueuedForDecision(pendingActions, "cleanup", visibleRows.cleanup, "trash")) : "",
+        token ? approvalChoice("decision", "cleanup", "trash", "Approve", trashState.submitted, trashState.disabled) : "",
         artifactActionBody("cleanup", visibleRows.cleanup, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
   }
   if (visibleRows.resolve.length > 0) {
+    const resolveState = laneDecisionChoiceState(pendingActions, "resolve", visibleRows.resolve, "resolve");
     cards.push(
       actionCard(
         "calm",
@@ -636,7 +641,7 @@ function requiredActionsSection(
         "Missing files",
         "Resolve records",
         "because their files are already gone.",
-        token ? approvalChoice("decision", "resolve", "resolve", "Approve", areRowsQueuedForDecision(pendingActions, "resolve", visibleRows.resolve, "resolve")) : "",
+        token ? approvalChoice("decision", "resolve", "resolve", "Approve", resolveState.submitted, resolveState.disabled) : "",
         artifactActionBody("resolve", visibleRows.resolve, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
@@ -687,9 +692,11 @@ ${control || ""}
 </details>`;
 }
 
-function approvalChoice(kind: "decision" | "request", lane: DashboardBucketKey, action: string, label: string, submitted = false): string {
+function approvalChoice(kind: "decision" | "request", lane: DashboardBucketKey, action: string, label: string, submitted = false, disabled = false): string {
   const value = `${kind}:${lane}:${action}`;
-  return `<div class="act-actions"><label class="approve-choice${submitted ? " submitted" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"${submitted ? " checked disabled" : ""}><span class="approve">${escapeHtml(label)}</span><span class="queued">Queued</span></label></div>`;
+  const stateClass = submitted ? " submitted" : disabled ? " disabled" : "";
+  const stateAttrs = submitted ? " checked disabled" : disabled ? " disabled" : "";
+  return `<div class="act-actions"><label class="approve-choice${stateClass}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"${stateAttrs}><span class="approve">${escapeHtml(label)}</span><span class="queued">Queued</span></label></div>`;
 }
 
 type PreparedPlanApproval = {
@@ -1447,8 +1454,14 @@ function bulkDecisionControls(
   const submittedDecision = queuedBulkDecision(pendingActions, key, rows);
   const choices =
     key === "resolve"
-      ? [bulkDecisionChoice(key, "keep", "Keep all", false, submittedDecision), bulkDecisionChoice(key, "resolve", "Resolve all", false, submittedDecision)]
-      : [bulkDecisionChoice(key, "keep", "Keep all", false, submittedDecision), bulkDecisionChoice(key, "trash", "Trash all", true, submittedDecision)];
+      ? [
+        bulkDecisionChoice(key, "keep", "Keep all", false, submittedDecision, isLaneDecisionBlocked(pendingActions, key, rows, "keep")),
+        bulkDecisionChoice(key, "resolve", "Resolve all", false, submittedDecision, isLaneDecisionBlocked(pendingActions, key, rows, "resolve"))
+      ]
+      : [
+        bulkDecisionChoice(key, "keep", "Keep all", false, submittedDecision, isLaneDecisionBlocked(pendingActions, key, rows, "keep")),
+        bulkDecisionChoice(key, "trash", "Trash all", true, submittedDecision, isLaneDecisionBlocked(pendingActions, key, rows, "trash"))
+      ];
   return `<div class="lane-actions">
 <div class="choice-row"><span class="lbl">Queue</span>
 ${choices.join("\n")}
@@ -1478,11 +1491,39 @@ function areBulkChoicesSubmittable(
   return rows.length > 0 && rows.every((row) => queuedRowDecision(pendingActions, lane, row) === null);
 }
 
-function bulkDecisionChoice(lane: DashboardBucketKey, decision: string, label: string, danger = false, submittedDecision: string | null = null): string {
+function hasQueuedRowDecision(
+  index: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[]
+): boolean {
+  return rows.some((row) => queuedRowDecision(index, lane, row) !== null);
+}
+
+function isLaneDecisionBlocked(
+  index: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[],
+  decision: string
+): boolean {
+  return hasQueuedRowDecision(index, lane, rows) && !areRowsQueuedForDecision(index, lane, rows, decision);
+}
+
+function laneDecisionChoiceState(
+  index: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[],
+  decision: string
+): { submitted: boolean; disabled: boolean } {
+  const submitted = areRowsQueuedForDecision(index, lane, rows, decision);
+  return { submitted, disabled: !submitted && hasQueuedRowDecision(index, lane, rows) };
+}
+
+function bulkDecisionChoice(lane: DashboardBucketKey, decision: string, label: string, danger = false, submittedDecision: string | null = null, blocked = false): string {
   const value = `decision:${lane}:${decision}`;
   const submitted = submittedDecision === decision;
-  const disabled = submittedDecision !== null;
-  return `<label class="bulk-choice${danger ? " danger" : ""}${submitted ? " submitted" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"${submitted ? " checked" : ""}${disabled ? " disabled" : ""}><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
+  const disabled = submittedDecision !== null || blocked;
+  const stateClass = submitted ? " submitted" : blocked ? " disabled" : "";
+  return `<label class="bulk-choice${danger ? " danger" : ""}${stateClass}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"${submitted ? " checked" : ""}${disabled ? " disabled" : ""}><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
 }
 
 function dueLabel(dueState: string): string {

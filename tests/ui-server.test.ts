@@ -1876,6 +1876,55 @@ test("POST /intents records row-level required-action approvals as exact pending
   });
 });
 
+test("GET / disables lane-level approvals when part of a lane is already queued", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const rowValue = `row-decision:cleanup:trash:${encodeURIComponent("shf_cleanup_a")}:${encodeURIComponent(ledgerPath)}`;
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append(`approval:cleanup:row:${encodeURIComponent("shf_cleanup_a")}:${encodeURIComponent(ledgerPath)}`, rowValue);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+    assert.equal(response.status, 303);
+
+    const required = requiredActionsHtml(await (await server.request("/")).text());
+    assert.match(
+      required,
+      /class="approve-choice disabled" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash" disabled><span class="approve">Approve<\/span><span class="queued">Queued<\/span>/,
+      "partially queued lanes should not expose an active card approval"
+    );
+    assert.match(
+      required,
+      /class="bulk-choice danger disabled" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash" disabled><span class="choose">Trash all<\/span><span class="queued">Queued<\/span>/,
+      "partially queued lanes should not expose active bulk approvals"
+    );
+    assert.match(
+      required,
+      /class="row-choice danger submitted" data-approval-value="row-decision:cleanup:trash:shf_cleanup_a:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup_a:[^"]+" value="row-decision:cleanup:trash:shf_cleanup_a:[^"]+" checked disabled>/,
+      "the queued row-level choice stays visibly queued"
+    );
+    assert.match(
+      required,
+      /class="row-choice danger" data-approval-value="row-decision:cleanup:trash:shf_cleanup_b:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup_b:[^"]+" value="row-decision:cleanup:trash:shf_cleanup_b:[^"]+"><span class="choose">Trash<\/span><span class="queued">Queued<\/span>/,
+      "the unqueued row-level choice remains available"
+    );
+  });
+});
+
 test("POST /intents records a dashboard lane request as a pending poll event", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
