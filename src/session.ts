@@ -117,6 +117,16 @@ const UI_DECISION_INTENT_SET: Record<UiDecisionIntent, true> = {
   defer: true
 };
 
+// Dashboard-level dry-run requests are intentionally narrow: they let a human queue the common
+// "prepare/check/review" work from the dashboard, but still carry no execution authority. Keep this
+// in the session layer because appendEvent is exported and this is the durable pending-queue guard.
+export const UI_DASHBOARD_LANE_REQUESTS: Record<string, string> = {
+  cleanup: "prepare_cleanup_plan",
+  resolve: "check_missing_files",
+  "purge-candidates": "review_delete_forever",
+  "registry-reconcile": "check_source_problems"
+};
+
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
 export const UI_DECISION_INTENTS = Object.keys(UI_DECISION_INTENT_SET) as UiDecisionIntent[];
@@ -741,10 +751,28 @@ function validateInspectRequest(target: Record<string, unknown>): void {
   requireRecordTarget(target);
 }
 
-// A dry-run request asks the agent to prepare the appropriate reviewed plan for one exact record; it
-// carries no executable authority, but still must name the record + ledger so it cannot become a
-// vague global planning event.
-function validateDryRunRequest(target: Record<string, unknown>): void {
+// A dry-run request asks the agent to prepare the appropriate reviewed plan. It carries no executable
+// authority. Most requests name one exact record + ledger; dashboard lane buttons may instead name a
+// validated lane + registry snapshot request so the human can ask for the common plan from the
+// dashboard without opening rows one by one.
+function validateDryRunRequest(target: Record<string, unknown>, payload: Record<string, unknown>): void {
+  if (isNonEmptyString(target.lane)) {
+    requireNonEmptyTargetField(target, "registryPath");
+    const expectedRequest = UI_DASHBOARD_LANE_REQUESTS[target.lane];
+    if (expectedRequest === undefined) {
+      throw new Error(`Invalid Artshelf UI dry-run request target.lane "${String(target.lane)}"`);
+    }
+    if (!isNonEmptyString(payload.request)) {
+      throw new Error("Invalid Artshelf UI dry-run request payload.request; expected a non-empty string");
+    }
+    if (payload.request !== expectedRequest) {
+      throw new Error(`Invalid Artshelf UI dry-run request payload.request "${String(payload.request)}" for lane ${target.lane}`);
+    }
+    if (typeof payload.count !== "number" || !Number.isFinite(payload.count) || payload.count < 1) {
+      throw new Error("Invalid Artshelf UI dry-run request payload.count; expected a positive number");
+    }
+    return;
+  }
   requireRecordTarget(target);
 }
 

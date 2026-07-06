@@ -132,10 +132,10 @@
               binds to loopback (127.0.0.1) only, recomputes live state per request, requires
               the active UI session capability token printed in the serve URL, serves no script
               and no file contents, and supports <code>--json</code> for a compact launch packet.
-              The dashboard stays display-only, while the detail drawer adds scriptless forms that
-              capture lightweight human triage intents - inspect, comment, keep/trash/resolve/defer,
-              and dry-run request - recording each as a pending event in the durable session log for
-              the agent to act on after approval. The served bundle workbench at
+              The dashboard lets a reviewer queue recommended lane approvals and submit the selected
+              work as pending events in the durable session log, while the detail drawer adds
+              record-level forms for inspect, comment, keep/trash/resolve/defer, and dry-run
+              requests. The served bundle workbench at
               <code>GET /bundle/&lt;bundle-id&gt;</code> shows the selected exact targets, reviewed-only
               rows, and exact action from an immutable approval snapshot. With the active token, its
               scriptless form can submit a revised non-empty subset through <code>POST /approve</code>,

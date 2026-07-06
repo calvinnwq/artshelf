@@ -263,6 +263,15 @@ function formBody(fields: Record<string, string>): string {
     .join("&");
 }
 
+function appendReviewedLaneRow(
+  params: URLSearchParams,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  recordId: string,
+  ledgerPath: string
+): void {
+  params.append(`reviewed:${lane}`, `${encodeURIComponent(recordId)}:${encodeURIComponent(ledgerPath)}`);
+}
+
 // Submit a browser triage intent exactly as the rendered HTML form would: a urlencoded POST to
 // /intents carrying the capability token in the body. `noToken` drops it to exercise the write gate.
 function postIntent(
@@ -352,10 +361,9 @@ test("GET / renders the eight buckets, ledger health, and a row that links to it
     assert.match(response.headers.get("content-type") ?? "", /text\/html/);
     const html = await response.text();
 
-    // First viewport: every UI v1 lane label and the ledger health for the registered ledger.
-    for (const lane of ["needs-review", "needs-context", "cleanup", "resolve", "trash", "purge-candidates", "registry-reconcile", "recent-receipts"]) {
-      assert.match(html, new RegExp(lane), `dashboard should show the ${lane} lane`);
-    }
+    // First viewport: the non-empty cleanup lane and ledger health for the registered ledger.
+    assert.match(html, /id="lane-cleanup"/, "dashboard should show the cleanup lane when it has rows");
+    assert.doesNotMatch(html, /id="lane-recent-receipts"/, "dashboard should hide empty lanes");
     assert.match(html, /primary/, "ledger health should name the registered ledger");
 
     // The cleanup row exposes minimum human-judgment fields and links to the NGX-536 drawer.
@@ -376,6 +384,22 @@ function purgeLaneHtml(html: string): string {
   assert.ok(start >= 0, "dashboard should render the purge-candidates lane");
   const rest = html.slice(start);
   const next = rest.indexOf('id="lane-registry-reconcile"');
+  return next >= 0 ? rest.slice(0, next) : rest;
+}
+
+function requiredActionsHtml(html: string): string {
+  const start = html.indexOf('id="required-actions"');
+  assert.ok(start >= 0, "dashboard should render required actions");
+  const rest = html.slice(start);
+  const next = rest.indexOf("Status at a glance");
+  return next >= 0 ? rest.slice(0, next) : rest;
+}
+
+function laneHtml(html: string, laneId: string): string {
+  const start = html.indexOf(`id="${laneId}"`);
+  assert.ok(start >= 0, `dashboard should render ${laneId}`);
+  const rest = html.slice(start);
+  const next = rest.indexOf("</details>");
   return next >= 0 ? rest.slice(0, next) : rest;
 }
 
@@ -410,9 +434,47 @@ test("GET / renders the purge lane grouped by source with one-way-door warning c
     assert.match(lane, /shf_b1/);
     assert.match(lane, new RegExp("/trash/plan_a/shf_a1\\.txt"), "exact purge target path is shown before approval");
 
-    // Read-only lane: nothing preselected and no browser-direct purge affordance.
-    assert.doesNotMatch(lane, /<input/i, "purge lane must not preselect or expose direct execution controls");
+    // Read-only lane: nothing preselected and no browser-direct purge execution affordance. The lane
+    // may record a review request for the agent, but permanent deletion still happens only through
+    // the later approval workbench and ui execute path.
     assert.doesNotMatch(lane, /checked/i, "no purge candidate is selected by default");
+    assert.doesNotMatch(lane, /trash purge --execute|ui execute/i, "purge lane must not expose direct execution controls");
+    assert.match(lane, /data-approval-value="request:purge-candidates:review_delete_forever"/, "the card queues only an agent review request");
+    assert.match(lane, /<span class="rec-action">Prepare delete review<\/span>/, "the card recommendation names the review request");
+  });
+});
+
+test("GET / keeps non-action trash and receipt rows visible as read-only activity", async () => {
+  const receipt = baseRecord({
+    id: "shf_receipt",
+    owner: "artshelf",
+    labels: ["cleanup-receipt"],
+    kind: "run-artifact",
+    path: "/receipts/cleanup-plan.json",
+    reason: "cleanup receipt for reviewed artifacts",
+    createdAt: "2026-06-23T00:00:00.000Z"
+  });
+  const { registryPath } = singleLedger([trashedRecord("shf_trash", "plan_t"), receipt]);
+
+  await withServer({ registryPath }, async (server) => {
+    const html = await (await server.request("/")).text();
+    const trash = laneHtml(html, "lane-trash");
+    const receipts = laneHtml(html, "lane-recent-receipts");
+
+    assert.match(trash, /In trash/, "trash lane should be visible when trash rows exist");
+    assert.match(trash, /shf_trash/);
+    assert.match(trash, /\/trash\/plan_t\/shf_trash\.txt/);
+    assert.match(trash, /\/receipts\/plan_t\.json/);
+    assert.match(trash, /quarantined/i);
+    assert.doesNotMatch(trash, /name="approval:/, "trash activity rows are read-only and not queued approvals");
+
+    assert.match(receipts, /Recent receipts/, "recent receipt lane should be visible when receipt rows exist");
+    assert.match(receipts, /shf_receipt/);
+    assert.match(receipts, /cleanup/);
+    assert.match(receipts, /cleanup receipt for reviewed artifacts/);
+    assert.match(receipts, /\/receipts\/cleanup-plan\.json/);
+    assert.match(receipts, /Details/, "receipt rows still link to their detail drawer");
+    assert.doesNotMatch(receipts, /name="approval:/, "recent receipt rows are read-only and not queued approvals");
   });
 });
 
@@ -432,7 +494,7 @@ test("GET / routes a weak-reason record into needs-context and out of the cleanu
   });
 });
 
-test("GET / renders the redesigned top fold, status summary, and scriptless lane filters", async () => {
+test("GET / renders the redesigned top fold, queued actions, and non-empty review lanes", async () => {
   const dir = fixtureDir();
   const primaryLedger = join(dir, "primary", "ledger.jsonl");
   const secondaryLedger = join(dir, "secondary", "ledger.jsonl");
@@ -448,31 +510,440 @@ test("GET / renders the redesigned top fold, status summary, and scriptless lane
 
   await withServer({ registryPath }, async (server) => {
     const html = await (await server.request("/")).text();
+    const required = requiredActionsHtml(html);
 
-    // Top fold: a required-actions section whose purge card states the one-way door and jumps to the
-    // purge lane anchor, plus an at-a-glance status summary.
-    assert.match(html, /Required actions/i, "the top fold names the required actions");
-    assert.match(html, /href="#lane-purge-candidates"/, "an action card jumps to the purge lane");
+    // Top fold: a required-actions section that stays terse and queues recommended actions for one
+    // final submit,
+    // plus an at-a-glance status summary.
+    assert.match(required, /Required actions/i, "the top fold names the required actions");
+    assert.doesNotMatch(required, /Why this is here/i, "required action cards should not repeat explanatory body copy");
+    assert.doesNotMatch(required, /What the button does/i, "required action cards should not repeat explanatory body copy");
+    assert.match(required, /Can delete forever/i, "the purge lane is named in human terms");
+    assert.match(required, /Ready to clean up/i, "cleanup work is named in human terms");
+    assert.doesNotMatch(required, /Needs your choice/i, "required action cards should not repeat the title in a second label");
+    assert.match(required, /<span class="rec-label">Agent recommends<\/span> <span class="rec-action">Move to trash<\/span> because they are due and appear unused\./, "the top fold highlights the recommended action");
+    assert.doesNotMatch(html, /\.act::before/, "required action cards should not use a left border rail");
+    assert.match(required, /<summary>\s*<span class="toggle-copy">.*?<\/span>\s*<div class="n num">/s, "required action cards put the chevron at the left edge");
+    assert.doesNotMatch(required, /Show items/, "required action cards should not show a separate item-toggle label");
+    assert.doesNotMatch(required, />Rows</, "required actions should not use a separate rows button");
+    assert.doesNotMatch(required, /\b\d+%/, "the top fold should not use vague confidence percentages");
+    assert.match(html, /class="review-form" method="post" action="\/intents"/, "the dashboard has one global submit form");
+    assert.match(html, /name="reviewed:cleanup"/, "bulk approval forms bind the reviewed cleanup row set");
+    assert.match(required, /name="approval:cleanup" value="decision:cleanup:trash"/, "the top fold can queue a recommended bulk decision");
+    assert.match(required, /name="approval:purge-candidates" value="request:purge-candidates:review_delete_forever"/, "the top fold can queue a review request");
+    assert.match(
+      required,
+      /<summary>[\s\S]*?<label class="approve-choice" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash"><span class="approve">Approve<\/span><span class="queued">Queued<\/span><\/label>[\s\S]*?<\/summary>/,
+      "the required action toggles between Approve and Queued in the always-visible summary control"
+    );
+    assert.doesNotMatch(required, /queued-pill/, "required actions should not use a separate queued status control");
+    assert.equal(
+      (html.match(/<label class="(?:approve-choice|bulk-choice[^"]*)" data-approval-value="decision:cleanup:trash"/g) ?? []).length,
+      2,
+      "the required action and the matching row bulk choice share one queued selection value"
+    );
+    assert.match(html, /Queued for agent/, "the global submit shows the queued actions area");
+    assert.match(html, /Nothing selected yet\./, "the queued actions area is explicit before selection");
+    assert.match(html, /Prepare delete review for 2 row\(s\)/, "the queued list describes the purge request");
+    assert.match(html, /Trash 1 ready to clean up row\(s\)/, "the queued list describes cleanup decisions");
+    assert.match(
+      html,
+      /<label class="bulk-choice danger" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash"><span class="choose">Trash all<\/span><span class="queued">Queued<\/span><\/label>/,
+      "review queue bulk choices toggle between the action and Queued in one control"
+    );
+    assert.match(
+      html,
+      /<label class="row-choice danger" data-approval-value="row-decision:cleanup:trash:shf_cleanup:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup:[^"]+" value="row-decision:cleanup:trash:shf_cleanup:[^"]+"><span class="choose">Trash<\/span><span class="queued">Queued<\/span><\/label>/,
+      "expanded rows can queue an exact row-level trash decision"
+    );
+    assert.match(
+      html,
+      /\.choice-row:has\(\.bulk-choice input:checked\) \.bulk-choice:not\(:has\(input:checked\)\)/,
+      "review queue choices disable the unselected peer while one choice is queued"
+    );
+    assert.match(
+      html,
+      /\.act-body:has\(\.row-choice input:checked\) \.lane-actions \.bulk-choice/,
+      "row choices disable bulk choices while exact rows are queued"
+    );
+    assert.match(
+      html,
+      /\.act:has\(\.bulk-choice input:checked\) > summary \.approve-choice/,
+      "bulk choices disable the always-visible card approval while a bulk choice is queued"
+    );
+    assert.match(
+      html,
+      /\.act:has\(> summary \.approve-choice input:checked\) \.lane-actions \.bulk-choice/,
+      "the always-visible card approval disables expanded bulk choices while it is queued"
+    );
+    assert.doesNotMatch(html, /queued-pill|clear-choice|data-clear-lane/, "review queue choices should not need separate queued or remove controls");
+    assert.match(html, /Submit selected to agent/, "the page has one final submit for queued approvals");
+    assert.doesNotMatch(html, /name="lane" value="purge-candidates"/, "lane controls should not submit separately from the global form");
+    assert.doesNotMatch(html, /Review queue &middot; across the workflow cycle/, "action rows should live inside required action cards, not a separate review queue");
     assert.match(html, /one-way door/i, "the purge action card carries the one-way-door warning");
     assert.match(html, /Status at a glance/i, "the status summary is present");
 
-    // Scriptless zone filter: a default-checked "all" radio, the action zone radio, the static
-    // :has() rule that hides off-zone stages, and per-stage data-zone tags / lane ids.
-    assert.match(html, /name="flt-zone" id="flt-zone-all"[^>]*checked/, "the zone filter defaults to All");
-    assert.match(html, /name="flt-zone" id="flt-zone-action"/, "an action-needed zone filter is offered");
-    assert.match(html, /\.queue:has\(#flt-zone-action:checked\) details\.stage:not\(\[data-zone="action"\]\)/, "off-zone stages are hidden by a pure-CSS rule");
-    assert.match(html, /<details class="stage"[^>]*id="lane-needs-review"[^>]*data-zone="action"/, "the needs-review stage is tagged into the action zone");
-    assert.match(html, /id="lane-purge-candidates"[^>]*data-zone="quarantine"/, "the purge stage is tagged into the quarantine zone");
-
-    // Scriptless source filter for 2+ ledgers: per-ledger radios, the dynamically generated :has()
-    // rules, and rows tagged with the stable led-<index> token (never raw ledger text in a selector).
-    assert.match(html, /name="flt-led" id="flt-led-0"/, "a per-ledger source radio is offered");
-    assert.match(html, /name="flt-led" id="flt-led-1"/, "each ledger gets its own source radio");
-    assert.match(html, /\.queue:has\(#flt-led-1:checked\) tr\.r:not\(\[data-ledger="led-1"\]\)/, "a generated rule filters rows by ledger");
-    assert.match(html, /data-ledger="led-0"/, "rows carry the stable ledger token the filter targets");
+    // The required action cards now own the expandable row lists, so no separate filterable queue is rendered.
+    assert.doesNotMatch(html, /name="flt-zone"/, "zone filters are not rendered");
+    assert.doesNotMatch(html, /name="flt-led"/, "source filters are not rendered");
+    assert.doesNotMatch(html, /id="lane-needs-review"/, "empty lanes are hidden");
+    assert.doesNotMatch(html, /id="lane-needs-context"/, "empty lanes are hidden");
+    assert.match(html, /<details class="act calm" id="lane-cleanup"[^>]*data-zone="action"/, "non-empty cleanup card is rendered");
+    assert.match(html, /<details class="act danger" id="lane-purge-candidates"[^>]*data-zone="quarantine"/, "non-empty purge card is rendered");
+    assert.match(html, /data-ledger="led-0"/, "rows carry stable ledger tokens without raw ledger names in selectors");
 
     // None of the interactivity introduces script: it is all CSS :has()/<details>.
-    assert.doesNotMatch(html, /<script/i, "the filters and collapsibles ship no executable script");
+    assert.doesNotMatch(html, /<script/i, "the queue selections and collapsibles ship no executable script");
+  });
+});
+
+test("POST /intents records required-action approvals only after the final submit", async () => {
+  const dir = fixtureDir();
+  const primaryLedger = join(dir, "primary", "ledger.jsonl");
+  const secondaryLedger = join(dir, "secondary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(primaryLedger, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeLedgerFile(secondaryLedger, [trashedRecord("shf_purge_a", "plan_p")]);
+  writeRegistry(registryPath, [
+    { name: "primary", path: primaryLedger },
+    { name: "secondary", path: secondaryLedger }
+  ]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "loading and selecting in-page state does not queue agent work");
+
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:keep");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    params.append("approval:purge-candidates", "request:purge-candidates:review_delete_forever");
+    params.append("approval:needs-review", "");
+    params.append("approval:registry-reconcile", "");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", primaryLedger);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", primaryLedger);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#required-actions`);
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 3, "one final submit expands selected approvals into exact session events");
+    assert.equal(pending.filter((event) => event.type === "decision_submitted").length, 2);
+    assert.equal(pending.filter((event) => event.type === "dry_run_requested").length, 1);
+    assert.deepEqual(
+      pending
+        .filter((event) => event.type === "decision_submitted")
+        .map((event) => event.payload.decision),
+      ["trash", "trash"],
+      "the last selected lane-scoped value wins within a bulk choice group"
+    );
+    assert.deepEqual(
+      pending
+        .filter((event) => event.type === "decision_submitted")
+        .map((event) => event.target.recordId)
+        .sort(),
+      ["shf_cleanup_a", "shf_cleanup_b"]
+    );
+    const request = pending.find((event) => event.type === "dry_run_requested")!;
+    assert.deepEqual(request.target, { lane: "purge-candidates", registryPath });
+    assert.equal(request.payload.request, "review_delete_forever");
+    assert.equal(request.payload.label, "Review delete");
+  });
+});
+
+test("POST /intents accepts reviewed-row bulk approvals larger than the old tiny intent cap", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  const rows = Array.from({ length: 180 }, (_, index) =>
+    dueCleanupRecord(dir, {
+      id: `shf_cleanup_${String(index).padStart(3, "0")}`,
+      path: realFile(dir, `cleanup-${index}.txt`)
+    })
+  );
+  writeLedgerFile(ledgerPath, rows);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    for (const row of rows) appendReviewedLaneRow(params, "cleanup", row.id as string, ledgerPath);
+    assert.ok(params.toString().length > 16 * 1024, "fixture should exceed the old 16 KiB /intents body cap");
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 303);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, rows.length);
+  });
+});
+
+test("POST /intents rejects stale required-action bulk approvals when a lane changed since render", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  const original = dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") });
+  const added = dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") });
+  writeLedgerFile(ledgerPath, [original]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+    writeLedgerFile(ledgerPath, [original, added]);
+
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 409);
+    assert.match(await response.text(), /changed since this page loaded/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "stale bulk approvals must not queue a partial lane");
+  });
+});
+
+test("POST /intents rejects conflicting card and row-level required-action approvals", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+
+    const params = new URLSearchParams();
+    const rowValue = `row-decision:cleanup:keep:${encodeURIComponent("shf_cleanup_a")}:${encodeURIComponent(ledgerPath)}`;
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    params.append(`approval:cleanup:row:${encodeURIComponent("shf_cleanup_a")}:${encodeURIComponent(ledgerPath)}`, rowValue);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /Conflicting Artshelf UI selections for cleanup/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "conflicting approvals must not enter the agent queue");
+  });
+});
+
+test("POST /intents records needs-review and needs-context required-action bulk approvals", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    baseRecord({
+      id: "shf_review",
+      path: realFile(dir, "review.txt"),
+      retention: { mode: "manual-review" },
+      cleanup: "review"
+    }),
+    baseRecord({
+      id: "shf_context",
+      path: realFile(dir, "context.txt"),
+      reason: "   ",
+      retention: { mode: "manual-review" },
+      cleanup: "review"
+    })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:needs-review", "decision:needs-review:trash");
+    params.append("approval:needs-context", "decision:needs-context:trash");
+    appendReviewedLaneRow(params, "needs-review", "shf_review", ledgerPath);
+    appendReviewedLaneRow(params, "needs-context", "shf_context", ledgerPath);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 303);
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.deepEqual(
+      pending.map((event) => [event.target.recordId, event.payload.lane, event.payload.decision]).sort(),
+      [
+        ["shf_context", "needs-context", "trash"],
+        ["shf_review", "needs-review", "trash"]
+      ],
+      "visible required-action approvals for needs-review and needs-context should queue exact decisions"
+    );
+  });
+});
+
+test("POST /intents records row-level required-action approvals as exact pending events", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    await server.request("/");
+
+    const params = new URLSearchParams();
+    const rowValue = `row-decision:cleanup:keep:${encodeURIComponent("shf_cleanup_a")}:${encodeURIComponent(ledgerPath)}`;
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append(`approval:cleanup:row:${encodeURIComponent("shf_cleanup_a")}:${encodeURIComponent(ledgerPath)}`, rowValue);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 303);
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#required-actions`);
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 1, "one selected row creates one exact pending event");
+    assert.equal(pending[0]!.type, "decision_submitted");
+    assert.deepEqual(pending[0]!.target, { recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" });
+    assert.deepEqual(pending[0]!.payload, {
+      decision: "keep",
+      lane: "cleanup",
+      bulk: false,
+      count: 1
+    });
+  });
+});
+
+test("POST /intents records a dashboard lane request as a pending poll event", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, {
+      type: "dry_run_requested",
+      lane: "cleanup",
+      request: "prepare_cleanup_plan",
+      label: "Prepare cleanup plan"
+    });
+
+    assert.equal(response.status, 303, "a successful lane request should redirect back to the dashboard lane");
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#lane-cleanup`);
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 1, "the lane request should be queued for the agent as a pending event");
+    const event = pending[0]!;
+    assert.equal(event.type, "dry_run_requested");
+    assert.equal(event.source, "browser");
+    assert.equal(event.status, "pending");
+    assert.deepEqual(event.target, { lane: "cleanup", registryPath });
+    assert.deepEqual(event.payload, {
+      request: "prepare_cleanup_plan",
+      label: "Prepare cleanup plan",
+      count: 1
+    });
+  });
+});
+
+test("POST /intents records a bulk lane decision as exact per-record pending events", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "loading the dashboard does not queue agent work");
+
+    const response = await postIntent(server, {
+      type: "decision_submitted",
+      lane: "cleanup",
+      decision: "trash"
+    });
+
+    assert.equal(response.status, 303, "a successful bulk decision should redirect back to the dashboard lane");
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#lane-cleanup`);
+
+    const pending = pollPendingEvents(server.home, server.sessionId);
+    assert.equal(pending.length, 2, "the bulk decision expands into exact record-level events");
+    assert.deepEqual(
+      pending.map((event) => event.target.recordId).sort(),
+      ["shf_cleanup_a", "shf_cleanup_b"]
+    );
+    for (const event of pending) {
+      assert.equal(event.type, "decision_submitted");
+      assert.equal(event.source, "browser");
+      assert.equal(event.status, "pending");
+      assert.equal(event.target.ledgerPath, ledgerPath);
+      assert.equal(event.target.ledgerName, "primary");
+      assert.equal(event.payload.decision, "trash");
+      assert.equal(event.payload.lane, "cleanup");
+      assert.equal(event.payload.bulk, true);
+      assert.equal(event.payload.count, 2);
+    }
+  });
+});
+
+test("POST /intents rejects a dashboard lane request when that lane has no work", async () => {
+  const { registryPath } = singleLedger([]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, {
+      type: "dry_run_requested",
+      lane: "cleanup",
+      request: "prepare_cleanup_plan"
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /no work/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "an empty lane request must never enter the log");
   });
 });
 
@@ -532,7 +1003,7 @@ test("GET /detail/<id> displays a purged record's no-recovery receipt in its aud
       cleanupPlanId: "plan_a",
       resolvedAt: "2026-06-15T00:00:00.000Z",
       resolutionReason: "trash purge completed",
-      purgedAt: "2026-06-15T00:00:00.000Z",
+      purgedAt: "2026-06-15T00:00:01.000Z",
       purgePlanId: "purge_a",
       purgeReceiptPath: "/receipts/purge_a.json"
     })
@@ -540,6 +1011,8 @@ test("GET /detail/<id> displays a purged record's no-recovery receipt in its aud
 
   await withServer({ registryPath }, async (server) => {
     const html = await (await server.request(`/detail/shf_purged?ledger=${encodeURIComponent(ledgerPath)}`)).text();
+    assert.match(html, /last action/i, "the detail facts should keep the latest audited action visible");
+    assert.match(html, /purge at 2026-06-15T00:00:01\.000Z; receipt \/receipts\/purge_a\.json/);
     assert.match(html, /purge/, "the audit trail should show the purge event");
     assert.match(html, /no recovery path/i, "the receipt must explicitly state there is no recovery path");
     assert.match(html, new RegExp("/receipts/purge_a\\.json"), "the no-recovery purge receipt path is shown");

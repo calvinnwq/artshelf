@@ -532,11 +532,12 @@ workbench as a local browser surface. It binds to loopback (127.0.0.1) only,
 never a wildcard interface, and recomputes live state on every request. Pages
 require the active UI session capability token printed in the serve URL; ending
 that session revokes browser access. The pages carry no script and embed no file
-contents. The dashboard only displays state; the detail drawer captures human
-triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request) and
-the bundle workbench captures revised approval selections as pending session
-events through token-bound POSTs, but never mutates ledgers, files, trash, or plans
-directly. Approval posts carry only the source bundle id and selected target ids;
+contents. The dashboard lets reviewers queue recommended lane approvals and then
+submit the selected work as pending session events, the detail drawer captures
+record-level triage intents (inspect, comment, keep/trash/resolve/defer, dry-run
+request), and the bundle workbench captures revised approval selections through
+token-bound POSTs, but never mutates ledgers, files, trash, or plans directly. Approval posts carry
+only the source bundle id and selected target ids;
 the server rehydrates target context from the stored bundle instead of trusting
 hidden browser target JSON. The process runs in the foreground; press Ctrl-C to
 stop it.

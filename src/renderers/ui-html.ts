@@ -28,7 +28,7 @@ import type {
 // contents and expose only token-bound triage-intent forms, never direct ledger/file/trash/plan
 // mutation affordances. The loopback server (src/ui-server.ts) wires these to live state and sets the
 // strict CSP (default-src 'none'; style-src 'unsafe-inline'; form-action 'self') the markup honors:
-// no scripts, no external assets, no <img>, no web fonts. Interactivity (lane filters, collapsible
+// no scripts, no external assets, no <img>, no web fonts. Interactivity (collapsible
 // stages, selection state) is therefore expressed entirely in CSS (:has(), <details>, :checked).
 
 // Escape the five HTML metacharacters so record-supplied text (reasons, paths, ids) is always
@@ -122,21 +122,49 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .guard svg{ flex:none; margin-top:1px; color:var(--accent); }
 
 /* ---- required actions ---- */
-.acts{ display:grid; grid-template-columns:repeat(auto-fit,minmax(232px,1fr)); gap:14px; }
-.act{ position:relative; display:flex; flex-direction:column; padding:16px 16px 14px; background:var(--surface); border:1px solid var(--line); border-radius:13px; box-shadow:var(--shadow); overflow:hidden; transition:transform .14s ease, box-shadow .14s ease; }
-.act:hover{ transform:translateY(-2px); box-shadow:var(--shadow-lift); }
-.act::before{ content:""; position:absolute; inset:0 auto 0 0; width:4px; background:var(--slate); }
-.act.danger::before{ background:var(--danger); } .act.attn::before{ background:var(--attn); } .act.go::before{ background:var(--accent); }
-.act .tag{ display:inline-flex; align-items:center; gap:6px; font:600 10px/1.3 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); }
-.act.danger .tag{ color:var(--danger); } .act.attn .tag{ color:var(--attn); }
-.act .n{ font:500 38px/1 var(--serif); margin:10px 0 2px; letter-spacing:-.02em; }
-.act .name{ font-weight:650; font-size:15px; margin:0; }
-.act .desc{ font-size:12.5px; color:var(--ink-2); margin:6px 0 14px; line-height:1.45; flex:1; }
-.act .cta{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start; padding:8px 13px; border-radius:8px; font:600 13px/1 var(--sans); text-decoration:none; border:1px solid transparent; color:#fff; }
+.review-form{ display:block; margin:0; }
+.acts{ display:grid; grid-template-columns:1fr; gap:8px; }
+.act{ position:relative; display:block; background:var(--surface); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); overflow:hidden; }
+.act > summary{ list-style:none; cursor:pointer; display:grid; grid-template-columns:auto auto minmax(0,1fr) auto; gap:10px 13px; align-items:center; padding:10px 12px; }
+.act > summary::-webkit-details-marker{ display:none; }
+.act[open] > summary{ border-bottom:1px solid var(--line); }
+.act .n{ font:500 25px/1 var(--serif); letter-spacing:-.02em; min-width:34px; text-align:right; }
+.act-main{ min-width:0; }
+.act .name{ font-weight:650; font-size:14px; margin:0 0 3px; }
+.act .rec{ margin:0; font-size:12.5px; line-height:1.35; color:var(--ink-2); max-width:82ch; }
+.rec-label{ font:700 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); margin-right:6px; }
+.rec-action{ display:inline-flex; align-items:center; padding:2px 7px; border-radius:999px; background:var(--accent-soft); color:var(--accent-ink); border:1px solid color-mix(in srgb,var(--accent) 28%, transparent); font-weight:750; margin-right:5px; }
+.act.danger .rec-action{ background:var(--danger-soft); color:var(--danger); border-color:var(--danger-line); }
+.act.attn .rec-action{ background:var(--attn-soft); color:var(--attn); border-color:var(--attn-line); }
+.toggle-copy{ display:inline-flex; align-items:center; justify-content:center; color:var(--ink-3); }
+.toggle-copy .chev{ flex:none; transition:transform .18s ease; }
+.act[open] .toggle-copy .chev{ transform:rotate(90deg); }
+.act-actions{ display:flex; flex-wrap:wrap; justify-content:flex-end; justify-self:end; gap:7px; }
+.act-body{ background:var(--surface); }
+.act-body .lane-actions{ border-top:0; }
+.approve-choice{ position:relative; display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:8px 13px; border-radius:8px; font:650 13px/1 var(--sans); border:1px solid var(--accent); color:#fff; background:var(--accent); cursor:pointer; user-select:none; }
+.approve-choice input{ position:absolute; inset:0; opacity:0; cursor:pointer; margin:0; }
+.approve-choice .queued{ display:none; }
+.approve-choice:has(input:checked){ background:var(--good-soft); color:var(--good); border-color:var(--good-line); }
+.approve-choice:has(input:checked) .approve{ display:none; }
+.approve-choice:has(input:checked) .queued{ display:inline; }
+.approve-choice:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
+.act:has(.row-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.act:has(> summary .approve-choice input:checked) .row-actions .row-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.act:has(.bulk-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.act:has(> summary .approve-choice input:checked) .lane-actions .bulk-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.required-submit{ position:sticky; bottom:0; z-index:4; margin-top:16px; padding:12px 14px; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:10px; background:var(--surface); border:1px solid var(--line-2); border-radius:12px; box-shadow:0 -8px 28px -18px rgba(0,0,0,.45), var(--shadow); }
+.required-submit .copy{ color:var(--ink-2); font-size:12.5px; }
+.required-submit button{ border:1px solid var(--accent); background:var(--accent); color:#fff; border-radius:9px; padding:10px 14px; font:700 13px/1 var(--sans); cursor:pointer; }
+.act .cta{ display:inline-flex; align-items:center; gap:6px; align-self:flex-start; padding:8px 13px; border-radius:8px; font:600 13px/1 var(--sans); text-decoration:none; border:1px solid transparent; color:#fff; cursor:pointer; }
 .act .cta svg{ transition:transform .14s ease; } .act .cta:hover svg{ transform:translateX(3px); }
 .act.danger .cta{ background:var(--danger); } .act.attn .cta{ background:var(--attn); } .act.go .cta{ background:var(--accent); }
 .act.calm .cta{ background:var(--surface-2); color:var(--ink); border-color:var(--line-2); }
-@media (prefers-color-scheme: dark){ .act.danger .cta,.act.attn .cta,.act.go .cta{ color:#0e120f; } }
+.act .cta.calm{ background:var(--surface-2); color:var(--ink); border-color:var(--line-2); }
+.act .cta.keep{ background:var(--good-soft); color:var(--good); border-color:var(--good-line); }
+.act .cta.trash{ background:var(--danger); color:#fff; border-color:var(--danger); }
+@media (max-width:720px){ .act > summary{ grid-template-columns:auto auto minmax(0,1fr); } .act-actions{ grid-column:2 / -1; justify-self:start; justify-content:flex-start; } .act .n{ min-width:28px; } }
+@media (prefers-color-scheme: dark){ .act.danger .cta,.act.attn .cta,.act.go .cta,.approve-choice,.required-submit button{ color:#0e120f; } }
 .allclear{ display:flex; align-items:center; gap:12px; padding:18px 20px; background:var(--good-soft); border:1px solid var(--good-line); border-radius:13px; color:var(--good); font-weight:600; }
 
 /* ---- status summary ---- */
@@ -152,6 +180,8 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 
 /* ---- sources / ledger health ---- */
 .sources{ display:grid; grid-template-columns:repeat(auto-fill,minmax(260px,1fr)); gap:10px; margin-top:12px; }
+.sources-drawer summary{ cursor:pointer; color:var(--ink-2); font-weight:650; }
+.sources-drawer[open] summary{ margin-bottom:12px; }
 .ledger{ padding:11px 13px; background:var(--surface); border:1px solid var(--line); border-radius:10px; box-shadow:var(--shadow); }
 .ledger.bad{ border-color:var(--danger-line); background:var(--danger-soft); }
 .ledger .name{ font-weight:650; display:flex; align-items:center; gap:7px; }
@@ -160,25 +190,6 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .ledger .path{ font:11.5px/1.4 var(--mono); color:var(--ink-3); word-break:break-all; margin-top:4px; }
 .ledger .state{ font-size:12px; color:var(--ink-2); margin-top:5px; }
 .ledger .err{ font-size:12.5px; color:var(--danger); margin-top:4px; }
-
-/* ---- filters ---- */
-.filters{ display:flex; flex-wrap:wrap; gap:18px; margin:6px 0 18px; padding:13px 15px; background:var(--surface); border:1px solid var(--line); border-radius:12px; box-shadow:var(--shadow); }
-.fgroup{ display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
-.fgroup .lbl{ font:600 10px/1 var(--mono); letter-spacing:.1em; text-transform:uppercase; color:var(--ink-3); margin-right:2px; }
-.chip{ position:relative; display:inline-flex; align-items:center; gap:7px; padding:6px 12px; border-radius:999px; border:1px solid var(--line-2); background:var(--surface); color:var(--ink-2); font:600 12.5px/1 var(--sans); cursor:pointer; transition:background .12s,color .12s,border-color .12s; user-select:none; }
-.chip input{ position:absolute; inset:0; opacity:0; cursor:pointer; margin:0; }
-.chip .c{ font:600 11px/1 var(--mono); color:var(--ink-3); }
-.chip:hover{ border-color:var(--accent); }
-.chip:has(input:checked){ background:var(--accent); border-color:var(--accent); color:#fff; }
-.chip:has(input:checked) .c{ color:rgba(255,255,255,.8); }
-.chip:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
-@media (prefers-color-scheme: dark){ .chip:has(input:checked){ color:#0e120f; } .chip:has(input:checked) .c{ color:rgba(14,18,15,.7); } }
-
-/* ---- scriptless zone filter: a checked zone radio hides every off-zone stage via :has() ---- */
-.queue:has(#flt-zone-action:checked) details.stage:not([data-zone="action"]){ display:none; }
-.queue:has(#flt-zone-quarantine:checked) details.stage:not([data-zone="quarantine"]){ display:none; }
-.queue:has(#flt-zone-problems:checked) details.stage:not([data-zone="problems"]){ display:none; }
-.queue:has(#flt-zone-done:checked) details.stage:not([data-zone="done"]){ display:none; }
 
 /* ---- stages (collapsible compact tables) ---- */
 .stage{ border:1px solid var(--line); border-radius:12px; background:var(--surface); margin:0 0 12px; box-shadow:var(--shadow); overflow:hidden; }
@@ -200,15 +211,74 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .stagenote svg{ flex:none; margin-top:1px; }
 .empty{ padding:18px 16px; color:var(--ink-3); font-style:italic; font-size:13px; }
 
-table.tbl{ width:100%; border-collapse:collapse; font-size:13px; }
-.tbl th{ text-align:left; font:600 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); padding:9px 14px; border-bottom:1px solid var(--line); white-space:nowrap; }
-.tbl td{ padding:11px 14px; border-bottom:1px solid var(--line); vertical-align:top; }
-.tbl tr.r:last-child td{ border-bottom:0; }
-.tbl tr.r:hover{ background:var(--surface-2); }
+.lane-actions{ padding:12px 16px; border-bottom:1px solid var(--line); background:var(--surface-2); }
+.lane-actions .choice-row{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin:0; }
+.lane-actions .choice-row .lbl{ font:700 10px/1 var(--mono); letter-spacing:.08em; text-transform:uppercase; color:var(--ink-3); margin-right:2px; }
+.bulk-choice{ position:relative; display:inline-flex; align-items:center; gap:7px; padding:8px 12px; border:1px solid var(--line-2); border-radius:8px; background:var(--surface); color:var(--ink-2); cursor:pointer; font:650 12.5px/1 var(--sans); user-select:none; }
+.bulk-choice input{ position:absolute; inset:0; opacity:0; cursor:pointer; margin:0; }
+.bulk-choice:has(input:checked){ background:var(--accent); color:#fff; border-color:var(--accent); }
+.bulk-choice.danger:has(input:checked){ background:var(--danger); border-color:var(--danger); }
+.bulk-choice .queued{ display:none; }
+.bulk-choice:has(input:checked) .choose{ display:none; }
+.bulk-choice:has(input:checked) .queued{ display:inline; }
+.choice-row:has(.bulk-choice input:checked) .bulk-choice:not(:has(input:checked)){ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.act-body:has(.row-choice input:checked) .lane-actions .bulk-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.act-body:has(.bulk-choice input:checked) .row-actions .row-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.bulk-choice:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
+@media (prefers-color-scheme: dark){ .bulk-choice:has(input:checked){ color:#0e120f; } }
+.lane-copy{ color:var(--ink-3); font-size:12px; }
+.review-form:has(input[name="approval:purge-candidates"][value="request:purge-candidates:review_delete_forever"]:checked) .approve-choice[data-approval-value="request:purge-candidates:review_delete_forever"],
+.review-form:has(input[name="approval:needs-review"][value="decision:needs-review:trash"]:checked) .approve-choice[data-approval-value="decision:needs-review:trash"],
+.review-form:has(input[name="approval:needs-context"][value="decision:needs-context:trash"]:checked) .approve-choice[data-approval-value="decision:needs-context:trash"],
+.review-form:has(input[name="approval:cleanup"][value="decision:cleanup:trash"]:checked) .approve-choice[data-approval-value="decision:cleanup:trash"],
+.review-form:has(input[name="approval:resolve"][value="decision:resolve:resolve"]:checked) .approve-choice[data-approval-value="decision:resolve:resolve"],
+.review-form:has(input[name="approval:registry-reconcile"][value="request:registry-reconcile:check_source_problems"]:checked) .approve-choice[data-approval-value="request:registry-reconcile:check_source_problems"],
+.review-form:has(input[name="approval:needs-review"][value="decision:needs-review:keep"]:checked) .bulk-choice[data-approval-value="decision:needs-review:keep"],
+.review-form:has(input[name="approval:needs-review"][value="decision:needs-review:trash"]:checked) .bulk-choice[data-approval-value="decision:needs-review:trash"],
+.review-form:has(input[name="approval:needs-context"][value="decision:needs-context:keep"]:checked) .bulk-choice[data-approval-value="decision:needs-context:keep"],
+.review-form:has(input[name="approval:needs-context"][value="decision:needs-context:trash"]:checked) .bulk-choice[data-approval-value="decision:needs-context:trash"],
+.review-form:has(input[name="approval:cleanup"][value="decision:cleanup:keep"]:checked) .bulk-choice[data-approval-value="decision:cleanup:keep"],
+.review-form:has(input[name="approval:cleanup"][value="decision:cleanup:trash"]:checked) .bulk-choice[data-approval-value="decision:cleanup:trash"],
+.review-form:has(input[name="approval:resolve"][value="decision:resolve:keep"]:checked) .bulk-choice[data-approval-value="decision:resolve:keep"],
+.review-form:has(input[name="approval:resolve"][value="decision:resolve:resolve"]:checked) .bulk-choice[data-approval-value="decision:resolve:resolve"]{ background:var(--good-soft); color:var(--good); border-color:var(--good-line); }
+.queued-list{ display:grid; gap:4px; margin:7px 0 0; padding:0; list-style:none; }
+.queued-list li{ display:none; font:12px/1.35 var(--sans); color:var(--ink-2); }
+.queued-empty{ display:block; font:12px/1.35 var(--sans); color:var(--ink-3); margin-top:5px; }
+.review-form:has(input[name^="approval:"]:checked:not([value=""])) .queued-empty{ display:none; }
+.review-form:has(input[name="approval:purge-candidates"][value="request:purge-candidates:review_delete_forever"]:checked) .queued-list li[data-approval-value="request:purge-candidates:review_delete_forever"],
+.review-form:has(input[name="approval:needs-review"][value="decision:needs-review:keep"]:checked) .queued-list li[data-approval-value="decision:needs-review:keep"],
+.review-form:has(input[name="approval:needs-review"][value="decision:needs-review:trash"]:checked) .queued-list li[data-approval-value="decision:needs-review:trash"],
+.review-form:has(input[name="approval:needs-context"][value="decision:needs-context:keep"]:checked) .queued-list li[data-approval-value="decision:needs-context:keep"],
+.review-form:has(input[name="approval:needs-context"][value="decision:needs-context:trash"]:checked) .queued-list li[data-approval-value="decision:needs-context:trash"],
+.review-form:has(input[name="approval:cleanup"][value="decision:cleanup:keep"]:checked) .queued-list li[data-approval-value="decision:cleanup:keep"],
+.review-form:has(input[name="approval:cleanup"][value="decision:cleanup:trash"]:checked) .queued-list li[data-approval-value="decision:cleanup:trash"],
+.review-form:has(input[name="approval:resolve"][value="decision:resolve:keep"]:checked) .queued-list li[data-approval-value="decision:resolve:keep"],
+.review-form:has(input[name="approval:resolve"][value="decision:resolve:resolve"]:checked) .queued-list li[data-approval-value="decision:resolve:resolve"],
+.review-form:has(input[name="approval:registry-reconcile"][value="request:registry-reconcile:check_source_problems"]:checked) .queued-list li[data-approval-value="request:registry-reconcile:check_source_problems"]{ display:list-item; }
+.rows{ display:grid; gap:0; }
+.queue-row{ display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,auto); gap:12px; padding:14px 16px; border-bottom:1px solid var(--line); background:var(--surface); }
+.queue-row:last-child{ border-bottom:0; }
+.queue-row:hover{ background:var(--surface-2); }
+.row-head{ display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:4px; }
 .id{ font:600 12.5px/1.3 var(--mono); white-space:nowrap; }
 .id a{ text-decoration:none; } .id a:hover{ text-decoration:underline; }
 .sub{ display:block; font:11.5px/1.4 var(--mono); color:var(--ink-3); white-space:normal; word-break:break-all; margin-top:3px; font-weight:400; text-transform:none; letter-spacing:0; }
-.reason{ color:var(--ink); max-width:44ch; }
+.row-path{ font:11.5px/1.45 var(--mono); color:var(--ink-3); word-break:break-all; margin:0 0 6px; }
+.row-summary{ color:var(--ink-2); font-size:13px; line-height:1.45; margin:0; max-width:76ch; }
+.row-summary strong{ color:var(--ink); font-weight:650; }
+.row-meta{ display:flex; flex-wrap:wrap; gap:6px 12px; margin-top:8px; font:11.5px/1.35 var(--mono); color:var(--ink-3); }
+.reason{ color:var(--ink); }
+.row-side{ display:flex; flex-direction:column; align-items:flex-end; gap:7px; text-align:right; }
+.row-actions{ display:flex; flex-wrap:wrap; justify-content:flex-end; gap:6px; margin-top:2px; }
+.row-choice{ position:relative; display:inline-flex; align-items:center; gap:6px; padding:6px 9px; border:1px solid var(--line-2); border-radius:8px; background:var(--surface); color:var(--ink-2); cursor:pointer; font:650 12px/1 var(--sans); user-select:none; }
+.row-choice input{ position:absolute; inset:0; opacity:0; cursor:pointer; margin:0; }
+.row-choice .queued{ display:none; }
+.row-choice:has(input:checked){ background:var(--good-soft); color:var(--good); border-color:var(--good-line); }
+.row-choice.danger:has(input:checked){ background:var(--danger-soft); color:var(--danger); border-color:var(--danger-line); }
+.row-choice:has(input:checked) .choose{ display:none; }
+.row-choice:has(input:checked) .queued{ display:inline; }
+.row-actions:has(.row-choice input:checked) .row-choice:not(:has(input:checked)){ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.row-choice:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
 .src{ font:600 11.5px/1 var(--mono); color:var(--ink-2); white-space:nowrap; }
 .age{ white-space:nowrap; color:var(--ink-2); font-variant-numeric:tabular-nums; }
 .age .due{ display:block; font-size:11px; margin-top:2px; }
@@ -313,6 +383,8 @@ table.tbl{ width:100%; border-collapse:collapse; font-size:13px; }
   .facts{ grid-template-columns:1fr; }
   .decide{ position:static; }
   .stage .hint{ display:none; }
+  .queue-row{ grid-template-columns:1fr; }
+  .row-side{ align-items:flex-start; text-align:left; }
   .dbtns{ grid-template-columns:1fr; }
   .approve-actions{ margin-left:-16px; margin-right:-16px; padding-left:16px; padding-right:16px; }
 }
@@ -355,13 +427,13 @@ const ICON = {
 // is the lane's semantic colour. Order is the review -> quarantine -> problems -> done workflow flow.
 type LaneMeta = { title: string; zone: string; rail: string; hint: string };
 const LANES: Record<DashboardBucketKey, LaneMeta> = {
-  "needs-review": { title: "Needs review", zone: "action", rail: "attn", hint: "artifacts awaiting your judgment" },
-  "needs-context": { title: "Needs context", zone: "action", rail: "attn", hint: "blocked - can't be reviewed yet" },
-  cleanup: { title: "Cleanup candidates", zone: "action", rail: "accent", hint: "dry-run, then approve" },
-  resolve: { title: "Resolve candidates", zone: "action", rail: "accent", hint: "close out the row" },
-  trash: { title: "Trash", zone: "quarantine", rail: "slate", hint: "quarantined - still reversible" },
-  "purge-candidates": { title: "Purge candidates", zone: "quarantine", rail: "danger", hint: "one-way door" },
-  "registry-reconcile": { title: "Registry / reconcile problems", zone: "problems", rail: "attn", hint: "infrastructure attention" },
+  "needs-review": { title: "Needs a decision", zone: "action", rail: "attn", hint: "waiting for your choice" },
+  "needs-context": { title: "Needs details", zone: "action", rail: "attn", hint: "blocked until context is clearer" },
+  cleanup: { title: "Ready to clean up", zone: "action", rail: "accent", hint: "prepare a plan first" },
+  resolve: { title: "Missing files", zone: "action", rail: "accent", hint: "check before closing records" },
+  trash: { title: "In trash", zone: "quarantine", rail: "slate", hint: "quarantined and still reversible" },
+  "purge-candidates": { title: "Can delete forever", zone: "quarantine", rail: "danger", hint: "final review required" },
+  "registry-reconcile": { title: "Source problems", zone: "problems", rail: "attn", hint: "source or path attention" },
   "recent-receipts": { title: "Recent receipts", zone: "done", rail: "good", hint: "verified - last 7 days" }
 };
 
@@ -373,11 +445,17 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string)
   const ledgerIndex = new Map(ledgers.map((ledger, i) => [ledger.path, i]));
 
   const actionCount = counts["needs-review"] + counts["needs-context"] + counts.cleanup + counts.resolve;
-  const quarantineCount = counts.trash + counts["purge-candidates"];
   const problemsCount = counts["registry-reconcile"] + badLedgers;
   const doneCount = counts["recent-receipts"];
-  const totalCount =
-    actionCount + counts.trash + counts["purge-candidates"] + counts["registry-reconcile"] + doneCount;
+  const queuedItems = queuedApprovalItems(snapshot, badLedgers);
+  const dashboard = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex)}
+${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
+${ledgerHealthSection(ledgers)}
+${activitySection(snapshot, token, ledgerIndex)}`;
+
+  const reviewSurface = token && queuedItems.length > 0
+    ? `<form class="review-form" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${reviewedLaneInputs(snapshot)}${dashboard}${globalSubmitBar(queuedItems)}</form>`
+    : dashboard;
 
   const body = `<header class="top">
 <div class="wrap">
@@ -388,68 +466,106 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string)
 </div>
 </header>
 <div class="wrap">
-${requiredActionsSection(snapshot, badLedgers)}
-${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
-${ledgerHealthSection(ledgers)}
-<section class="block">
-<p class="eyebrow">Review queue &middot; across the workflow cycle</p>
-<div class="queue">
-${filterBar({ totalCount, actionCount, quarantineCount, problemsCount, doneCount }, ledgers)}
-${ledgerFilterStyle(ledgers)}
-${artifactStage("needs-review", snapshot.buckets.needsReview, token, ledgerIndex, true)}
-${artifactStage("needs-context", snapshot.buckets.needsContext, token, ledgerIndex, true)}
-${artifactStage("cleanup", snapshot.buckets.cleanup, token, ledgerIndex, false)}
-${artifactStage("resolve", snapshot.buckets.resolve, token, ledgerIndex, false)}
-${trashStage("trash", snapshot.buckets.trash, ledgerIndex, false)}
-${purgeStage(snapshot.buckets.purgeCandidates, ledgerIndex)}
-${problemStage(snapshot.buckets.registryReconcile, ledgerIndex)}
-${receiptStage(snapshot.buckets.recentReceipts, ledgerIndex)}
-</div>
-${legend()}
-</section>
+${reviewSurface}
 </div>`;
   return page("Artshelf review dashboard", body);
 }
 
-// The top fold: priority-ordered cards for the lanes that need the human now, each with a count and a
-// CTA jumping to its lane. Purge leads (one-way door), then judgment-blocking lanes, then ready work,
-// then infrastructure problems. When nothing needs attention it is an explicit all-clear, never blank.
-function requiredActionsSection(snapshot: DashboardSnapshot, badLedgers: number): string {
+// The top fold: priority-ordered cards for the lanes that need the human now. Cards stay intentionally
+// terse: count, label, and action controls. Buttons only submit browser intents for the agent to poll;
+// they never execute cleanup, resolve, purge, or registry changes from the browser. When nothing needs
+// attention it is an explicit all-clear, never blank.
+function requiredActionsSection(
+  snapshot: DashboardSnapshot,
+  badLedgers: number,
+  token: string | undefined,
+  ledgerIndex: Map<string, number>
+): string {
   const counts = snapshot.counts;
   const cards: string[] = [];
   if (counts["purge-candidates"] > 0) {
     cards.push(
       actionCard(
         "danger",
-        `${ICON.alert}One-way door`,
+        "purge-candidates",
         counts["purge-candidates"],
-        "Purge candidates",
-        "Permanent deletion, <b>no recovery</b>. Nothing is preselected - the agent purges only an exact, grouped selection you approve.",
-        "lane-purge-candidates",
-        "Review purge"
+        "Can delete forever",
+        "Prepare delete review",
+        "before anything is purged.",
+        token ? approvalChoice("request", "purge-candidates", "review_delete_forever", "Approve") : "",
+        purgeActionBody(snapshot.buckets.purgeCandidates, ledgerIndex)
       )
     );
   }
   if (counts["needs-review"] > 0) {
     cards.push(
-      actionCard("attn", "Awaiting judgment", counts["needs-review"], "Needs review", "Artifacts due for a keep / trash / resolve decision.", "lane-needs-review", "Start review")
+      actionCard(
+        "attn",
+        "needs-review",
+        counts["needs-review"],
+        "Needs a decision",
+        "Move to trash",
+        "unless a row looks worth keeping.",
+        token ? approvalChoice("decision", "needs-review", "trash", "Approve") : "",
+        artifactActionBody("needs-review", snapshot.buckets.needsReview, token, ledgerIndex)
+      )
     );
   }
   if (counts["needs-context"] > 0) {
     cards.push(
-      actionCard("attn", "Blocked", counts["needs-context"], "Needs context", "Reason or provenance is missing or vague - provide context before these can be reviewed.", "lane-needs-context", "Provide context")
+      actionCard(
+        "attn",
+        "needs-context",
+        counts["needs-context"],
+        "Needs details",
+        "Move to trash",
+        "unless missing context changes the decision.",
+        token ? approvalChoice("decision", "needs-context", "trash", "Approve") : "",
+        artifactActionBody("needs-context", snapshot.buckets.needsContext, token, ledgerIndex)
+      )
     );
   }
-  const ready = counts.cleanup + counts.resolve;
-  if (ready > 0) {
+  if (counts.cleanup > 0) {
     cards.push(
-      actionCard("calm", "Ready when you are", ready, "Cleanup &amp; resolve", "Candidates the agent can act on once you approve a dry-run plan.", "lane-cleanup", "Review candidates")
+      actionCard(
+        "calm",
+        "cleanup",
+        counts.cleanup,
+        "Ready to clean up",
+        "Move to trash",
+        "because they are due and appear unused.",
+        token ? approvalChoice("decision", "cleanup", "trash", "Approve") : "",
+        artifactActionBody("cleanup", snapshot.buckets.cleanup, token, ledgerIndex)
+      )
+    );
+  }
+  if (counts.resolve > 0) {
+    cards.push(
+      actionCard(
+        "calm",
+        "resolve",
+        counts.resolve,
+        "Missing files",
+        "Resolve records",
+        "because their files are already gone.",
+        token ? approvalChoice("decision", "resolve", "resolve", "Approve") : "",
+        artifactActionBody("resolve", snapshot.buckets.resolve, token, ledgerIndex)
+      )
     );
   }
   const problems = counts["registry-reconcile"] + badLedgers;
   if (problems > 0) {
     cards.push(
-      actionCard("attn", "Infrastructure", problems, "Registry problems", "A registered ledger is unavailable or a tracked subject drifted.", "lane-registry-reconcile", "Inspect problems")
+      actionCard(
+        "attn",
+        "registry-reconcile",
+        problems,
+        "Source problems",
+        "Check sources",
+        "before cleanup decisions.",
+        token ? approvalChoice("request", "registry-reconcile", "check_source_problems", "Approve") : "",
+        problemActionBody(snapshot.buckets.registryReconcile, ledgerIndex)
+      )
     );
   }
 
@@ -457,17 +573,141 @@ function requiredActionsSection(snapshot: DashboardSnapshot, badLedgers: number)
     cards.length === 0
       ? `<div class="allclear">${ICON.check}<span>You're all caught up - nothing needs review right now.</span></div>`
       : `<div class="acts">${cards.join("")}</div>`;
-  return `<section class="block"><p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
+  return `<section class="block" id="required-actions"><p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
 }
 
-function actionCard(variant: string, tag: string, count: number, name: string, desc: string, anchor: string, cta: string): string {
-  return `<article class="act ${variant}">
-<span class="tag">${tag}</span>
+function actionCard(
+  variant: string,
+  key: DashboardBucketKey,
+  count: number,
+  name: string,
+  recommendation: string,
+  detail: string,
+  control: string,
+  body: string
+): string {
+  const lane = LANES[key];
+  return `<details class="act ${variant}" id="lane-${key}" data-zone="${lane.zone}" data-rail="${lane.rail}">
+<summary>
+<span class="toggle-copy">${ICON.chevron}</span>
 <div class="n num">${count}</div>
-<p class="name">${name}</p>
-<p class="desc">${desc}</p>
-<a class="cta" href="#${anchor}">${cta} ${ICON.arrow}</a>
-</article>`;
+<div class="act-main"><p class="name">${escapeHtml(name)}</p>
+<p class="rec"><span class="rec-label">Agent recommends</span> <span class="rec-action">${escapeHtml(recommendation)}</span> ${escapeHtml(detail)}</p></div>
+${control || ""}
+</summary>
+<div class="act-body">${body}</div>
+</details>`;
+}
+
+function approvalChoice(kind: "decision" | "request", lane: DashboardBucketKey, action: string, label: string): string {
+  const value = `${kind}:${lane}:${action}`;
+  return `<div class="act-actions"><label class="approve-choice" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"><span class="approve">${escapeHtml(label)}</span><span class="queued">Queued</span></label></div>`;
+}
+
+type QueuedApprovalItem = { value: string; label: string };
+
+function queuedApprovalItems(snapshot: DashboardSnapshot, badLedgers: number): QueuedApprovalItem[] {
+  const counts = snapshot.counts;
+  const items: QueuedApprovalItem[] = [];
+  if (counts["purge-candidates"] > 0) {
+    items.push({ value: "request:purge-candidates:review_delete_forever", label: `Prepare delete review for ${counts["purge-candidates"]} row(s)` });
+  }
+  addDecisionQueuedItems(items, "needs-review", counts["needs-review"], "needs a decision");
+  addRowDecisionQueuedItems(items, "needs-review", snapshot.buckets.needsReview, "needs a decision");
+  addDecisionQueuedItems(items, "needs-context", counts["needs-context"], "needs details");
+  addRowDecisionQueuedItems(items, "needs-context", snapshot.buckets.needsContext, "needs details");
+  addDecisionQueuedItems(items, "cleanup", counts.cleanup, "ready to clean up");
+  addRowDecisionQueuedItems(items, "cleanup", snapshot.buckets.cleanup, "ready to clean up");
+  if (counts.resolve > 0) {
+    items.push({ value: "decision:resolve:keep", label: `Keep ${counts.resolve} missing file row(s)` });
+    items.push({ value: "decision:resolve:resolve", label: `Resolve ${counts.resolve} missing file row(s)` });
+  }
+  addResolveRowQueuedItems(items, snapshot.buckets.resolve);
+  const problems = counts["registry-reconcile"] + badLedgers;
+  if (problems > 0) {
+    items.push({ value: "request:registry-reconcile:check_source_problems", label: `Check ${problems} source problem(s)` });
+  }
+  return items;
+}
+
+function addDecisionQueuedItems(items: QueuedApprovalItem[], lane: "needs-review" | "needs-context" | "cleanup", count: number, label: string): void {
+  if (count === 0) return;
+  items.push({ value: `decision:${lane}:keep`, label: `Keep ${count} ${label} row(s)` });
+  items.push({ value: `decision:${lane}:trash`, label: `Trash ${count} ${label} row(s)` });
+}
+
+function addRowDecisionQueuedItems(
+  items: QueuedApprovalItem[],
+  lane: "needs-review" | "needs-context" | "cleanup",
+  rows: DashboardArtifactRow[],
+  label: string
+): void {
+  for (const row of rows) {
+    items.push({ value: rowDecisionValue(lane, row, "keep"), label: `Keep ${row.recordId} (${label})` });
+    items.push({ value: rowDecisionValue(lane, row, "trash"), label: `Trash ${row.recordId} (${label})` });
+  }
+}
+
+function addResolveRowQueuedItems(items: QueuedApprovalItem[], rows: DashboardArtifactRow[]): void {
+  for (const row of rows) {
+    items.push({ value: rowDecisionValue("resolve", row, "keep"), label: `Keep ${row.recordId} (missing file)` });
+    items.push({ value: rowDecisionValue("resolve", row, "resolve"), label: `Resolve ${row.recordId} (missing file)` });
+  }
+}
+
+function globalSubmitBar(items: QueuedApprovalItem[]): string {
+  const list = items
+    .map((item) => `<li data-approval-value="${escapeHtml(item.value)}">${escapeHtml(item.label)}</li>`)
+    .join("");
+  const style = queuedApprovalVisibilityStyles(items);
+  return `${style}<div class="required-submit"><div><span class="copy">Queued for agent</span><span class="queued-empty">Nothing selected yet.</span><ul class="queued-list">${list}</ul></div><button type="submit">Submit selected to agent</button></div>`;
+}
+
+function queuedApprovalVisibilityStyles(items: QueuedApprovalItem[]): string {
+  const rules = items
+    .map((item) => {
+      const value = escapeCssString(item.value);
+      return `.review-form:has(input[name^="approval:"][value="${value}"]:checked) .queued-list li[data-approval-value="${value}"]{display:list-item;}`;
+    })
+    .join("");
+  return rules ? `<style>${rules}</style>` : "";
+}
+
+function escapeCssString(value: string): string {
+  return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+function approvalFieldName(lane: DashboardBucketKey): string {
+  return `approval:${lane}`;
+}
+
+function reviewedLaneInputs(snapshot: DashboardSnapshot): string {
+  return [
+    reviewedArtifactLaneInputs("needs-review", snapshot.buckets.needsReview),
+    reviewedArtifactLaneInputs("needs-context", snapshot.buckets.needsContext),
+    reviewedArtifactLaneInputs("cleanup", snapshot.buckets.cleanup),
+    reviewedArtifactLaneInputs("resolve", snapshot.buckets.resolve)
+  ].join("");
+}
+
+function reviewedArtifactLaneInputs(
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[]
+): string {
+  return rows
+    .map(
+      (row) =>
+        `<input type="hidden" name="${escapeHtml(reviewedLaneFieldName(lane))}" value="${escapeHtml(reviewedLaneRowValue(row))}">`
+    )
+    .join("");
+}
+
+function reviewedLaneFieldName(lane: "needs-review" | "needs-context" | "cleanup" | "resolve"): string {
+  return `reviewed:${lane}`;
+}
+
+function reviewedLaneRowValue(row: DashboardArtifactRow): string {
+  return `${encodeURIComponent(row.recordId)}:${encodeURIComponent(row.ledgerPath ?? "")}`;
 }
 
 function statusSummarySection(s: {
@@ -505,52 +745,26 @@ function ledgerHealthSection(ledgers: DashboardLedgerStatus[]): string {
       return `<div class="${cls}"><div class="name"><span class="pip"></span>${escapeHtml(ledger.name)}</div><div class="path">${escapeHtml(ledger.path)}</div><div class="state">${state}</div>${err}</div>`;
     })
     .join("");
-  return `<section class="block"><p class="eyebrow">Sources &middot; ledger health</p><div class="sources">${cards}</div></section>`;
+  return `<section class="block"><details class="sources-drawer"><summary>Sources &middot; ${ledgers.length} ledger(s) &middot; ${ledgers.filter((ledger) => ledger.ok).length} healthy</summary><div class="sources">${cards}</div></details></section>`;
 }
 
-function filterBar(
-  c: { totalCount: number; actionCount: number; quarantineCount: number; problemsCount: number; doneCount: number },
-  ledgers: DashboardLedgerStatus[]
-): string {
-  const zoneChip = (id: string, label: string, count: number, checked = false) =>
-    `<label class="chip"><input type="radio" name="flt-zone" id="${id}"${checked ? " checked" : ""}>${label} <span class="c num">${count}</span></label>`;
-  const zone = `<div class="fgroup"><span class="lbl">Show</span>
-${zoneChip("flt-zone-all", "All", c.totalCount, true)}
-${zoneChip("flt-zone-action", "Action needed", c.actionCount)}
-${zoneChip("flt-zone-quarantine", "Quarantine", c.quarantineCount)}
-${zoneChip("flt-zone-problems", "Problems", c.problemsCount)}
-${zoneChip("flt-zone-done", "Done", c.doneCount)}</div>`;
-
-  // The source filter only earns its space with more than one ledger.
-  let source = "";
-  if (ledgers.length > 1) {
-    const chips = ledgers
-      .map(
-        (ledger, i) =>
-          `<label class="chip"><input type="radio" name="flt-led" id="flt-led-${i}">${escapeHtml(ledger.name)}</label>`
-      )
-      .join("\n");
-    source = `<div class="fgroup"><span class="lbl">Source</span>
-<label class="chip"><input type="radio" name="flt-led" id="flt-led-all" checked>All ledgers</label>
-${chips}</div>`;
-  }
-  return `<form class="filters" aria-label="Filter the review queue">${zone}${source}</form>`;
+function activitySection(snapshot: DashboardSnapshot, token: string | undefined, ledgerIndex: Map<string, number>): string {
+  const stages = [
+    readonlyStage("trash", snapshot.buckets.trash.length, trashActivityBody(snapshot.buckets.trash, ledgerIndex)),
+    readonlyStage("recent-receipts", snapshot.buckets.recentReceipts.length, receiptActivityBody(snapshot.buckets.recentReceipts, token, ledgerIndex))
+  ].filter((stage) => stage.length > 0);
+  return stages.length === 0
+    ? ""
+    : `<section class="block"><p class="eyebrow">Recent activity</p>${stages.join("")}</section>`;
 }
 
-// Per-ledger filter rules are generated here (not in the static stylesheet) because the ledger set is
-// dynamic. Emitted as an inline <style> element, which the CSP's style-src 'unsafe-inline' permits.
-// Rows carry a stable led-<index> token (never the raw name) so no record text reaches a selector.
-// Each rule hides non-matching rows and then collapses any stage left with no matching row.
-function ledgerFilterStyle(ledgers: DashboardLedgerStatus[]): string {
-  if (ledgers.length <= 1) return "";
-  const rules = ledgers
-    .map(
-      (_ledger, i) =>
-        `.queue:has(#flt-led-${i}:checked) tr.r:not([data-ledger="led-${i}"]){display:none}\n` +
-        `.queue:has(#flt-led-${i}:checked) details.stage:not(:has(tr.r[data-ledger="led-${i}"])){display:none}`
-    )
-    .join("\n");
-  return `<style>${rules}</style>`;
+function readonlyStage(key: DashboardBucketKey, count: number, body: string): string {
+  if (count === 0) return "";
+  const lane = LANES[key];
+  return `<details class="stage" id="lane-${key}" data-zone="${lane.zone}" data-rail="${lane.rail}">
+<summary>${ICON.chevron}<span class="rail"></span><span class="title">${escapeHtml(lane.title)}</span><span class="count num">${count}</span><span class="hint">${escapeHtml(lane.hint)}</span></summary>
+<div class="body">${body}</div>
+</details>`;
 }
 
 function dataLedger(ledgerPath: string | null, ledgerIndex: Map<string, number>): string {
@@ -558,34 +772,26 @@ function dataLedger(ledgerPath: string | null, ledgerIndex: Map<string, number>)
   return idx === undefined ? "" : ` data-ledger="led-${idx}"`;
 }
 
-// A collapsible stage: the <details id="lane-<key>"> wrapper carries the lane anchor, zone (filter
-// grouping), and rail colour. Even an empty lane renders its shell so every lane key/id is present.
-function stageShell(key: DashboardBucketKey, count: number, inner: string, open: boolean, danger = ""): string {
-  const lane = LANES[key];
-  const body = count === 0 ? `<p class="empty">Nothing in this lane.</p>` : inner;
-  return `<details class="stage" id="lane-${key}" data-zone="${lane.zone}" data-rail="${lane.rail}"${open ? " open" : ""}>
-<summary>${ICON.chevron}<span class="rail"></span><span class="title">${escapeHtml(lane.title)}</span><span class="count num">${count}</span><span class="hint">${escapeHtml(lane.hint)}</span></summary>
-<div class="body">${danger}${body}</div>
-</details>`;
-}
-
-function artifactStage(
-  key: DashboardBucketKey,
+function artifactActionBody(
+  key: "needs-review" | "needs-context" | "cleanup" | "resolve",
   rows: DashboardArtifactRow[],
   token: string | undefined,
-  ledgerIndex: Map<string, number>,
-  open: boolean
+  ledgerIndex: Map<string, number>
 ): string {
-  const inner =
-    rows.length === 0
-      ? ""
-      : `<table class="tbl"><thead><tr><th>Record</th><th>Reason</th><th>Source</th><th>Age / due</th><th>Disposition</th></tr></thead><tbody>${rows
-          .map((row) => artifactRow(row, token, ledgerIndex))
-          .join("")}</tbody></table>`;
-  return stageShell(key, rows.length, inner, open);
+  return rows.length === 0
+    ? ""
+    : `${bulkDecisionControls(key, rows.length, token)}
+<div class="rows">${rows
+      .map((row) => artifactRow(key, row, token, ledgerIndex))
+      .join("")}</div>`;
 }
 
-function artifactRow(row: DashboardArtifactRow, token: string | undefined, ledgerIndex: Map<string, number>): string {
+function artifactRow(
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  row: DashboardArtifactRow,
+  token: string | undefined,
+  ledgerIndex: Map<string, number>
+): string {
   const href = detailHref(row.recordId, row.ledgerPath, token);
   const reason = row.reason.trim() ? escapeHtml(row.reason) : `<span class="muted">(no reason recorded)</span>`;
   const due = row.dueState ? dueLabel(row.dueState) : "";
@@ -593,13 +799,70 @@ function artifactRow(row: DashboardArtifactRow, token: string | undefined, ledge
     ? `<span class="badge ctx">${escapeHtml(row.needsContext.label)}</span>`
     : `<span class="badge rec">${escapeHtml(row.recommendation)}</span>`;
   const last = lastActionLine(row.lastAction);
-  return `<tr class="r"${dataLedger(row.ledgerPath, ledgerIndex)}>
-<td class="id"><a href="${href}">${escapeHtml(row.recordId)}</a><span class="sub">${escapeHtml(row.path)}</span></td>
-<td class="reason">${reason}${last}</td>
-<td class="src">${escapeHtml(row.ledgerName)}</td>
-<td class="age">${escapeHtml(row.age)}${due}</td>
-<td>${disposition}</td>
-</tr>`;
+  return `<article class="queue-row r"${dataLedger(row.ledgerPath, ledgerIndex)}>
+<div>
+<div class="row-head"><span class="id"><a href="${href}">${escapeHtml(row.recordId)}</a></span>${disposition}</div>
+<p class="row-path">${escapeHtml(row.path)}</p>
+<p class="row-summary"><strong>Reason:</strong> ${reason}${last}</p>
+<div class="row-meta"><span>${escapeHtml(row.kind)}</span><span>${escapeHtml(row.status)}</span><span>cleanup ${escapeHtml(row.cleanup)}</span></div>
+</div>
+<div class="row-side">
+<span class="src">${escapeHtml(row.ledgerName)}</span>
+<span class="age">${escapeHtml(row.age)}${due}</span>
+<a class="badge" href="${href}">Details</a>
+${rowDecisionControls(lane, row, token)}
+</div>
+</article>`;
+}
+
+function rowDecisionControls(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", row: DashboardArtifactRow, token: string | undefined): string {
+  if (!token) return "";
+  const choices =
+    lane === "resolve"
+      ? [rowDecisionChoice(lane, row, "keep", "Keep"), rowDecisionChoice(lane, row, "resolve", "Resolve")]
+      : [rowDecisionChoice(lane, row, "keep", "Keep"), rowDecisionChoice(lane, row, "trash", "Trash", true)];
+  return `<div class="row-actions">${choices.join("")}</div>`;
+}
+
+function rowDecisionChoice(
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  row: DashboardArtifactRow,
+  decision: "keep" | "trash" | "resolve",
+  label: string,
+  danger = false
+): string {
+  const value = rowDecisionValue(lane, row, decision);
+  const name = rowDecisionFieldName(lane, row);
+  return `<label class="row-choice${danger ? " danger" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(name)}" value="${escapeHtml(value)}"><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
+}
+
+function rowDecisionValue(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", row: DashboardArtifactRow, decision: "keep" | "trash" | "resolve"): string {
+  return `row-decision:${lane}:${decision}:${encodeURIComponent(row.recordId)}:${encodeURIComponent(row.ledgerPath ?? "")}`;
+}
+
+function rowDecisionFieldName(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", row: DashboardArtifactRow): string {
+  return `approval:${lane}:row:${encodeURIComponent(row.recordId)}:${encodeURIComponent(row.ledgerPath ?? "")}`;
+}
+
+function bulkDecisionControls(key: DashboardBucketKey, count: number, token: string | undefined): string {
+  if (!token) return "";
+  const lane = LANES[key];
+  const choices =
+    key === "resolve"
+      ? [bulkDecisionChoice(key, "keep", "Keep all"), bulkDecisionChoice(key, "resolve", "Resolve all")]
+      : [bulkDecisionChoice(key, "keep", "Keep all"), bulkDecisionChoice(key, "trash", "Trash all", true)];
+  return `<div class="lane-actions">
+<div class="choice-row"><span class="lbl">Queue</span>
+${choices.join("\n")}
+<span class="lane-copy">${count} ${escapeHtml(lane.title.toLowerCase())} row(s)</span>
+</div>
+</div>
+`;
+}
+
+function bulkDecisionChoice(lane: DashboardBucketKey, decision: string, label: string, danger = false): string {
+  const value = `decision:${lane}:${decision}`;
+  return `<label class="bulk-choice${danger ? " danger" : ""}" data-approval-value="${escapeHtml(value)}"><input type="checkbox" name="${escapeHtml(approvalFieldName(lane))}" value="${escapeHtml(value)}"><span class="choose">${escapeHtml(label)}</span><span class="queued">Queued</span></label>`;
 }
 
 function dueLabel(dueState: string): string {
@@ -616,60 +879,41 @@ function lastActionLine(lastAction: DashboardLastAction | null): string {
   return `<span class="lastact">last action: ${escapeHtml(lastAction.kind)} at ${escapeHtml(lastAction.at)}${escapeHtml(receipt)}</span>`;
 }
 
-function trashStage(
-  key: DashboardBucketKey,
-  rows: DashboardTrashRow[],
-  ledgerIndex: Map<string, number>,
-  open: boolean
-): string {
-  const inner =
-    rows.length === 0
-      ? ""
-      : `<table class="tbl"><thead><tr><th>Record</th><th>Target</th><th>Source</th><th>Cleaned</th><th>Plan</th></tr></thead><tbody>${rows
-          .map((row) => trashRow(row, ledgerIndex))
-          .join("")}</tbody></table>`;
-  return stageShell(key, rows.length, inner, open);
-}
-
-function trashRow(row: DashboardTrashRow, ledgerIndex: Map<string, number>): string {
-  return `<tr class="r"${dataLedger(row.ledgerPath, ledgerIndex)}>
-<td class="id">${escapeHtml(row.recordId)}</td>
-<td class="reason"><span class="sub" style="margin-top:0">${escapeHtml(row.targetPath)}</span></td>
-<td class="src">${escapeHtml(row.ledgerName)}</td>
-<td class="age">${escapeHtml(row.cleanedAt)}<span class="due">${escapeHtml(row.age)}</span></td>
-<td class="id">${escapeHtml(row.cleanupPlanId)}</td>
-</tr>`;
-}
-
 // The purge-candidate lane: grouped by source/ledger with a per-group total and the exact target rows,
 // fronted by the one-way-door warning. It exposes no checkbox or execution control - selecting an exact
 // subset and approving it happens in the dedicated approval flow, never directly from this lane.
-function purgeStage(rows: DashboardTrashRow[], ledgerIndex: Map<string, number>): string {
+function purgeActionBody(rows: DashboardTrashRow[], ledgerIndex: Map<string, number>): string {
   const groups = groupPurgeCandidates(rows)
     .map((group) => purgeGroup(group, ledgerIndex))
     .join("");
   const danger = `<p class="stagenote">${ICON.alert}${escapeHtml(PURGE_LANE_NOTE)}</p>`;
-  return stageShell("purge-candidates", rows.length, groups, true, rows.length === 0 ? "" : danger);
+  return rows.length === 0 ? "" : `${danger}${groups}`;
 }
 
 function purgeGroup(group: DashboardPurgeGroup, ledgerIndex: Map<string, number>): string {
   const rows = group.candidates
     .map(
       (row) =>
-        `<tr class="r"${dataLedger(row.ledgerPath, ledgerIndex)}><td class="id">${escapeHtml(row.recordId)}</td><td class="reason"><span class="sub" style="margin-top:0">${escapeHtml(row.targetPath)}</span></td><td class="src">${escapeHtml(row.ledgerName)}</td><td class="age">${escapeHtml(row.age)}</td><td class="id">${escapeHtml(row.cleanupPlanId)}</td></tr>`
+        `<article class="queue-row r"${dataLedger(row.ledgerPath, ledgerIndex)}>
+<div>
+<div class="row-head"><span class="id">${escapeHtml(row.recordId)}</span><span class="badge peril">delete review</span></div>
+<p class="row-path">${escapeHtml(row.targetPath)}</p>
+<p class="row-summary">Trashed item old enough for final delete review; permanent deletion still needs exact approval.</p>
+<div class="row-meta"><span>age ${escapeHtml(row.age)}</span><span>plan ${escapeHtml(row.cleanupPlanId)}</span></div>
+</div>
+<div class="row-side"><span class="src">${escapeHtml(row.ledgerName)}</span><span class="age">${escapeHtml(row.age)}</span><span class="id">${escapeHtml(row.cleanupPlanId)}</span></div>
+</article>`
     )
     .join("");
-  return `<table class="tbl"><thead><tr><th>${escapeHtml(group.ledgerName)} <span class="muted">${escapeHtml(group.ledgerPath)}</span></th><th></th><th></th><th></th><th>${group.total} candidate(s)</th></tr></thead><tbody>${rows}</tbody></table>`;
+  return `<section class="approval-group"><h2>${escapeHtml(group.ledgerName)} <span class="muted">${escapeHtml(group.ledgerPath)} &middot; ${group.total} candidate(s)</span></h2><div class="rows">${rows}</div></section>`;
 }
 
-function problemStage(rows: DashboardProblemRow[], ledgerIndex: Map<string, number>): string {
-  const inner =
-    rows.length === 0
-      ? ""
-      : `<table class="tbl"><thead><tr><th>Target</th><th>Detail</th><th>Source</th><th>Kind</th></tr></thead><tbody>${rows
-          .map((row) => problemRow(row, ledgerIndex))
-          .join("")}</tbody></table>`;
-  return stageShell("registry-reconcile", rows.length, inner, false);
+function problemActionBody(rows: DashboardProblemRow[], ledgerIndex: Map<string, number>): string {
+  return rows.length === 0
+    ? ""
+    : `<div class="rows">${rows
+      .map((row) => problemRow(row, ledgerIndex))
+      .join("")}</div>`;
 }
 
 function problemRow(row: DashboardProblemRow, ledgerIndex: Map<string, number>): string {
@@ -678,30 +922,48 @@ function problemRow(row: DashboardProblemRow, ledgerIndex: Map<string, number>):
     row.currentPath && row.proposedPath
       ? `<span class="sub">${escapeHtml(row.currentPath)} &rarr; ${escapeHtml(row.proposedPath)}</span>`
       : "";
-  return `<tr class="r"${dataLedger(row.ledgerPath, ledgerIndex)}>
-<td class="id">${target}</td>
-<td class="reason">${escapeHtml(row.detail)}${remap}</td>
-<td class="src">${escapeHtml(row.ledgerName ?? row.ledgerPath ?? "-")}</td>
-<td><span class="badge peril">${escapeHtml(row.source)}: ${escapeHtml(row.category)}</span></td>
-</tr>`;
+  return `<article class="queue-row r"${dataLedger(row.ledgerPath, ledgerIndex)}>
+<div>
+<div class="row-head"><span class="id">${target}</span><span class="badge peril">${escapeHtml(row.source)}: ${escapeHtml(row.category)}</span></div>
+<p class="row-summary">${escapeHtml(row.detail)}${remap}</p>
+<div class="row-meta"><span>${escapeHtml(row.source)}</span><span>${escapeHtml(row.category)}</span></div>
+</div>
+<div class="row-side"><span class="src">${escapeHtml(row.ledgerName ?? row.ledgerPath ?? "-")}</span></div>
+</article>`;
 }
 
-function receiptStage(rows: DashboardReceiptRow[], ledgerIndex: Map<string, number>): string {
-  const inner =
-    rows.length === 0
-      ? ""
-      : `<table class="tbl"><thead><tr><th>Record</th><th>What happened</th><th>Source</th><th>Action</th><th>Age</th></tr></thead><tbody>${rows
-          .map(
-            (row) =>
-              `<tr class="r"${dataLedger(row.ledgerPath, ledgerIndex)}><td class="id">${escapeHtml(row.recordId)}</td><td class="reason">${escapeHtml(row.reason)}</td><td class="src">${escapeHtml(row.ledgerName)}</td><td><span class="badge">${escapeHtml(row.receiptKind)}</span></td><td class="age">${escapeHtml(row.age)}</td></tr>`
-          )
-          .join("")}</tbody></table>`;
-  return stageShell("recent-receipts", rows.length, inner, false);
+function trashActivityBody(rows: DashboardTrashRow[], ledgerIndex: Map<string, number>): string {
+  return `<div class="rows">${rows.map((row) => trashActivityRow(row, ledgerIndex)).join("")}</div>`;
 }
 
-function legend(): string {
-  const pip = (color: string, label: string) => `<span><span class="pip" style="background:${color}"></span>${label}</span>`;
-  return `<div class="legend">${pip("var(--attn)", "Action needed")}${pip("var(--accent)", "Ready to act")}${pip("var(--slate)", "Quarantine")}${pip("var(--danger)", "One-way door")}${pip("var(--good)", "Done")}</div>`;
+function trashActivityRow(row: DashboardTrashRow, ledgerIndex: Map<string, number>): string {
+  return `<article class="queue-row r"${dataLedger(row.ledgerPath, ledgerIndex)}>
+<div>
+<div class="row-head"><span class="id">${escapeHtml(row.recordId)}</span><span class="badge">quarantined</span></div>
+<p class="row-path">${escapeHtml(row.targetPath)}</p>
+<p class="row-summary">Moved to trash by cleanup plan <span class="id">${escapeHtml(row.cleanupPlanId)}</span>; receipt ${escapeHtml(row.receiptPath)}.</p>
+<div class="row-meta"><span>cleaned ${escapeHtml(row.cleanedAt)}</span><span>age ${escapeHtml(row.age)}</span></div>
+</div>
+<div class="row-side"><span class="src">${escapeHtml(row.ledgerName)}</span><span class="age">${escapeHtml(row.age)}</span><span class="id">${escapeHtml(row.cleanupPlanId)}</span></div>
+</article>`;
+}
+
+function receiptActivityBody(rows: DashboardReceiptRow[], token: string | undefined, ledgerIndex: Map<string, number>): string {
+  return `<div class="rows">${rows.map((row) => receiptActivityRow(row, token, ledgerIndex)).join("")}</div>`;
+}
+
+function receiptActivityRow(row: DashboardReceiptRow, token: string | undefined, ledgerIndex: Map<string, number>): string {
+  const href = detailHref(row.recordId, row.ledgerPath, token);
+  const reason = row.reason.trim() ? escapeHtml(row.reason) : `<span class="muted">(no reason recorded)</span>`;
+  return `<article class="queue-row r"${dataLedger(row.ledgerPath, ledgerIndex)}>
+<div>
+<div class="row-head"><span class="id"><a href="${href}">${escapeHtml(row.recordId)}</a></span><span class="badge rec">${escapeHtml(row.receiptKind)}</span></div>
+<p class="row-path">${escapeHtml(row.path)}</p>
+<p class="row-summary"><strong>Reason:</strong> ${reason}</p>
+<div class="row-meta"><span>created ${escapeHtml(row.createdAt)}</span><span>age ${escapeHtml(row.age)}</span></div>
+</div>
+<div class="row-side"><span class="src">${escapeHtml(row.ledgerName)}</span><span class="age">${escapeHtml(row.age)}</span><a class="badge" href="${href}">Details</a></div>
+</article>`;
 }
 
 export function renderDetailPage(detail: ArtifactDetail, token?: string, history: UiSessionHistoryEntry[] = []): string {
@@ -728,6 +990,7 @@ export function renderDetailPage(detail: ArtifactDetail, token?: string, history
 <div class="grp">State</div>
 <div class="f"><dt>existence</dt><dd>${existenceLabel(inspect.existence, inspect.nodeKind, inspect.byteSize)}</dd></div>
 <div class="f"><dt>recommendation</dt><dd>${escapeHtml(inspect.recommendation)}</dd></div>
+${lastActionFact(detail.lastAction)}
 <div class="f wide"><dt>next safe action</dt><dd>${escapeHtml(inspect.nextAction)}</dd></div>
 <div class="grp">Provenance</div>
 <div class="f wide"><dt>origin</dt><dd class="mono">${provenanceLabel(detail.provenance)}</dd></div>
@@ -762,6 +1025,13 @@ function provenanceLabel(view: ArtifactProvenanceView): string {
   const provenance = view.provenance;
   const place = provenance.relativePath ? `${provenance.root}:${provenance.relativePath}` : provenance.root;
   return provenance.fingerprint ? `${escapeHtml(place)} (fingerprinted)` : escapeHtml(place);
+}
+
+function lastActionFact(lastAction: DashboardLastAction | null): string {
+  if (!lastAction) return "";
+  const receipt = lastAction.receiptPath ? `; receipt ${lastAction.receiptPath}` : "";
+  const reason = lastAction.reason ? `; ${lastAction.reason}` : "";
+  return `<div class="f wide"><dt>last action</dt><dd>${escapeHtml(lastAction.kind)} at ${escapeHtml(lastAction.at)}${escapeHtml(receipt)}${escapeHtml(reason)}</dd></div>`;
 }
 
 function auditItem(event: ArtifactAuditEvent): string {

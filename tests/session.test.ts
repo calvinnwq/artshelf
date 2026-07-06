@@ -642,6 +642,24 @@ test("appendEvent records a dry_run_requested intent against its exact record ta
   assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
 });
 
+test("appendEvent records a dry_run_requested intent against a dashboard lane target", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  const event = appendEvent(home, session.id, {
+    type: "dry_run_requested",
+    target: { lane: "cleanup", registryPath: "/registries/ledgers.json" },
+    payload: { request: "prepare_cleanup_plan", count: 2 }
+  });
+
+  assert.equal(event.type, "dry_run_requested");
+  assert.equal(event.status, "pending");
+  assert.equal(event.source, "browser");
+  assert.deepEqual(event.target, { lane: "cleanup", registryPath: "/registries/ledgers.json" });
+  assert.deepEqual(event.payload, { request: "prepare_cleanup_plan", count: 2 });
+  assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);
+});
+
 test("appendEvent rejects a dry-run request missing its exact record or ledger target", () => {
   const home = freshHome();
   const session = startUserSession(home);
@@ -657,6 +675,35 @@ test("appendEvent rejects a dry-run request missing its exact record or ledger t
   assert.throws(
     () => appendEvent(home, session.id, { type: "dry_run_requested", target: { recordId: "shf_1" } }),
     /ledgerPath/i
+  );
+  assert.throws(
+    () => appendEvent(home, session.id, { type: "dry_run_requested", target: { lane: "cleanup" } }),
+    /registryPath/i
+  );
+  assert.equal(pollPendingEvents(home, session.id).length, 0);
+});
+
+test("appendEvent rejects unsupported dashboard lane dry-run requests", () => {
+  const home = freshHome();
+  const session = startUserSession(home);
+
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "dry_run_requested",
+        target: { lane: "trash", registryPath: "/registries/ledgers.json" },
+        payload: { request: "prepare_cleanup_plan", count: 1 }
+      }),
+    /target\.lane/
+  );
+  assert.throws(
+    () =>
+      appendEvent(home, session.id, {
+        type: "dry_run_requested",
+        target: { lane: "cleanup", registryPath: "/registries/ledgers.json" },
+        payload: { request: "review_delete_forever", count: 1 }
+      }),
+    /payload\.request/
   );
   assert.equal(pollPendingEvents(home, session.id).length, 0);
 });
