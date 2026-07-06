@@ -1763,6 +1763,45 @@ test("POST /intents rejects stale required-action approvals already queued for a
   });
 });
 
+test("POST /intents rejects dashboard approvals already queued from the detail drawer", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const detail = await postIntent(server, {
+      type: "decision_submitted",
+      recordId: "shf_cleanup_a",
+      ledgerPath,
+      decision: "trash"
+    });
+    assert.equal(detail.status, 303);
+
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "decision:cleanup:trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", ledgerPath);
+
+    const duplicate = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(duplicate.status, 409);
+    assert.match(await duplicate.text(), /already queued for the agent/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 1, "detail-originated decisions must block duplicate dashboard work");
+  });
+});
+
 test("POST /intents rejects conflicting card and row-level required-action approvals", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "primary", "ledger.jsonl");
@@ -1969,6 +2008,49 @@ test("GET / disables lane-level approvals when part of a lane is already queued"
       required,
       /class="row-choice danger" data-approval-value="row-decision:cleanup:trash:shf_cleanup_b:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup_b:[^"]+" value="row-decision:cleanup:trash:shf_cleanup_b:[^"]+"><span class="choose">Trash<\/span><span class="queued">Queued<\/span>/,
       "the unqueued row-level choice remains available"
+    );
+  });
+});
+
+test("GET / disables required-action approvals queued from the detail drawer", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await postIntent(server, {
+      type: "decision_submitted",
+      recordId: "shf_cleanup_a",
+      ledgerPath,
+      decision: "trash"
+    });
+    assert.equal(response.status, 303);
+
+    const required = requiredActionsHtml(await (await server.request("/")).text());
+    assert.match(
+      required,
+      /class="approve-choice disabled" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash" disabled><span class="approve">Approve<\/span><span class="queued">Queued<\/span>/,
+      "detail-queued rows should disable card approvals for their lane"
+    );
+    assert.match(
+      required,
+      /class="bulk-choice danger disabled" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash" disabled><span class="choose">Trash all<\/span><span class="queued">Queued<\/span>/,
+      "detail-queued rows should disable bulk approvals for their lane"
+    );
+    assert.match(
+      required,
+      /class="row-choice danger submitted" data-approval-value="row-decision:cleanup:trash:shf_cleanup_a:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup_a:[^"]+" value="row-decision:cleanup:trash:shf_cleanup_a:[^"]+" checked disabled>/,
+      "the detail-queued row-level choice stays visibly queued"
+    );
+    assert.match(
+      required,
+      /class="row-choice danger" data-approval-value="row-decision:cleanup:trash:shf_cleanup_b:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup_b:[^"]+" value="row-decision:cleanup:trash:shf_cleanup_b:[^"]+"><span class="choose">Trash<\/span><span class="queued">Queued<\/span>/,
+      "unqueued row-level choices remain available"
     );
   });
 });

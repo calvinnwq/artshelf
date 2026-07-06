@@ -446,7 +446,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   const snapshot = buildDashboard(dashboardOptions(options));
   const visibleRows = visibleRequiredActionRows(options, snapshot);
   const approvablePreparedEvents = approvablePreparedPlanEventIds(options, snapshot);
-  const pendingActions = pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId));
+  const pendingActions = pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId), visibleRows);
   const intents: AppendEventInput[] = [];
   const approvalBundles: BuiltApprovalBundleSubmission[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
@@ -539,8 +539,9 @@ type PendingActionIndex = {
   rowDecisions: Map<string, string>;
 };
 
-function pendingActionIndex(history: UiSessionHistoryEntry[]): PendingActionIndex {
+function pendingActionIndex(history: UiSessionHistoryEntry[], rows?: RequiredActionRows): PendingActionIndex {
   const index: PendingActionIndex = { laneRequests: new Set(), rowDecisions: new Map() };
+  const rowLanes = rows ? rowLaneIndex(rows) : new Map<string, RowDecisionApproval["lane"][]>();
   for (const entry of history) {
     if (!isQueuedForAgentStatus(entry.event.status)) continue;
     if (entry.event.type === "dry_run_requested") {
@@ -554,7 +555,32 @@ function pendingActionIndex(history: UiSessionHistoryEntry[]): PendingActionInde
     const decision = stringRecordValue(entry.event.payload, "decision");
     const recordId = stringRecordValue(entry.event.target, "recordId");
     const ledgerPath = stringRecordValue(entry.event.target, "ledgerPath");
-    if (lane && decision && recordId && ledgerPath) index.rowDecisions.set(rowDecisionActionKey(lane, recordId, ledgerPath), decision);
+    if (!decision || !recordId || !ledgerPath) continue;
+    if (lane && isBulkDecisionLane(lane)) {
+      index.rowDecisions.set(rowDecisionActionKey(lane, recordId, ledgerPath), decision);
+      continue;
+    }
+    for (const currentLane of rowLanes.get(recordActivityKey(recordId, ledgerPath)) ?? []) {
+      index.rowDecisions.set(rowDecisionActionKey(currentLane, recordId, ledgerPath), decision);
+    }
+  }
+  return index;
+}
+
+function rowLaneIndex(rows: RequiredActionRows): Map<string, RowDecisionApproval["lane"][]> {
+  const index = new Map<string, RowDecisionApproval["lane"][]>();
+  for (const [lane, laneRows] of [
+    ["needs-review", rows.needsReview],
+    ["needs-context", rows.needsContext],
+    ["cleanup", rows.cleanup],
+    ["resolve", rows.resolve]
+  ] as const) {
+    for (const row of laneRows) {
+      const key = recordActivityKey(row.recordId, row.ledgerPath ?? "");
+      const lanes = index.get(key);
+      if (lanes) lanes.push(lane);
+      else index.set(key, [lane]);
+    }
   }
   return index;
 }
@@ -816,9 +842,10 @@ function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<st
   }
 
   const snapshot = buildDashboard(dashboardOptions(options));
-  const rows = visibleRowsForLane(visibleRequiredActionRows(options, snapshot), lane);
+  const visibleRows = visibleRequiredActionRows(options, snapshot);
+  const rows = visibleRowsForLane(visibleRows, lane);
   validateReviewedBulkLaneRows(rows, multiFields, lane);
-  rejectQueuedRowDecisions(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId)), lane, rows);
+  rejectQueuedRowDecisions(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId), visibleRows), lane, rows);
   return buildBulkDecisionSubmissionFromRows(rows, lane, decision, undefined, fields.reason);
 }
 

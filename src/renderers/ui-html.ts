@@ -510,9 +510,9 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const ledgerIndex = new Map(ledgers.map((ledger, i) => [ledger.path, i]));
   const history = activity.history ?? [];
   const rowActivity = recordActivityIndex(history);
-  const pendingActions = pendingActionIndex(history);
   const preparedPlans = livePreparedPlanIndex(preparedPlanIndex(history, activity.reviewablePreparedPlanEventIds), snapshot);
   const visibleRows = visibleRequiredActionRows(snapshot, preparedPlans);
+  const pendingActions = pendingActionIndex(history, visibleRows);
 
   const actionCount = visibleRows.needsReview.length + visibleRows.needsContext.length + visibleRows.cleanup.length + visibleRows.resolve.length + preparedPlans.size;
   const problemsCount = counts["registry-reconcile"] + badLedgers;
@@ -1262,8 +1262,9 @@ type PendingActionIndex = {
   rowDecisions: Map<string, string>;
 };
 
-function pendingActionIndex(history: UiSessionHistoryEntry[]): PendingActionIndex {
+function pendingActionIndex(history: UiSessionHistoryEntry[], rows?: RequiredActionRows): PendingActionIndex {
   const index: PendingActionIndex = { laneRequests: new Set(), rowDecisions: new Map() };
+  const rowLanes = rows ? rowLaneIndex(rows) : new Map<string, Array<"needs-review" | "needs-context" | "cleanup" | "resolve">>();
   for (const entry of history) {
     if (!isQueuedForAgentStatus(entry.event.status)) continue;
     if (entry.event.type === "dry_run_requested") {
@@ -1277,7 +1278,32 @@ function pendingActionIndex(history: UiSessionHistoryEntry[]): PendingActionInde
     const decision = typeof entry.event.payload.decision === "string" ? entry.event.payload.decision : "";
     const recordId = typeof entry.event.target.recordId === "string" ? entry.event.target.recordId : "";
     const ledgerPath = typeof entry.event.target.ledgerPath === "string" ? entry.event.target.ledgerPath : "";
-    if (lane && decision && recordId && ledgerPath) index.rowDecisions.set(rowDecisionActionKey(lane, recordId, ledgerPath), decision);
+    if (!decision || !recordId || !ledgerPath) continue;
+    if (isBulkDecisionLane(lane)) {
+      index.rowDecisions.set(rowDecisionActionKey(lane, recordId, ledgerPath), decision);
+      continue;
+    }
+    for (const currentLane of rowLanes.get(recordActivityKey(recordId, ledgerPath)) ?? []) {
+      index.rowDecisions.set(rowDecisionActionKey(currentLane, recordId, ledgerPath), decision);
+    }
+  }
+  return index;
+}
+
+function rowLaneIndex(rows: RequiredActionRows): Map<string, Array<"needs-review" | "needs-context" | "cleanup" | "resolve">> {
+  const index = new Map<string, Array<"needs-review" | "needs-context" | "cleanup" | "resolve">>();
+  for (const [lane, laneRows] of [
+    ["needs-review", rows.needsReview],
+    ["needs-context", rows.needsContext],
+    ["cleanup", rows.cleanup],
+    ["resolve", rows.resolve]
+  ] as const) {
+    for (const row of laneRows) {
+      const key = recordActivityKey(row.recordId, row.ledgerPath ?? "");
+      const lanes = index.get(key);
+      if (lanes) lanes.push(lane);
+      else index.set(key, [lane]);
+    }
   }
   return index;
 }
@@ -1309,6 +1335,10 @@ function laneActionKey(lane: string, action: string): string {
 
 function rowDecisionActionKey(lane: string, recordId: string, ledgerPath: string): string {
   return `${lane}\0${recordId}\0${ledgerPath}`;
+}
+
+function isBulkDecisionLane(value: unknown): value is "needs-review" | "needs-context" | "cleanup" | "resolve" {
+  return value === "needs-review" || value === "needs-context" || value === "cleanup" || value === "resolve";
 }
 
 function recordActivityKey(recordId: string, ledgerPath: string): string {
