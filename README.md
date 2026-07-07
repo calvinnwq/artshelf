@@ -250,9 +250,9 @@ The served pages also expose `GET /bundle/<bundle-id>`: an approval workbench th
 With the active token, its scriptless form lets a reviewer keep or deselect rows and submit a revised non-empty subset through `POST /approve`, creating a new immutable approval snapshot without editing the original bundle or executing a workflow.
 That approval submit carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle instead of trusting hidden browser target JSON.
 On the served page the dashboard presents compact required-action cards before the status summary and collapsed source details.
-Reviewers can queue recommended card approvals, lane-level keep/trash/resolve choices, individual row choices, and dashboard dry-run requests into one `Queued for agent` submit bar, while conflicting card/bulk/row selections are refused.
+Reviewers can queue recommended card approvals, reviewed cleanup-plan preparation, lane-level keep/trash/resolve choices, individual row choices, and dashboard dry-run requests into one `Queued for agent` submit bar, while conflicting card/bulk/row/request selections are refused.
 Bulk lane approvals carry the reviewed row set from the loaded dashboard and are rejected if the lane changed before submit.
-Dashboard dry-run requests enter the agent queue as lane events: cleanup prepares a cleanup plan, resolve checks missing files, purge-candidates requests delete review, and registry/reconcile checks source problems.
+Dashboard dry-run requests enter the agent queue as lane events: cleanup prepares reviewed cleanup plan artifacts from the rendered cleanup row snapshot, resolve checks missing files, purge-candidates requests delete review, and registry/reconcile checks source problems.
 Completed dry-run replies that produce reviewed dispose plans become ready-for-approval rows in Required actions, replacing the original row while the plan remains live; those plans can be approved individually or with the prepared-plan approve-all control.
 After a dashboard submit, the page lands on session activity with a bounded queued count, marks affected rows as sent to the agent, and refreshes pending decisions, prepared plans, stale/rejected states, and execution receipts without mutating ledgers, files, trash, or plans from the browser.
 Submitted approvals stay visibly queued until the agent handles them, and the activity rail can unqueue pending browser work without touching ledgers, files, trash, or plans.
@@ -274,14 +274,10 @@ The browser captures triage intents and approval bundles only and never mutates 
 The session token printed by `artshelf ui`, `artshelf ui serve`, and `artshelf ui review` is a same-machine browser capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes and served dashboard/detail/bundle access while keeping the audit trail.
 Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; otherwise the command prints a host-local instruction instead of a dead localhost link.
 
-For the intended live review experience, run `artshelf ui review`: it starts or
-resumes the UI from the original conversation, keeps the loopback server and
-poller attached, marks submissions `in_progress`, processes each event within
-the read-only/dry-run or exact-approval boundary (exact keep/trash/resolve/defer
-decisions become reviewed dispose dry-run plans awaiting approval, while bare
-dry-run requests are recorded-only), replies into the session, refreshes state, keeps looping for more
-submissions, and ends the UI plus poller from the browser close action -
-cancelling anything still pending visibly - before returning a final summary.
+For the intended live review experience, run `artshelf ui review`: it starts or resumes the UI from the original conversation, keeps the loopback server and poller attached, marks submissions `in_progress`, processes each event within the read-only/dry-run or exact-approval boundary, replies into the session, refreshes state, keeps looping for more submissions, and ends the UI plus poller from the browser close action - cancelling anything still pending visibly - before returning a final summary.
+Exact keep/trash/resolve/defer decisions and exact dispose dry-run requests become reviewed dispose dry-run plans awaiting approval, with defer/snooze using a default `7d` horizon.
+Dashboard lane dry-run requests can prepare reviewed cleanup plans, check missing files, check source problems, or prepare purge review workbench handoffs.
+No cleanup, dispose, purge, or bundle execution happens from those browser requests; execution stays approval-only and exact-target or plan-id bound through the existing execute paths.
 Hosts can still compose the lower-level `ui serve`/`ui poll`/`ui reply`/`ui end`
 primitives, but must refuse or downgrade visibly if they cannot keep server and
 poller attached.

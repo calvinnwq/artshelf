@@ -582,8 +582,14 @@ test("GET / renders the redesigned top fold, queued actions, and non-empty revie
       "the queued-for-agent submit controls sit above the compact activity rail"
     );
     assert.match(html, /name="reviewed:cleanup"/, "bulk approval forms bind the reviewed cleanup row set");
+    assert.match(required, /name="approval:cleanup" value="request:cleanup:prepare_cleanup_plan"/, "the top fold can queue a reviewed cleanup plan request");
     assert.match(required, /name="approval:cleanup" value="decision:cleanup:trash"/, "the top fold can queue a recommended bulk decision");
     assert.match(required, /name="approval:purge-candidates" value="request:purge-candidates:review_delete_forever"/, "the top fold can queue a review request");
+    assert.match(
+      required,
+      /<summary>[\s\S]*?<label class="approve-choice" data-approval-value="request:cleanup:prepare_cleanup_plan"><input type="checkbox" name="approval:cleanup" value="request:cleanup:prepare_cleanup_plan"><span class="approve">Prepare<\/span><span class="queued">Queued<\/span><\/label>[\s\S]*?<\/summary>/,
+      "the cleanup card exposes the reviewed cleanup-plan request in the visible summary"
+    );
     assert.match(
       required,
       /<summary>[\s\S]*?<label class="approve-choice" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash"><span class="approve">Approve<\/span><span class="queued">Queued<\/span><\/label>[\s\S]*?<\/summary>/,
@@ -598,6 +604,7 @@ test("GET / renders the redesigned top fold, queued actions, and non-empty revie
     assert.match(html, /Queued for agent/, "the global submit shows the queued actions area");
     assert.match(html, /Nothing selected yet\./, "the queued actions area is explicit before selection");
     assert.match(html, /Prepare delete review for 2 row\(s\)/, "the queued list describes the purge request");
+    assert.match(html, /Prepare cleanup plan for 1 row\(s\)/, "the queued list describes the cleanup plan request");
     assert.match(html, /Trash 1 ready to clean up row\(s\)/, "the queued list describes cleanup decisions");
     assert.match(
       html,
@@ -608,6 +615,11 @@ test("GET / renders the redesigned top fold, queued actions, and non-empty revie
       html,
       /<label class="row-choice danger" data-approval-value="row-decision:cleanup:trash:shf_cleanup:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup:[^"]+" value="row-decision:cleanup:trash:shf_cleanup:[^"]+"><span class="choose">Trash<\/span><span class="queued">Queued<\/span><\/label>/,
       "expanded rows can queue an exact row-level trash decision"
+    );
+    assert.match(
+      html,
+      /\.act > summary:has\(\.approve-choice input:checked\) \.approve-choice:not\(:has\(input:checked\)\)/,
+      "summary controls disable peer summary choices while one choice is queued"
     );
     assert.match(
       html,
@@ -2000,6 +2012,39 @@ test("POST /intents rejects conflicting card and row-level required-action appro
     assert.equal(response.status, 400);
     assert.match(await response.text(), /Conflicting Artshelf UI selections for cleanup/i);
     assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "conflicting approvals must not enter the agent queue");
+  });
+});
+
+test("POST /intents rejects conflicting cleanup requests and cleanup decisions", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:crafted-request", "request:cleanup:prepare_cleanup_plan");
+    params.append("approval:crafted-decision", "decision:cleanup:trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", ledgerPath);
+    await appendRenderedCleanupFacts(server, params);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /choose either the dashboard request or row decisions/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "conflicting cleanup plan requests and decisions must not enter the agent queue");
   });
 });
 

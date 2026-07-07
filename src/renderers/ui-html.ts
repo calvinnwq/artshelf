@@ -160,6 +160,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .approve-choice:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
 .approve-choice.submitted,.bulk-choice.submitted,.row-choice.submitted{ opacity:1!important; pointer-events:none; cursor:not-allowed; filter:none!important; }
 .approve-choice.disabled,.bulk-choice.disabled{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.act > summary:has(.approve-choice input:checked) .approve-choice:not(:has(input:checked)){ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(.row-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(> summary .approve-choice input:checked) .row-actions .row-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(.bulk-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
@@ -243,6 +244,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .review-form:has(input[name="approval:purge-candidates"][value="request:purge-candidates:review_delete_forever"]:checked) .approve-choice[data-approval-value="request:purge-candidates:review_delete_forever"],
 .review-form:has(input[name="approval:needs-review"][value="decision:needs-review:trash"]:checked) .approve-choice[data-approval-value="decision:needs-review:trash"],
 .review-form:has(input[name="approval:needs-context"][value="decision:needs-context:trash"]:checked) .approve-choice[data-approval-value="decision:needs-context:trash"],
+.review-form:has(input[name="approval:cleanup"][value="request:cleanup:prepare_cleanup_plan"]:checked) .approve-choice[data-approval-value="request:cleanup:prepare_cleanup_plan"],
 .review-form:has(input[name="approval:cleanup"][value="decision:cleanup:trash"]:checked) .approve-choice[data-approval-value="decision:cleanup:trash"],
 .review-form:has(input[name="approval:resolve"][value="decision:resolve:resolve"]:checked) .approve-choice[data-approval-value="decision:resolve:resolve"],
 .review-form:has(input[name="approval:registry-reconcile"][value="request:registry-reconcile:check_source_problems"]:checked) .approve-choice[data-approval-value="request:registry-reconcile:check_source_problems"],
@@ -263,6 +265,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .review-form:has(input[name="approval:needs-review"][value="decision:needs-review:trash"]:checked) .queued-list li[data-approval-value="decision:needs-review:trash"],
 .review-form:has(input[name="approval:needs-context"][value="decision:needs-context:keep"]:checked) .queued-list li[data-approval-value="decision:needs-context:keep"],
 .review-form:has(input[name="approval:needs-context"][value="decision:needs-context:trash"]:checked) .queued-list li[data-approval-value="decision:needs-context:trash"],
+.review-form:has(input[name="approval:cleanup"][value="request:cleanup:prepare_cleanup_plan"]:checked) .queued-list li[data-approval-value="request:cleanup:prepare_cleanup_plan"],
 .review-form:has(input[name="approval:cleanup"][value="decision:cleanup:keep"]:checked) .queued-list li[data-approval-value="decision:cleanup:keep"],
 .review-form:has(input[name="approval:cleanup"][value="decision:cleanup:trash"]:checked) .queued-list li[data-approval-value="decision:cleanup:trash"],
 .review-form:has(input[name="approval:resolve"][value="decision:resolve:keep"]:checked) .queued-list li[data-approval-value="decision:resolve:keep"],
@@ -629,7 +632,10 @@ function requiredActionsSection(
     );
   }
   if (visibleRows.cleanup.length > 0) {
+    const requestQueued = isLaneRequestQueued(pendingActions, "cleanup", "prepare_cleanup_plan");
     const trashState = laneDecisionChoiceState(pendingActions, "cleanup", visibleRows.cleanup, "trash");
+    const requestDisabled = !requestQueued && hasQueuedRowDecision(pendingActions, "cleanup", visibleRows.cleanup);
+    const decisionDisabled = trashState.disabled || (requestQueued && !trashState.submitted);
     cards.push(
       actionCard(
         "calm",
@@ -638,7 +644,9 @@ function requiredActionsSection(
         "Ready to clean up",
         "Move to trash",
         "because they are due and appear unused.",
-        token ? approvalChoice("decision", "cleanup", "trash", "Approve", trashState.submitted, trashState.disabled) : "",
+        token
+          ? `${approvalChoice("request", "cleanup", "prepare_cleanup_plan", "Prepare", requestQueued, requestDisabled)}${approvalChoice("decision", "cleanup", "trash", "Approve", trashState.submitted, decisionDisabled)}`
+          : "",
         artifactActionBody("cleanup", visibleRows.cleanup, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
@@ -803,6 +811,13 @@ function queuedApprovalItems(
   addRowDecisionQueuedItems(items, "needs-review", rows.needsReview, "needs a decision", pendingActions);
   addDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details", pendingActions);
   addRowDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details", pendingActions);
+  if (rows.cleanup.length > 0) {
+    items.push({
+      value: "request:cleanup:prepare_cleanup_plan",
+      label: `Prepare cleanup plan for ${rows.cleanup.length} row(s)`,
+      submittable: !isLaneRequestQueued(pendingActions, "cleanup", "prepare_cleanup_plan") && areBulkChoicesSubmittable(pendingActions, "cleanup", rows.cleanup)
+    });
+  }
   addDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up", pendingActions);
   addRowDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up", pendingActions);
   if (rows.resolve.length > 0) {

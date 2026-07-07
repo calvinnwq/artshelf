@@ -434,10 +434,11 @@ session with a polling loop until the workflow ends. Every pending browser event
 is immediately marked `in_progress`, processed inside the read-only, dry-run, or
 exact-approval boundary, then completed with a reply payload that names the
 result, safety boundary, and any exact approval target. Exact keep/trash/resolve/defer
-decisions become reviewed dispose dry-run plans whose plan id and exact approval
-text ride in the reply, so the dashboard's prepared-plan approval row can carry
-the workflow into the approve-then-execute half; bare dry-run requests are
-recorded-only and point back at the decision path. The
+decisions and exact dispose dry-run requests become reviewed dispose dry-run
+plans whose plan id and exact approval text ride in the reply, so the dashboard's
+prepared-plan approval row can carry the workflow into the approve-then-execute
+half. Dashboard lane dry-run requests can prepare reviewed cleanup plans, check
+missing files, check source problems, or prepare purge review workbench handoffs. The
 served UI refreshes activity and live dashboard state so the user can continue
 submitting actions without restarting. A browser close submission queues
 `session_done`; the attached loop replies, cancels still-pending work with
@@ -470,7 +471,7 @@ The purge-candidate lane groups rows by source/ledger, shows per-group totals an
 - `ui detail <record-id>` composes the path label, inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
 - `ui serve` hosts the `ui dashboard`, `ui detail`, and approval-bundle workbench surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
-- `ui review` is the managed foreground lifecycle. It starts the same token-protected server, keeps a poll loop attached to the session, marks browser work `in_progress`, replies completed/rejected/stale/failed/cancelled outcomes into activity, translates exact keep/trash/resolve/defer decisions into reviewed dispose dry-run plans (replying the plan id and exact approval text; defer/snooze uses a default `7d` horizon) while recording bare dry-run requests without minting a plan, runs approved bundles only through the exact-target `ui execute` core, rejects broad or execution-shaped browser requests, and closes by cancelling still-pending events, ending the session, and stopping the server. Its `--json` output is newline-delimited lifecycle packets.
+- `ui review` is the managed foreground lifecycle. It starts the same token-protected server, keeps a poll loop attached to the session, marks browser work `in_progress`, replies completed/rejected/stale/failed/cancelled outcomes into activity, translates exact keep/trash/resolve/defer decisions and exact dispose dry-run requests into reviewed dispose dry-run plans (replying the plan id and exact approval text; defer/snooze uses a default `7d` horizon), handles dashboard lane dry-run requests by preparing reviewed cleanup plans, source/missing-file checks, or purge review workbench handoffs, runs approved bundles only through the exact-target `ui execute` core, rejects broad or execution-shaped browser requests, and closes by cancelling still-pending events, ending the session, and stopping the server. Its `--json` output is newline-delimited lifecycle packets.
 - The served pages embed no file contents and load no external assets: the dashboard alone carries a nonce-bound session-activity poller for token-scoped `GET /activity`, while detail and bundle pages remain scriptless.
 The server accepts safe GET/HEAD reads for pages, health checks, and the read-only activity fragment, a token-bound `POST /intents` that records dashboard decisions and the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request), a token-bound `POST /approve` that records approval-bundle submissions as pending session events, and a token-bound `POST /close` that records a `session_done` close request for the attached agent.
 It refuses any other mutating method and renders bad or missing ledgers, records, and bundles as explicit non-crashing problem states rather than blank panels.

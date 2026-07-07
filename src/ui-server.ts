@@ -502,6 +502,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   const approvalBundles: BuiltApprovalBundleSubmission[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
   const bulkDecisions = new Map<RowDecisionApproval["lane"], string>();
+  const laneRequests = new Set<string>();
   for (const approval of approvals) {
     const [kind, lane, action, extra] = approval.split(":");
     if (kind === "approve-plan") {
@@ -543,12 +544,13 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
         validateReviewedBulkLaneRows(rows, fields, "cleanup");
         payload.reviewedRows = reviewedCleanupRowsFromSignedFields(options, fields, rows);
       }
+      laneRequests.add(lane);
       intents.push({ type: "dry_run_requested", target: { lane }, payload });
     } else {
       throw intentError(400, `Invalid Artshelf UI required action approval "${approval}"`);
     }
   }
-  rejectConflictingRequiredActionSelections(bulkDecisions, rowDecisions);
+  rejectConflictingRequiredActionSelections(bulkDecisions, rowDecisions, laneRequests);
   const seenPreparedApprovals = new Set<string>();
   const uniqueApprovalBundles = approvalBundles.filter((bundle) => {
     if (seenPreparedApprovals.has(bundle.preparedEventId)) return false;
@@ -805,7 +807,8 @@ function addRowDecisionApproval(decisions: Map<string, RowDecisionApproval>, dec
 
 function rejectConflictingRequiredActionSelections(
   bulkDecisions: Map<RowDecisionApproval["lane"], string>,
-  rowDecisions: Map<string, RowDecisionApproval>
+  rowDecisions: Map<string, RowDecisionApproval>,
+  laneRequests: Set<string> = new Set()
 ): void {
   const bulkLanes = new Set(bulkDecisions.keys());
   const conflictingLanes = [...new Set([...rowDecisions.values()].map((decision) => decision.lane).filter((lane) => bulkLanes.has(lane)))];
@@ -813,6 +816,14 @@ function rejectConflictingRequiredActionSelections(
     throw intentError(
       400,
       `Conflicting Artshelf UI selections for ${conflictingLanes.join(", ")}: choose either the card/bulk approval or individual row choices, not both`
+    );
+  }
+  const decisionLanes = new Set([...bulkLanes, ...[...rowDecisions.values()].map((decision) => decision.lane)]);
+  const conflictingRequestLanes = [...laneRequests].filter((lane) => decisionLanes.has(lane as RowDecisionApproval["lane"]));
+  if (conflictingRequestLanes.length > 0) {
+    throw intentError(
+      400,
+      `Conflicting Artshelf UI selections for ${conflictingRequestLanes.join(", ")}: choose either the dashboard request or row decisions, not both`
     );
   }
 }
