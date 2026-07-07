@@ -350,8 +350,12 @@ export function validateLedger(ledgerPath: string): {
 
 export function createCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}): CleanupPlan {
   const plan = buildCleanupPlan(ledgerPath, options);
+  return writeCleanupPlan(plan);
+}
+
+export function writeCleanupPlan(plan: CleanupPlan): CleanupPlan {
   if (plan.entries.length === 0) return noCreatedPlan(plan);
-  const existingPlan = matchingExistingCleanupPlan(ledgerPath, plan);
+  const existingPlan = matchingExistingCleanupPlan(plan.ledgerPath, plan);
   if (existingPlan) {
     const refreshedPlan = {
       ...plan,
@@ -360,7 +364,7 @@ export function createCleanupPlan(ledgerPath: string, options: CleanupPlanOption
     };
     if (!refreshedPlan.planPath) throw new Error("cleanup plan path was not created");
     writeJson(refreshedPlan.planPath, refreshedPlan);
-    registerArtshelfArtifact(ledgerPath, refreshedPlan.planPath, {
+    registerArtshelfArtifact(plan.ledgerPath, refreshedPlan.planPath, {
       reason: `Artshelf cleanup dry-run plan ${refreshedPlan.planId}`,
       ttl: "14d",
       kind: "run-artifact",
@@ -371,7 +375,7 @@ export function createCleanupPlan(ledgerPath: string, options: CleanupPlanOption
   }
   if (!plan.planPath) throw new Error("cleanup plan path was not created");
   writeJson(plan.planPath, plan);
-  registerArtshelfArtifact(ledgerPath, plan.planPath, {
+  registerArtshelfArtifact(plan.ledgerPath, plan.planPath, {
     reason: `Artshelf cleanup dry-run plan ${plan.planId}`,
     ttl: "14d",
     kind: "run-artifact",
@@ -381,8 +385,8 @@ export function createCleanupPlan(ledgerPath: string, options: CleanupPlanOption
   return plan;
 }
 
-export function previewCleanupPlan(ledgerPath: string): CleanupPlan {
-  const plan = buildCleanupPlan(ledgerPath);
+export function previewCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}): CleanupPlan {
+  const plan = buildCleanupPlan(ledgerPath, options);
   return plan.entries.length === 0 ? noCreatedPlan(plan) : plan;
 }
 

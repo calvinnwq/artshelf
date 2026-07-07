@@ -7,7 +7,7 @@ import type { DisposeRequest } from "../dispose.js";
 import { createDisposePlan } from "../dispose.js";
 import type { ArtifactIdentityFacts } from "../file-identity.js";
 import { artifactIdentityFacts, sameArtifactIdentityFacts } from "../file-identity.js";
-import { createCleanupPlan } from "../ledger.js";
+import { previewCleanupPlan, writeCleanupPlan } from "../ledger.js";
 import { normalizeRegistryPath } from "../registry.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
@@ -822,7 +822,7 @@ function replyManagedPurgeReview(home: string, session: UiSession, event: UiEven
       bundleId: source.id,
       count: targets.length,
       actionType: PURGE_APPROVAL_ACTION,
-      next: `Open artshelf ui bundle ${session.id} ${source.id}, choose exact targets, then submit the approval bundle.`
+      next: "Open the approval workbench from the browser activity link, choose exact targets, then submit the approval bundle."
     }
   });
   return "completed";
@@ -908,11 +908,11 @@ function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEv
     ledger.expectedEntries.push({ id: row.recordId, path: row.path, action: row.cleanup, dueStatus: row.dueState });
   }
   const ledgers = [...ledgersByPath.values()];
-  const plans = [];
+  const previews = [];
   for (const ledger of ledgers) {
     try {
-      const plan = createCleanupPlan(ledger.path, { recordIds: [...ledger.recordIds], expectedEntries: ledger.expectedEntries });
-      if (plan.entries.length > 0) plans.push({ ledger, plan });
+      const plan = previewCleanupPlan(ledger.path, { recordIds: [...ledger.recordIds], expectedEntries: ledger.expectedEntries });
+      if (plan.entries.length > 0) previews.push({ ledger, plan });
     } catch (error) {
       return replyFailure(home, session.id, event, "stale", {
         reason: `Reviewed cleanup rows for ${ledger.name} changed before a plan could be prepared: ${errorMessage(error)}`,
@@ -920,12 +920,13 @@ function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEv
       });
     }
   }
-  if (plans.length === 0) {
+  if (previews.length === 0) {
     return replyFailure(home, session.id, event, "stale", {
       reason: "There are no cleanup dry-run entries left to review.",
       next: "Refresh the dashboard before requesting another cleanup plan."
     });
   }
+  const plans = previews.map((entry) => ({ ledger: entry.ledger, plan: writeCleanupPlan(entry.plan) }));
   replyToEvent(home, session.id, event.id, {
     status: "completed",
     expectedStatus: "in_progress",

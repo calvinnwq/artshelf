@@ -506,6 +506,8 @@ test("artshelf ui review prepares a purge approval workbench from a lane dry-run
     const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
     const payload = entry.replies.at(-1)!.payload as Record<string, any>;
     assert.equal(payload.kind, "purge_review_prepared");
+    assert.doesNotMatch(String(payload.next), /artshelf ui bundle/);
+    assert.match(String(payload.next), /browser activity link/);
     const snapshot = readApprovalSnapshot(home, sessionId, String(payload.bundleId));
     assert.equal(snapshot.actionType, "trash-purge");
     assert.equal(snapshot.targets.length, 1);
@@ -578,6 +580,76 @@ test("artshelf ui review cleanup lane plans only validated dashboard cleanup row
     const planId = String(payload.plans[0].planId);
     const plan = JSON.parse(readFileSync(join(dirname(ledger), "plans", `${planId}.json`), "utf8"));
     assert.deepEqual(plan.entries.map((planEntry: Record<string, unknown>) => planEntry.id), ["shf_cleanup"]);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review validates all cleanup ledgers before writing plan artifacts", async () => {
+  const home = freshHome();
+  const firstRepo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-cleanup-atomic-first-"));
+  const secondRepo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-cleanup-atomic-second-"));
+  mkdirSync(join(firstRepo, ".git"), { recursive: true });
+  mkdirSync(join(secondRepo, ".git"), { recursive: true });
+  const firstLedger = join(firstRepo, ".artshelf", "ledger.jsonl");
+  const secondLedger = join(secondRepo, ".artshelf", "ledger.jsonl");
+  const firstSubject = join(firstRepo, "shf_first.tar");
+  const secondSubject = join(secondRepo, "shf_second.tar");
+  const changedSecondSubject = join(secondRepo, "shf_second_changed.tar");
+  writeFileSync(firstSubject, "first");
+  writeFileSync(secondSubject, "second");
+  writeFileSync(changedSecondSubject, "changed");
+  writeLedgerFile(firstLedger, [
+    ledgerRecord("shf_first", firstSubject, {
+      reason: "first reviewed cleanup row",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: "2026-01-02T00:00:00.000Z",
+      cleanup: "trash"
+    })
+  ]);
+  writeLedgerFile(secondLedger, [
+    ledgerRecord("shf_second", secondSubject, {
+      reason: "second reviewed cleanup row",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: "2026-01-02T00:00:00.000Z",
+      cleanup: "trash"
+    })
+  ]);
+  const registryPath = registryWithLedgers([firstLedger, secondLedger]);
+  const managed = await managedReview(home, ["--poll-interval-ms", "1500"], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "cleanup", registryPath },
+      payload: {
+        request: "prepare_cleanup_plan",
+        label: "Prepare cleanup",
+        count: 2,
+        reviewedRows: [
+          reviewedCleanupRow("shf_first", firstLedger, firstSubject),
+          reviewedCleanupRow("shf_second", secondLedger, secondSubject)
+        ]
+      }
+    });
+    writeLedgerFile(secondLedger, [
+      ledgerRecord("shf_second", changedSecondSubject, {
+        reason: "second reviewed cleanup row changed before handling",
+        retention: { mode: "ttl", ttl: "1d" },
+        retainUntil: "2026-01-02T00:00:00.000Z",
+        cleanup: "trash"
+      })
+    ]);
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "stale";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.match(String(payload.reason), /changed/i);
+    assert.equal(existsSync(join(dirname(firstLedger), "plans")), false);
+    assert.equal(existsSync(join(dirname(secondLedger), "plans")), false);
   } finally {
     await managed.stop();
   }
