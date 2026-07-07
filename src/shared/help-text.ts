@@ -573,14 +573,19 @@ Review is the managed agent-attached browser workflow: it starts or resumes the
 UI session, serves the token-protected loopback dashboard, keeps a poll loop
 attached, immediately marks browser work in_progress, replies results into the
 session, and keeps listening for follow-up submissions. Browser close queues a
-session_done event; the attached agent loop replies, runs ui end semantics, stops
-the server, and prints a final summary packet.
+session_done event; the attached agent loop replies, cancels still-pending work
+with visible cancelled replies, runs ui end semantics, stops the server, and
+prints a final summary packet. Interrupts (Ctrl-C/SIGTERM) tear down the same
+way instead of stranding queued events.
 
-The manager is conservative. Read-only browser intents are acknowledged without
-mutating ledgers, files, trash, or plans. Approved bundles run only through the
-existing exact-target ui execute core. Broad or execution-shaped browser requests
-are rejected visibly; there is no ui review --all, browser-direct execution, or
-fresh-plan-then-execute path.
+The manager is conservative. Comments and notes are acknowledged without
+mutating ledgers, files, trash, or plans. Exact keep/trash/resolve/defer
+decisions and record-level dry-run requests become reviewed dispose dry-run
+plans, replied with the plan id and exact approval text (defer/snooze plans use
+a default 7d horizon); execution still requires approving that exact plan.
+Approved bundles run only through the existing exact-target ui execute core.
+Broad or execution-shaped browser requests are rejected visibly; there is no
+ui review --all, browser-direct execution, or fresh-plan-then-execute path.
 `;
   }
 

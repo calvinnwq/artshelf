@@ -74,7 +74,8 @@ type ManagedReviewProcess = {
 };
 
 function managedReview(home: string, args: string[] = [], env: Record<string, string> = {}): Promise<ManagedReviewProcess> {
-  const child = spawn(process.execPath, [CLI.pathname, "ui", "review", "--port", "0", "--poll-interval-ms", "25", ...args, "--json"], {
+  const intervalArgs = args.includes("--poll-interval-ms") ? [] : ["--poll-interval-ms", "25"];
+  const child = spawn(process.execPath, [CLI.pathname, "ui", "review", "--port", "0", ...intervalArgs, ...args, "--json"], {
     env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_UI_HOME: home, ...env }
   });
   child.stdout.setEncoding("utf8");
@@ -290,6 +291,226 @@ test("artshelf ui review refuses --all before starting a managed lifecycle", () 
   const result = ui(home, ["ui", "review", "--all", "--json"]);
   assert.notEqual(result.status, 0);
   assert.match(result.stderr, /ui review --all/i);
+});
+
+test("artshelf ui review executes a browser-approved exact bundle through the ui execute core", async () => {
+  const home = freshHome();
+  const { ledger, subject, trashTarget, planId } = repoWithReviewedTrashPlan("shf_managed");
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const snapshot = seedApprovedBundle(home, sessionId, [bundleTarget("shf_managed", ledger, subject, { planId })], ["shf_managed"], registryPath);
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id)!;
+    const receipts = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(receipts.executionStatus, "executed");
+    assert.equal(receipts.receipts[0].targetId, "shf_managed");
+    assert.equal(receipts.receipts[0].outcome, "executed");
+    // The mutation ran through the approval-gated dispose path and live state confirms it.
+    assert.equal(readLedger(ledger).find((record) => record.id === "shf_managed")?.status, "trashed");
+    assert.equal(existsSync(subject), false);
+    assert.equal(existsSync(trashTarget), true);
+
+    const close = await postClose(managed.packet.baseUrl, managed.packet.token);
+    assert.equal(close.status, 303);
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    const finalLine = managed.lines().map((line) => JSON.parse(line)).find((line) => line.command === "ui-review-end");
+    assert.equal(finalLine.processed.completed, 1);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review replies stale with revalidation receipts for a drifted bundle", async () => {
+  const home = freshHome();
+  // The live ledger no longer holds either approved subject: the whole bundle is stale.
+  const ledger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-review-stale-")), ".artshelf", "ledger.jsonl");
+  writeLedgerFile(ledger, [ledgerRecord("shf_keep", "/subjects/keep")]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const targets = [bundleTarget("shf_a", ledger, "/subjects/a"), bundleTarget("shf_b", ledger, "/subjects/b")];
+    const snapshot = seedApprovedBundle(home, sessionId, targets, ["shf_a", "shf_b"], registryPath);
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id);
+      return entry !== undefined && entry.event.status !== "pending" && entry.event.status !== "in_progress";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id)!;
+    assert.equal(entry.event.status, "stale");
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(payload.executionStatus, "refused");
+    assert.deepEqual(payload.receipts.map((receipt: { outcome: string }) => receipt.outcome), ["skipped_stale", "skipped_stale"]);
+    // Nothing mutated: the unrelated live record is untouched.
+    assert.equal(readLedger(ledger).find((record) => record.id === "shf_keep")?.status, "active");
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review turns an exact decision intent into a reviewed dry-run plan reply", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-decision-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "shf_decision.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [ledgerRecord("shf_decision", subject)]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "decision_submitted",
+      target: { recordId: "shf_decision", ledgerPath: ledger },
+      payload: { decision: "trash", reason: "superseded export" }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    assert.deepEqual(entry.replies.map((reply) => reply.status), ["in_progress", "completed"]);
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(payload.kind, "dispose_dry_run");
+    const planId = String(payload.planId);
+    assert.match(planId, /\S/);
+    // The reviewed plan is real and binds the exact record + action; no mutation ran.
+    const plan = readDisposePlanEntry(ledger, planId);
+    assert.equal(plan.id, "shf_decision");
+    assert.equal(plan.action, "trash-resolve");
+    assert.deepEqual(payload.records, ["shf_decision"]);
+    assert.equal(payload.approvalTarget, `approve artshelf dispose ledger ${ledger} plan ${planId}`);
+    assert.equal(readLedger(ledger).find((record) => record.id === "shf_decision")?.status, "active");
+    assert.equal(existsSync(subject), true);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review rejects a blocked decision intent with the block detail", async () => {
+  const home = freshHome();
+  // resolve-only without a reason is blocked by the dispose safety engine.
+  const ledger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-review-blocked-")), ".artshelf", "ledger.jsonl");
+  writeLedgerFile(ledger, [ledgerRecord("shf_blocked", "/subjects/blocked")]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "decision_submitted",
+      target: { recordId: "shf_blocked", ledgerPath: ledger },
+      payload: { decision: "resolve" }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry !== undefined && entry.event.status !== "pending" && entry.event.status !== "in_progress";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    assert.equal(entry.event.status, "rejected");
+    assert.match(String(entry.replies.at(-1)?.payload.reason), /reason/i);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review resumes the existing session and drains the backlog", async () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+  // Submitted while no manager was attached: the backlog a resume must drain.
+  const backlog = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_backlog", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "queued before the manager attached" }
+  });
+
+  const managed = await managedReview(home);
+  try {
+    assert.equal(managed.packet.session.id, session.id, "ui review must resume the active session, not mint a new one");
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, session.id).find((item) => item.event.id === backlog.id);
+      return entry?.event.status === "completed";
+    });
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review close cancels still-pending work with visible cancelled replies", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home, ["--poll-interval-ms", "1500"]);
+  try {
+    const sessionId = managed.packet.session.id;
+    // Queue the close first, then more work behind it inside the same poll window: the close must
+    // win and the trailing event must end cancelled, not silently stranded pending.
+    const close = await postClose(managed.packet.baseUrl, managed.packet.token);
+    assert.equal(close.status, 303);
+    const trailing = appendEvent(home, sessionId, {
+      type: "comment_added",
+      target: { recordId: "shf_trailing", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "submitted while the close was queued" }
+    });
+
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    assert.equal(readSession(home, sessionId).status, "ended");
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === trailing.id)!;
+    assert.equal(entry.event.status, "cancelled");
+    assert.match(String(entry.replies.at(-1)?.payload.reason), /clos/i);
+    const finalLine = managed.lines().map((line) => JSON.parse(line)).find((line) => line.command === "ui-review-end");
+    assert.equal(finalLine.processed.cancelled, 1);
+    assert.equal(finalLine.processed.closed, 1);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review signal teardown cancels pending work and ends the session promptly", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home, ["--poll-interval-ms", "3000"]);
+  try {
+    const sessionId = managed.packet.session.id;
+    const pending = appendEvent(home, sessionId, {
+      type: "comment_added",
+      target: { recordId: "shf_interrupted", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "submitted right before the manager was interrupted" }
+    });
+
+    const killedAt = Date.now();
+    managed.child.kill("SIGTERM");
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    assert.ok(Date.now() - killedAt < 2000, "signal teardown must interrupt the poll sleep instead of waiting it out");
+    assert.equal(readSession(home, sessionId).status, "ended");
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === pending.id)!;
+    assert.equal(entry.event.status, "cancelled");
+    const finalLine = managed.lines().map((line) => JSON.parse(line)).find((line) => line.command === "ui-review-end");
+    assert.equal(finalLine.reason, "signal:SIGTERM");
+    assert.equal(finalLine.processed.cancelled, 1);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review refuses to start when it cannot bind the requested port", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home);
+  try {
+    const conflicting = ui(freshHome(), ["ui", "review", "--port", String(managed.packet.port), "--json"]);
+    assert.notEqual(conflicting.status, 0, "a manager that cannot bind must refuse, not present the browser as live");
+    assert.doesNotMatch(conflicting.stdout, /ui-review-start/);
+  } finally {
+    await managed.stop();
+  }
 });
 
 test("artshelf ui --scope repo and --ledger open sessions distinct from the multi-ledger default", () => {

@@ -3,15 +3,19 @@ import { buildArtifactDetail } from "../artifact-detail.js";
 import { uiLinkBaseUrl } from "../config/env.js";
 import type { BuildDashboardOptions, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
 import { buildDashboard } from "../dashboard.js";
+import type { DisposeRequest } from "../dispose.js";
+import { createDisposePlan } from "../dispose.js";
 import { normalizeRegistryPath } from "../registry.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
   endSession,
+  isUiDecisionIntent,
   isUiReplyStatus,
   listApprovalSnapshots,
   pollPendingEvents,
   readApprovalSnapshot,
   readSession,
+  readSessionEvents,
   replyToEvent,
   resolveUiHome,
   selectedApprovalTargets,
@@ -21,7 +25,7 @@ import {
 import type { ParsedArgs } from "../shared/cli-types.js";
 import { boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { UI_HELP } from "../shared/help-text.js";
-import type { UiApprovalSnapshot, UiApprovalTarget, UiEvent, UiSession, UiSessionScope } from "../types.js";
+import type { DisposeAction, UiApprovalSnapshot, UiApprovalTarget, UiDecisionIntent, UiEvent, UiSession, UiSessionScope } from "../types.js";
 import { executeApprovedBundle } from "../ui-execute.js";
 import type { StartUiServerOptions, UiServerHandle } from "../ui-server.js";
 import { startUiServer } from "../ui-server.js";
@@ -437,9 +441,11 @@ async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number
   const accessUrl = `${handle.url}/?token=${encodeURIComponent(session.token)}`;
   const processed: ManagedReviewCounts = emptyManagedCounts();
   let stopReason: string | null = null;
+  let wakeSleep: (() => void) | null = null;
 
   const signalHandler = (signal: string): void => {
     stopReason = `signal:${signal}`;
+    wakeSleep?.();
   };
   signalProcess().once("SIGINT", signalHandler);
   signalProcess().once("SIGTERM", signalHandler);
@@ -455,15 +461,20 @@ async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number
           stopReason = "browser-close";
           break;
         }
+        if (stopReason !== null) break;
       }
       if (stopReason !== null) break;
-      await sleep(pollIntervalMs);
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => resolve(), pollIntervalMs);
+        wakeSleep = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      wakeSleep = null;
     }
 
-    if (stopReason?.startsWith("signal:") && readSession(home, session.id).status === "active") {
-      endSession(home, session.id);
-      processed.closed += 1;
-    }
+    processed.cancelled += shutdownManagedSession(home, session.id, stopReason ?? "stopped");
   } finally {
     signalProcess().removeListener("SIGINT", signalHandler);
     signalProcess().removeListener("SIGTERM", signalHandler);
@@ -472,6 +483,39 @@ async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number
 
   printManagedEnd({ json, sessionId: session.id, reason: stopReason ?? "stopped", processed });
   return 0;
+}
+
+// Close/end teardown. Pending browser work is never stranded invisibly: everything still pending is
+// cancelled with a visible reply while the session can say why, then the session ends (revoking the
+// browser token), then one post-end sweep cancels any event a browser write raced in between.
+function shutdownManagedSession(home: string, sessionId: string, reason: string): number {
+  let cancelled = 0;
+  if (readSession(home, sessionId).status === "active") {
+    cancelled += cancelPendingEvents(home, sessionId, pollPendingEvents(home, sessionId), reason);
+    endSession(home, sessionId);
+  }
+  const stragglers = readSessionEvents(home, sessionId).filter((event) => event.status === "pending");
+  return cancelled + cancelPendingEvents(home, sessionId, stragglers, reason);
+}
+
+function cancelPendingEvents(home: string, sessionId: string, events: UiEvent[], reason: string): number {
+  let cancelled = 0;
+  for (const event of events) {
+    try {
+      replyToEvent(home, sessionId, event.id, {
+        status: "cancelled",
+        expectedStatus: "pending",
+        payload: {
+          reason: `Managed review is closing (${reason}) before this event was processed.`,
+          next: "Start or resume a review session and resubmit if this work is still needed."
+        }
+      });
+      cancelled += 1;
+    } catch {
+      // Another attached agent advanced it concurrently; leave that state alone.
+    }
+  }
+  return cancelled;
 }
 
 function waitForServerClose(handle: UiServerHandle): Promise<void> {
@@ -488,6 +532,11 @@ function emptyManagedCounts(): ManagedReviewCounts {
 }
 
 function processManagedUiEvent(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  // Approved bundles keep their own claim protocol: executeApprovedBundle claims the pending event
+  // with the bundle id + fingerprint witness and replies per-target receipts itself. A generic
+  // pickup claim here would make the execute core refuse the bundle as a mismatched claim.
+  if (event.type === "approval_bundle_submitted") return processManagedBundleEvent(home, session, event);
+
   try {
     replyToEvent(home, session.id, event.id, {
       status: "in_progress",
@@ -508,33 +557,18 @@ function processManagedUiEvent(home: string, session: UiSession, event: UiEvent)
       replyToEvent(home, session.id, event.id, {
         status: "completed",
         expectedStatus: "in_progress",
-        payload: { note: "Managed review close requested; ending the UI session and stopping the attached server." }
+        payload: { note: "Managed review close requested; cancelling queued work, ending the UI session, and stopping the attached server." }
       });
-      endSession(home, session.id);
       return "closed";
     }
 
-    const refused = event.type === "approval_bundle_submitted" ? null : broadExecutionRequest(event);
+    const refused = broadExecutionRequest(event);
     if (refused) {
       return replyFailure(home, session.id, event, "rejected", {
         reason: "Managed review refuses broad or execution-shaped browser requests; mutations require exact approval bundles and existing approval-gated paths.",
         refused,
         next: "Run a reviewed dry-run first, then approve one exact target or bundle."
       });
-    }
-
-    if (event.type === "approval_bundle_submitted") {
-      const bundleId = eventBundleId(event);
-      if (!bundleId) {
-        return replyFailure(home, session.id, event, "rejected", {
-          reason: "Approval bundle event did not name an exact bundle id.",
-          next: "Reopen the approval workbench and submit the exact reviewed bundle again."
-        });
-      }
-      const { execution } = executeApprovedBundle(home, session.id, bundleId);
-      if (execution.status === "executed") return "completed";
-      if (execution.status === "partial" || execution.status === "refused") return "stale";
-      return "failed";
     }
 
     if (event.type === "inspect_requested") {
@@ -563,7 +597,49 @@ function processManagedUiEvent(home: string, session: UiSession, event: UiEvent)
       return "completed";
     }
 
+    if (event.type === "decision_submitted") {
+      const recordId = stringFrom(event.target.recordId);
+      const ledgerPath = stringFrom(event.target.ledgerPath);
+      const decision = event.payload.decision;
+      if (!recordId || !ledgerPath || !isUiDecisionIntent(decision)) {
+        return replyFailure(home, session.id, event, "rejected", {
+          reason: "Decision intents require an exact record id, ledger path, and a keep/trash/resolve/defer decision.",
+          next: "Reopen the record's detail drawer and resubmit the decision."
+        });
+      }
+      const action = DECISION_DISPOSE_ACTIONS[decision];
+      return replyManagedDryRunPlan(home, session.id, event, {
+        recordId,
+        ledgerPath,
+        action,
+        reason: stringFrom(event.payload.reason) ?? undefined,
+        note: `Reviewed ${action} dry-run plan prepared from the ${decision} decision. No mutation ran; approving the plan runs it through the exact-target execute path.`
+      });
+    }
+
     if (event.type === "dry_run_requested") {
+      const recordId = stringFrom(event.target.recordId);
+      const ledgerPath = stringFrom(event.target.ledgerPath);
+      if (recordId && ledgerPath) {
+        const detailOptions: BuildArtifactDetailOptions = { recordId, ledgerPath };
+        if (session.registryPath !== null) detailOptions.registryPath = session.registryPath;
+        const detail = buildArtifactDetail(detailOptions);
+        const action = RECOMMENDED_DISPOSE_ACTIONS[detail.inspect.recommendation];
+        if (!action) {
+          return replyFailure(home, session.id, event, "rejected", {
+            reason: `Inspect recommends no safe dispose action for ${recordId} (${detail.inspect.recommendation}); no dry-run plan was created.`,
+            next: detail.inspect.nextAction
+          });
+        }
+        return replyManagedDryRunPlan(home, session.id, event, {
+          recordId,
+          ledgerPath,
+          action,
+          note: `Reviewed ${action} dry-run plan prepared from the inspect recommendation (${detail.inspect.recommendation}). No mutation ran; approving the plan runs it through the exact-target execute path.`
+        });
+      }
+      // Lane-level dashboard requests stay recorded-only: preparing plans for a whole lane is broad
+      // work the attached agent must scope down to exact records first.
       replyToEvent(home, session.id, event.id, {
         status: "completed",
         expectedStatus: "in_progress",
@@ -576,7 +652,7 @@ function processManagedUiEvent(home: string, session: UiSession, event: UiEvent)
       return "completed";
     }
 
-    if (event.type === "comment_added" || event.type === "decision_submitted" || event.type === "question_answered" || event.type === "filter_saved" || event.type === "session_note_added") {
+    if (event.type === "comment_added" || event.type === "question_answered" || event.type === "filter_saved" || event.type === "session_note_added") {
       replyToEvent(home, session.id, event.id, {
         status: "completed",
         expectedStatus: "in_progress",
@@ -598,6 +674,109 @@ function processManagedUiEvent(home: string, session: UiSession, event: UiEvent)
       next: "Refresh the dashboard and retry after checking the attached agent output."
     });
   }
+}
+
+// The 1:1 decision-intent translation documented on UiDecisionIntent: the managed loop prepares the
+// matching reviewed dispose dry-run plan; execution still requires the human to approve that exact
+// plan through the bundle workbench.
+const DECISION_DISPOSE_ACTIONS: Record<UiDecisionIntent, DisposeAction> = {
+  keep: "keep",
+  trash: "trash-resolve",
+  resolve: "resolve-only",
+  defer: "snooze"
+};
+
+// Record-level dry-run requests carry no decision, so the inspect recommendation picks the action.
+// "blocked" maps to no action: the safety engine says nothing safe can be prepared.
+const RECOMMENDED_DISPOSE_ACTIONS: Record<string, DisposeAction | undefined> = {
+  keep: "keep",
+  snooze: "snooze",
+  "trash-safe": "trash-resolve",
+  "resolve-only": "resolve-only"
+};
+
+// The browser cannot name a snooze horizon, so managed defer/snooze plans use one default review
+// horizon. The exact retainUntil lands in the reviewed plan the human approves before execution.
+const MANAGED_SNOOZE_TTL = "7d";
+
+// Create (or reuse) the reviewed dispose dry-run plan for one exact record and reply its identity -
+// planId, records, and the exact approval target phrase - so the dashboard's prepared-plan approval
+// row can carry the workflow to the approve -> execute half. Blocked classifications reply rejected
+// with the safety engine's detail; nothing is mutated either way.
+function replyManagedDryRunPlan(
+  home: string,
+  sessionId: string,
+  event: UiEvent,
+  input: { recordId: string; ledgerPath: string; action: DisposeAction; reason?: string | undefined; note: string }
+): ManagedReviewOutcome {
+  const request: DisposeRequest = { id: input.recordId, action: input.action };
+  if (input.reason !== undefined) request.reason = input.reason;
+  if (input.action === "snooze") request.ttl = MANAGED_SNOOZE_TTL;
+  const plan = createDisposePlan(input.ledgerPath, request);
+  if (!plan.entry) {
+    return replyFailure(home, sessionId, event, "rejected", {
+      reason: `Dispose safety engine blocked this ${input.action} dry-run: ${plan.blocked?.detail ?? "no actionable plan entry"}`,
+      next: "Resolve the block (or pick another decision) in the record's detail drawer, then resubmit."
+    });
+  }
+  replyToEvent(home, sessionId, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "dispose_dry_run",
+      title: "Dispose dry-run prepared",
+      note: input.note,
+      planId: plan.planId,
+      count: 1,
+      records: [input.recordId],
+      approvalTarget: `approve artshelf dispose ledger ${input.ledgerPath} plan ${plan.planId}`
+    }
+  });
+  return "completed";
+}
+
+// Managed execution of one browser-approved bundle. executeApprovedBundle owns the claim and the
+// per-target receipts reply; the returned aggregate maps onto the same reply status it wrote:
+// executed -> completed, refused -> stale (re-review), anything partial -> failed (never silently
+// presented as done). Failures before the core could reply are made visible here instead, without
+// clobbering a state another attached agent already advanced.
+function processManagedBundleEvent(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const bundleId = eventBundleId(event);
+  if (!bundleId) {
+    return replyManagedBundleFailure(home, session.id, event, "rejected", {
+      reason: "Approval bundle event did not name an exact bundle id.",
+      next: "Reopen the approval workbench and submit the exact reviewed bundle again."
+    });
+  }
+  try {
+    const { execution } = executeApprovedBundle(home, session.id, bundleId);
+    if (execution.status === "executed") return "completed";
+    if (execution.status === "refused") return "stale";
+    return "failed";
+  } catch (error) {
+    return replyManagedBundleFailure(home, session.id, event, "failed", {
+      reason: errorMessage(error),
+      next: "Check the attached agent output, then re-review and resubmit the bundle if it is still wanted."
+    });
+  }
+}
+
+function replyManagedBundleFailure(
+  home: string,
+  sessionId: string,
+  event: UiEvent,
+  status: Exclude<ManagedReviewOutcome, "completed" | "closed">,
+  payload: Record<string, unknown>
+): ManagedReviewOutcome {
+  try {
+    const current = readSessionEvents(home, sessionId).find((entry) => entry.id === event.id);
+    if (current && (current.status === "pending" || current.status === "in_progress")) {
+      replyToEvent(home, sessionId, event.id, { status, expectedStatus: current.status, payload });
+    }
+  } catch {
+    // Another attached agent advanced it concurrently; avoid inventing another state.
+  }
+  return status;
 }
 
 function replyFailure(
@@ -687,10 +866,6 @@ function parsePollInterval(raw: string | undefined): number {
     throw new Error(`Invalid --poll-interval-ms "${raw}"; expected an integer between 10 and 60000`);
   }
   return interval;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function errorMessage(error: unknown): string {
