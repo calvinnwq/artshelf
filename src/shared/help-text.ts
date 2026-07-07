@@ -531,13 +531,21 @@ Serve hosts the review dashboard, artifact detail drawers, and approval-bundle
 workbench as a local browser surface. It binds to loopback (127.0.0.1) only,
 never a wildcard interface, and recomputes live state on every request. Pages
 require the active UI session capability token printed in the serve URL; ending
-that session revokes browser access. The pages carry no script and embed no file
-contents. The dashboard lets reviewers queue recommended lane approvals and then
+that session revokes browser access. The pages embed no file contents and load no
+external assets. The dashboard includes a nonce-bound session-activity poller for
+the token-scoped /activity fragment; detail and bundle pages remain scriptless.
+The dashboard lets reviewers queue recommended lane approvals and then
 submit the selected work as pending session events. Bulk lane approvals are bound
 to the reviewed row set and stale or conflicting card/bulk/row selections are
 rejected before they enter the agent queue. Dashboard dry-run lane requests map
 to prepare_cleanup_plan, check_missing_files, review_delete_forever, or
-check_source_problems. The detail drawer captures
+check_source_problems. After dashboard submit, session activity shows bounded
+queued counts, pending agent work, prepared plans, stale/rejected states,
+execution receipts, and unqueue controls for pending browser work without
+browser-side ledger/file mutation. Completed dry-run replies with reviewed
+dispose plan ids become ready-for-approval rows that replace the original row
+while live and can be approved individually or with the prepared-plan approve-all
+control. The detail drawer captures
 record-level triage intents (inspect, comment, keep/trash/resolve/defer, dry-run
 request), and the bundle workbench captures revised approval selections through
 token-bound POSTs, but never mutates ledgers, files, trash, or plans directly.

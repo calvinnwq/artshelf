@@ -89,11 +89,15 @@ requires `--inspect`.
 `artshelf ui dashboard --json` returns the read-only multi-ledger review buckets, including needs-context, cleanup, resolve, trash, purge candidates, registry/reconcile problems, and recent receipts.
 `artshelf ui detail <record-id> --ledger <path> --json` returns the read-only artifact detail drawer with path label, inspect-card output, provenance, audit trail, existence facts, needs-context badge, and last action.
 Both views are metadata-only and never preview file contents.
-`artshelf ui serve [--scope user|repo] [--port <port>] [--json]` hosts those dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, requires the active UI session capability token printed in the serve URL, serves no script and no file contents, and supports `--json` for a compact launch packet.
+`artshelf ui serve [--scope user|repo] [--port <port>] [--json]` hosts those dashboard and detail views as a local browser page for a human reviewer; it binds to loopback (127.0.0.1) only, recomputes live state per request, requires the active UI session capability token printed in the serve URL, embeds no file contents, loads no external assets, and supports `--json` for a compact launch packet.
+The dashboard includes a nonce-bound session-activity poller for the token-scoped `/activity` fragment; detail and bundle pages remain scriptless.
 The dashboard presents compact required-action cards before the status summary and collapsed source details.
 Reviewers can queue recommended card approvals, lane-level keep/trash/resolve choices, individual row choices, and dashboard dry-run requests into one `Queued for agent` submit bar, while conflicting card/bulk/row selections are refused.
 Bulk lane approvals carry the reviewed row set from the loaded dashboard and are rejected if the lane changed before submit.
 Dashboard dry-run requests enter the agent queue as lane events: cleanup prepares a cleanup plan, resolve checks missing files, purge-candidates requests delete review, and registry/reconcile checks source problems.
+Completed dry-run replies that produce reviewed dispose plans become ready-for-approval rows in Required actions, replacing the original row while the plan remains live; those plans can be approved individually or with the prepared-plan approve-all control.
+After a dashboard submit, the page lands on session activity with a bounded queued count, marks affected rows as sent to the agent, and refreshes pending decisions, prepared plans, stale/rejected states, and execution receipts without mutating ledgers, files, trash, or plans from the browser.
+Submitted approvals stay visibly queued until the agent handles them, and the activity rail can unqueue pending browser work without touching ledgers, files, trash, or plans.
 The detail drawer adds record-level forms for inspect, comment, keep/trash/resolve/defer, and dry-run requests.
 The served bundle workbench at `GET /bundle/<bundle-id>` shows the selected exact targets, reviewed-only rows, and exact action from an immutable approval snapshot.
 With the active token, its scriptless form can submit a revised non-empty subset through `POST /approve`, creating a new immutable approval snapshot and pending approval event without editing the original bundle or executing a workflow.
@@ -112,6 +116,32 @@ The purge approval is bound to the exact live trash facts (record id, ledger, tr
 If an earlier execution claimed the approval event as `in_progress` and stopped before final receipts, rerunning the same session and bundle resumes that claim.
 Each selected target receives one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state, and a clean run exits 0 while a partial or refused run exits non-zero with every receipt still recorded.
 Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard/detail/bundle access while keeping the audit trail readable.
+
+### Managed UI review workflow
+
+The user-facing review should behave like one attached workflow, not a manual
+handoff between browser and shell commands. When a user asks to review Artshelf
+actions through the UI, the agent or host should:
+
+1. Start or resume `artshelf ui` from the original conversation.
+2. Start `artshelf ui serve` as a managed foreground process and give the user
+   the capability URL.
+3. Keep polling the same session with `artshelf ui poll <session-id> --json`.
+4. For every pending event, immediately reply with `acknowledged` or
+   `in_progress` so the UI shows the work was picked up.
+5. Run only read-only, dry-run, or exactly approved actions allowed by the event.
+6. Reply with the final status and payload through `artshelf ui reply`, including
+   receipts, dry-run plan ids, rejection reasons, stale-state explanations, and
+   exact approval text when another approval is needed.
+7. Continue polling and processing more submissions until the user sends an
+   explicit close/end action.
+8. On close, drain or cancel work safely, run `artshelf ui end`, stop the served
+   UI process, and summarize the session back in the original conversation.
+
+If the agent cannot keep both the served UI and the polling loop alive, it should
+say managed UI review is unavailable rather than pretending the browser is
+attached. A dead server, orphaned poller, or pending event that never visibly
+moves to processing is a broken workflow.
 
 ## Portable Skill
 

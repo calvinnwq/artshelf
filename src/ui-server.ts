@@ -1,10 +1,18 @@
 import { createServer } from "node:http";
+import { randomBytes } from "node:crypto";
 import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardSnapshot } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
+import { disposePlanEntryDigest, disposePlanEntrySubjectStaleForExecute, readDisposePlanEntry } from "./dispose.js";
 import { normalizeLedgerPath } from "./ledger.js";
-import { renderApprovalWorkbenchPage, renderDashboardPage, renderDetailPage, renderErrorPage } from "./renderers/ui-html.js";
+import {
+  renderApprovalWorkbenchPage,
+  renderDashboardActivityFragment,
+  renderDashboardPage,
+  renderDetailPage,
+  renderErrorPage
+} from "./renderers/ui-html.js";
 import { listRegisteredLedgers, normalizeRegistryPath } from "./registry.js";
 import type { AppendEventInput, ApprovalSnapshotInput } from "./session.js";
 import {
@@ -13,20 +21,24 @@ import {
   readApprovalSnapshot,
   readSession,
   readSessionHistory,
+  replyToEvent,
   UI_DASHBOARD_LANE_REQUESTS,
   UI_DECISION_INTENTS,
   validateBrowserToken,
   writeApprovalSnapshot
 } from "./session.js";
-import type { UiEventType, UiSessionHistoryEntry } from "./types.js";
+import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./types.js";
 
 // Loopback browser server for the Artshelf UI v1 review surface (NGX-535 dashboard, NGX-536 detail
 // drawer, NGX-537 needs-context presentation, NGX-538 human triage intents, NGX-539 token-gated
 // approval-bundle workbench). It binds to 127.0.0.1 only and answers safe GET/HEAD reads by
 // recomputing live state from the read-only domain cores and rendering it as HTML. The read pages
-// carry no script and embed no file contents. The NGX-539 GET /bundle/<id> page renders one persisted
-// immutable approval snapshot as selected vs reviewed rows and the exact action. Submitting a
-// revised subset creates a new immutable approval snapshot for the agent to revalidate.
+// embed no file contents. The dashboard has a nonce-bound activity poller; the detail and bundle
+// pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable approval
+// snapshot as selected vs reviewed rows and the exact action. Submitting a revised subset creates a
+// new immutable approval snapshot for the agent to revalidate.
+// Completed dry-run replies can become prepared-plan approval rows on the dashboard, and pending
+// browser events can be unqueued from the activity rail.
 //
 // The write paths are POST /intents for lightweight triage intents and POST /approve for immutable
 // approval snapshots. Both are guarded by the session capability token and append pending events for
@@ -57,13 +69,10 @@ export type UiServerHandle = {
 // read-only slice does not open - so the host is fixed here.
 const LOOPBACK_HOST = "127.0.0.1";
 
+const SCRIPTLESS_CONTENT_SECURITY_POLICY =
+  "default-src 'none'; style-src 'unsafe-inline'; script-src 'none'; connect-src 'none'; img-src 'none'; base-uri 'none'; form-action 'self'";
+
 const SECURITY_HEADERS: Record<string, string> = {
-  // Forbid everything but our own inline styles and same-origin form submission: no scripts, no
-  // external fetches, no embedded file content can load - enforcing the no-preview, no-script
-  // boundary at the browser. `form-action 'self'` opens only the server's token-gated forms
-  // (/intents and /approve); the browser still executes nothing and mutates no ledger, file, trash,
-  // or plan - it only records intents and approval bundles for the agent.
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src 'none'; base-uri 'none'; form-action 'self'",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
   // Always recompute from live state; never let a browser serve a stale dashboard from cache.
@@ -74,6 +83,7 @@ const DETAIL_PREFIX = "/detail/";
 const BUNDLE_PREFIX = "/bundle/";
 const INTENTS_PATH = "/intents";
 const APPROVE_PATH = "/approve";
+const ACTIVITY_PATH = "/activity";
 
 // Detail-drawer intents are tiny, but the dashboard required-actions form also carries reviewed row
 // targets so bulk approvals can be rejected if a lane changed since render. Keep the cap bounded but
@@ -172,7 +182,27 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
   }
 
   if (pathname === "/" || pathname === "/dashboard") {
-    sendHtml(response, 200, renderDashboardPage(buildDashboard(dashboardOptions(options)), access.token));
+    const history = dashboardSessionHistory(options);
+    const queued = parseQueuedNotice(query, history);
+    const scriptNonce = uiScriptNonce();
+    const snapshot = buildDashboard(dashboardOptions(options));
+    sendHtml(
+      response,
+      200,
+      renderDashboardPage(snapshot, access.token, {
+        history,
+        submittedCount: queued,
+        activityHref: activityHref(access.token),
+        scriptNonce,
+        reviewablePreparedPlanEventIds: reviewablePreparedPlanEventIds(options, snapshot)
+      }),
+      { "Content-Security-Policy": dashboardContentSecurityPolicy(scriptNonce) }
+    );
+    return;
+  }
+
+  if (pathname === ACTIVITY_PATH) {
+    sendHtml(response, 200, renderDashboardActivityFragment(dashboardSessionHistory(options), { activityHref: activityHref(access.token), includeScript: false }));
     return;
   }
 
@@ -218,18 +248,88 @@ async function routeIntentSubmission(options: UiServerOptions, request: any, res
 
   let submission;
   try {
+    const cancellationIds = queuedCancellationEventIds(fields);
+    if (cancellationIds.length > 0) {
+      cancelQueuedBrowserEvents(options, cancellationIds);
+      sendRedirect(response, 303, dashboardActivityRedirect(fields.token ?? ""));
+      return;
+    }
+
     submission = buildIntentSubmission(options, fields, multiFields);
     const validatedIntents = submission.intents.map((intent) => {
       const validated = validateIntentTarget(options, intent.type, intent.target ?? {}, intent.payload ?? {});
       return { ...intent, target: validated.target, payload: validated.payload };
     });
-    appendEvents(options.uiHome, options.sessionId, validatedIntents);
+    const queued = appendEvents(options.uiHome, options.sessionId, validatedIntents);
+    let queuedCount = queued.length;
+    for (const approval of submission.approvalBundles ?? []) {
+      const snapshot = writeApprovalSnapshot(options.uiHome, options.sessionId, approval.input);
+      appendEvent(options.uiHome, options.sessionId, {
+        type: "approval_bundle_submitted",
+        target: { bundleId: snapshot.id },
+        payload: {
+          bundleId: snapshot.id,
+          actionType: snapshot.actionType,
+          fingerprint: snapshot.fingerprint,
+          registryPath: normalizeRegistryPath(options.registryPath),
+          ledgerPath: options.ledgerPath ? normalizeLedgerPath(options.ledgerPath) : null,
+          selectedTargetIds: snapshot.selectedTargetIds,
+          selectedCount: snapshot.selectedTargetIds.length,
+          targetCount: snapshot.targets.length,
+          preparedEventId: approval.preparedEventId
+        }
+      });
+      queuedCount += 1;
+    }
+    submission = { ...submission, queuedCount };
   } catch (error) {
     sendIntentError(response, error);
     return;
   }
 
-  sendRedirect(response, 303, intentRedirect(submission.redirectTarget, fields.token ?? ""));
+  sendRedirect(response, 303, intentRedirect(submission.redirectTarget, fields.token ?? "", submission.queuedCount));
+}
+
+function queuedCancellationEventIds(fields: Record<string, string>): string[] {
+  const rawIds = [fields.cancelEventId ?? "", ...(fields.cancelEventIds ?? "").split(",")].map((value) => value.trim()).filter(isNonBlank);
+  return [...new Set(rawIds)];
+}
+
+function cancelQueuedBrowserEvents(options: UiServerOptions, eventIds: string[]): void {
+  if (eventIds.length === 0) return;
+  const history = readSessionHistory(options.uiHome, options.sessionId);
+  const historyById = new Map(history.map((entry) => [entry.event.id, entry]));
+  const entries = eventIds.map((eventId) => {
+    if (!/^event_\d{8}_\d{6}_[0-9a-f]{8}$/.test(eventId)) {
+      throw intentError(400, `Invalid Artshelf UI queued event id "${eventId}"`);
+    }
+    const entry = historyById.get(eventId);
+    if (entry === undefined) {
+      throw intentError(400, `Queued event ${eventId} was not found`);
+    }
+    if (entry.event.source !== "browser") {
+      throw intentError(400, `Queued event ${eventId} was not submitted by the browser`);
+    }
+    if (entry.event.status !== "pending") {
+      throw intentError(400, `Queued event ${eventId} is already ${entry.event.status}`);
+    }
+    return entry;
+  });
+
+  for (const entry of entries) {
+    try {
+      replyToEvent(options.uiHome, options.sessionId, entry.event.id, {
+        status: "cancelled",
+        expectedStatus: entry.event.status,
+        payload: {
+          title: "Unqueued by reviewer",
+          note: "Removed from the agent queue before execution"
+        }
+      });
+    } catch (error) {
+      throw intentError(400, errorMessage(error));
+    }
+  }
 }
 
 // Record one reviewed approval bundle (NGX-539). The form carries the source immutable bundle id plus
@@ -298,7 +398,14 @@ function authorizeBrowserWrite(options: UiServerOptions, token: string): boolean
 // the decision validator (which rejects a present-but-blank reason) still accepts the intent.
 type BuiltIntentSubmission = {
   intents: AppendEventInput[];
+  approvalBundles?: BuiltApprovalBundleSubmission[];
   redirectTarget: Record<string, unknown>;
+  queuedCount?: number;
+};
+
+type BuiltApprovalBundleSubmission = {
+  preparedEventId: string;
+  input: ApprovalSnapshotInput;
 };
 
 function buildIntentSubmission(
@@ -321,6 +428,10 @@ function approvalSelections(fields: Record<string, string[]>): string[] {
   for (const [key, values] of Object.entries(fields)) {
     if (!key.startsWith("approval:")) continue;
     const distinct = [...new Set(values.filter((value) => isNonBlank(value)))];
+    if (key === "approval:ready-approval") {
+      selections.push(...distinct);
+      continue;
+    }
     if (distinct.length > 1) {
       throw intentError(400, `Conflicting Artshelf UI approval values for ${key}`);
     }
@@ -335,11 +446,26 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
     throw intentError(400, "Select at least one required action before submitting to the agent");
   }
   const snapshot = buildDashboard(dashboardOptions(options));
+  const visibleRows = visibleRequiredActionRows(options, snapshot);
+  const approvablePreparedEvents = approvablePreparedPlanEventIds(options, snapshot);
+  const pendingActions = pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId), visibleRows);
   const intents: AppendEventInput[] = [];
+  const approvalBundles: BuiltApprovalBundleSubmission[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
   const bulkDecisions = new Map<RowDecisionApproval["lane"], string>();
   for (const approval of approvals) {
     const [kind, lane, action, extra] = approval.split(":");
+    if (kind === "approve-plan") {
+      if (action !== undefined || extra !== undefined || !isNonBlank(lane)) {
+        throw intentError(400, `Invalid Artshelf UI prepared plan approval "${approval}"`);
+      }
+      if (lane === "all") {
+        approvalBundles.push(...buildAllPreparedPlanApprovalSubmissions(options, approvablePreparedEvents));
+      } else {
+        approvalBundles.push(buildPreparedPlanApprovalSubmission(options, lane, approvablePreparedEvents));
+      }
+      continue;
+    }
     if (kind === "row-decision") {
       const parsed = parseRowDecisionApproval(approval);
       addRowDecisionApproval(rowDecisions, parsed);
@@ -361,20 +487,174 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
       if (action !== expectedRequest) {
         throw intentError(400, `Invalid Artshelf UI required action request "${action}" for lane ${lane}`);
       }
+      rejectQueuedLaneRequest(pendingActions, lane, action);
       intents.push({ type: "dry_run_requested", target: { lane }, payload: { request: action, label: requiredActionRequestLabel(lane) } });
     } else {
       throw intentError(400, `Invalid Artshelf UI required action approval "${approval}"`);
     }
   }
   rejectConflictingRequiredActionSelections(bulkDecisions, rowDecisions);
+  const seenPreparedApprovals = new Set<string>();
+  const uniqueApprovalBundles = approvalBundles.filter((bundle) => {
+    if (seenPreparedApprovals.has(bundle.preparedEventId)) return false;
+    seenPreparedApprovals.add(bundle.preparedEventId);
+    return true;
+  });
   for (const [lane, decision] of bulkDecisions) {
-    validateReviewedBulkLaneRows(snapshot, fields, lane);
-    intents.push(...buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision).intents);
+    const rows = visibleRowsForLane(visibleRows, lane);
+    validateReviewedBulkLaneRows(rows, fields, lane);
+    rejectQueuedRowDecisions(pendingActions, lane, rows);
+    intents.push(...buildBulkDecisionSubmissionFromRows(rows, lane, decision).intents);
   }
   for (const rowDecision of rowDecisions.values()) {
-    intents.push(...buildRowDecisionSubmissionFromSnapshot(snapshot, rowDecision).intents);
+    rejectQueuedRowDecision(pendingActions, rowDecision);
+    intents.push(...buildRowDecisionSubmissionFromRows(visibleRowsForLane(visibleRows, rowDecision.lane), rowDecision).intents);
   }
-  return { intents, redirectTarget: { dashboard: "required-actions" } };
+  return { intents, approvalBundles: uniqueApprovalBundles, redirectTarget: { dashboard: "required-actions" } };
+}
+
+function buildAllPreparedPlanApprovalSubmissions(options: UiServerOptions, preparedEventIds: Set<string>): BuiltApprovalBundleSubmission[] {
+  const bundles = [...preparedEventIds].map((eventId) => buildPreparedPlanApprovalSubmission(options, encodeURIComponent(eventId), preparedEventIds));
+  if (bundles.length === 0) {
+    throw intentError(400, "No prepared plans are ready for approval");
+  }
+  return bundles;
+}
+
+function submittedPreparedPlanEventIds(options: UiServerOptions): Set<string> {
+  const submitted = new Set<string>();
+  for (const entry of readSessionHistory(options.uiHome, options.sessionId)) {
+    if (entry.event.type !== "approval_bundle_submitted") continue;
+    if (!isQueuedForAgentStatus(entry.event.status)) continue;
+    const preparedEventId = stringRecordValue(entry.event.payload, "preparedEventId");
+    if (preparedEventId) submitted.add(preparedEventId);
+  }
+  return submitted;
+}
+
+function isQueuedForAgentStatus(status: string): boolean {
+  return status === "pending" || status === "acknowledged" || status === "in_progress";
+}
+
+type PendingActionIndex = {
+  laneRequests: Set<string>;
+  rowDecisions: Map<string, string>;
+};
+
+function pendingActionIndex(history: UiSessionHistoryEntry[], rows?: RequiredActionRows): PendingActionIndex {
+  const index: PendingActionIndex = { laneRequests: new Set(), rowDecisions: new Map() };
+  const rowLanes = rows ? rowLaneIndex(rows) : new Map<string, RowDecisionApproval["lane"][]>();
+  for (const entry of history) {
+    if (!isQueuedForAgentStatus(entry.event.status)) continue;
+    if (entry.event.type === "dry_run_requested") {
+      const lane = stringRecordValue(entry.event.target, "lane") ?? stringRecordValue(entry.event.payload, "lane");
+      const request = stringRecordValue(entry.event.payload, "request");
+      if (lane && request) index.laneRequests.add(laneActionKey(lane, request));
+      continue;
+    }
+    if (entry.event.type !== "decision_submitted") continue;
+    const lane = stringRecordValue(entry.event.payload, "lane");
+    const decision = stringRecordValue(entry.event.payload, "decision");
+    const recordId = stringRecordValue(entry.event.target, "recordId");
+    const ledgerPath = stringRecordValue(entry.event.target, "ledgerPath");
+    if (!decision || !recordId || !ledgerPath) continue;
+    if (lane && isBulkDecisionLane(lane)) {
+      index.rowDecisions.set(rowDecisionActionKey(lane, recordId, ledgerPath), decision);
+      continue;
+    }
+    for (const currentLane of rowLanes.get(recordActivityKey(recordId, ledgerPath)) ?? []) {
+      index.rowDecisions.set(rowDecisionActionKey(currentLane, recordId, ledgerPath), decision);
+    }
+  }
+  return index;
+}
+
+function rowLaneIndex(rows: RequiredActionRows): Map<string, RowDecisionApproval["lane"][]> {
+  const index = new Map<string, RowDecisionApproval["lane"][]>();
+  for (const [lane, laneRows] of [
+    ["needs-review", rows.needsReview],
+    ["needs-context", rows.needsContext],
+    ["cleanup", rows.cleanup],
+    ["resolve", rows.resolve]
+  ] as const) {
+    for (const row of laneRows) {
+      const key = recordActivityKey(row.recordId, row.ledgerPath ?? "");
+      const lanes = index.get(key);
+      if (lanes) lanes.push(lane);
+      else index.set(key, [lane]);
+    }
+  }
+  return index;
+}
+
+function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEventId: string, approvableEventIds?: Set<string>): BuiltApprovalBundleSubmission {
+  let eventId: string;
+  try {
+    eventId = decodeURIComponent(encodedEventId);
+  } catch {
+    throw intentError(400, `Invalid Artshelf UI prepared plan approval "${encodedEventId}"`);
+  }
+  if (!/^event_\d{8}_\d{6}_[0-9a-f]{8}$/.test(eventId)) {
+    throw intentError(400, `Invalid Artshelf UI prepared plan event id "${eventId}"`);
+  }
+  if (approvableEventIds !== undefined && !approvableEventIds.has(eventId)) {
+    throw intentError(409, `Prepared plan event ${eventId} is no longer ready for approval`);
+  }
+
+  const entry = readSessionHistory(options.uiHome, options.sessionId).find((candidate) => candidate.event.id === eventId);
+  if (entry === undefined || entry.event.type !== "decision_submitted" || entry.event.status !== "completed") {
+    throw intentError(400, `Prepared plan event ${eventId} is not ready for approval`);
+  }
+
+  const recordId = stringRecordValue(entry.event.target, "recordId");
+  const requestedLedgerPath = stringRecordValue(entry.event.target, "ledgerPath");
+  if (!recordId || !requestedLedgerPath) {
+    throw intentError(400, `Prepared plan event ${eventId} does not name an exact record target`);
+  }
+  const ledgerPath = scopedDetailLedgerPath(options, requestedLedgerPath);
+  if (ledgerPath === null) {
+    throw intentError(400, `Prepared plan event ${eventId} targets a ledger outside this served review scope`);
+  }
+
+  const reply = [...entry.replies].reverse().find((candidate) => stringRecordValue(candidate.payload, "planId") !== null);
+  const planId = reply ? stringRecordValue(reply.payload, "planId") : null;
+  if (!planId) {
+    throw intentError(400, `Prepared plan event ${eventId} has no reviewed plan id`);
+  }
+
+  let planEntry;
+  try {
+    planEntry = readDisposePlanEntry(ledgerPath, planId);
+  } catch (error) {
+    throw intentError(409, `Prepared plan ${planId} is no longer reviewable: ${errorMessage(error)}`);
+  }
+  if (planEntry.id !== recordId) {
+    throw intentError(409, `Prepared plan ${planId} no longer matches record ${recordId}`);
+  }
+  if (disposePlanEntrySubjectStaleForExecute(planEntry)) {
+    throw intentError(409, `Prepared plan ${planId} is no longer reviewable because its target changed`);
+  }
+
+  const target: UiApprovalTarget = {
+    targetId: recordId,
+    recordId,
+    ledgerPath,
+    registryPath: normalizeRegistryPath(options.registryPath),
+    recordPath: planEntry.path,
+    planId,
+    planEntryDigest: disposePlanEntryDigest(planEntry),
+    actionType: planEntry.action,
+    label: `${planEntry.action} ${recordId}`
+  };
+  return {
+    preparedEventId: eventId,
+    input: {
+      actionType: planEntry.action,
+      targets: [target],
+      selectedTargetIds: [recordId],
+      reviewed: {}
+    }
+  };
 }
 
 type RowDecisionApproval = {
@@ -412,6 +692,41 @@ function rowDecisionKey(row: Pick<RowDecisionApproval, "lane" | "recordId" | "le
   return `${row.lane}\0${row.recordId}\0${row.ledgerPath}`;
 }
 
+function recordActivityKey(recordId: string, ledgerPath: string): string {
+  return `${recordId}\0${ledgerPath}`;
+}
+
+function laneActionKey(lane: string, action: string): string {
+  return `${lane}\0${action}`;
+}
+
+function rowDecisionActionKey(lane: string, recordId: string, ledgerPath: string): string {
+  return `${lane}\0${recordId}\0${ledgerPath}`;
+}
+
+function rejectQueuedLaneRequest(index: PendingActionIndex, lane: string, request: string): void {
+  if (index.laneRequests.has(laneActionKey(lane, request))) {
+    throw intentError(409, `Dashboard lane ${lane} request is already queued for the agent`);
+  }
+}
+
+function rejectQueuedRowDecision(index: PendingActionIndex, row: Pick<RowDecisionApproval, "lane" | "recordId" | "ledgerPath">): void {
+  const decision = index.rowDecisions.get(rowDecisionActionKey(row.lane, row.recordId, row.ledgerPath));
+  if (decision !== undefined) {
+    throw intentError(409, `Dashboard row ${row.recordId} in lane ${row.lane} is already queued for the agent`);
+  }
+}
+
+function rejectQueuedRowDecisions(
+  index: PendingActionIndex,
+  lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
+  rows: DashboardArtifactRow[]
+): void {
+  for (const row of rows) {
+    rejectQueuedRowDecision(index, { lane, recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" });
+  }
+}
+
 function addBulkDecisionApproval(decisions: Map<RowDecisionApproval["lane"], string>, lane: RowDecisionApproval["lane"], decision: string): void {
   const existing = decisions.get(lane);
   if (existing !== undefined && existing !== decision) {
@@ -444,11 +759,11 @@ function rejectConflictingRequiredActionSelections(
 }
 
 function validateReviewedBulkLaneRows(
-  snapshot: DashboardSnapshot,
+  rows: DashboardArtifactRow[],
   fields: Record<string, string[]>,
   lane: "needs-review" | "needs-context" | "cleanup" | "resolve"
 ): void {
-  const current = new Set(dashboardArtifactRowsForLane(snapshot, lane).map((row) => rowDecisionKey({ lane, recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" })));
+  const current = new Set(rows.map((row) => rowDecisionKey({ lane, recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" })));
   const reviewed = reviewedBulkLaneRows(fields, lane);
   if (reviewed.size !== current.size || [...reviewed].some((key) => !current.has(key))) {
     throw intentError(409, `Dashboard lane ${lane} changed since this page loaded; reload the dashboard before submitting bulk approvals`);
@@ -529,12 +844,15 @@ function buildBulkDecisionSubmission(options: UiServerOptions, fields: Record<st
   }
 
   const snapshot = buildDashboard(dashboardOptions(options));
-  validateReviewedBulkLaneRows(snapshot, multiFields, lane);
-  return buildBulkDecisionSubmissionFromSnapshot(snapshot, lane, decision, undefined, fields.reason);
+  const visibleRows = visibleRequiredActionRows(options, snapshot);
+  const rows = visibleRowsForLane(visibleRows, lane);
+  validateReviewedBulkLaneRows(rows, multiFields, lane);
+  rejectQueuedRowDecisions(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId), visibleRows), lane, rows);
+  return buildBulkDecisionSubmissionFromRows(rows, lane, decision, undefined, fields.reason);
 }
 
-function buildBulkDecisionSubmissionFromSnapshot(
-  snapshot: DashboardSnapshot,
+function buildBulkDecisionSubmissionFromRows(
+  rows: DashboardArtifactRow[],
   lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
   decision: string,
   rowDecision?: (row: DashboardArtifactRow) => string,
@@ -546,7 +864,6 @@ function buildBulkDecisionSubmissionFromSnapshot(
       `Invalid Artshelf UI decision intent "${String(decision)}"; expected one of: ${UI_DECISION_INTENTS.join(", ")}`
     );
   }
-  const rows = dashboardArtifactRowsForLane(snapshot, lane);
   if (rows.length === 0) {
     throw intentError(400, `Dashboard lane ${lane} has no records for a bulk decision`);
   }
@@ -573,13 +890,11 @@ function buildBulkDecisionSubmissionFromSnapshot(
   };
 }
 
-function buildRowDecisionSubmissionFromSnapshot(snapshot: DashboardSnapshot, rowDecision: RowDecisionApproval): BuiltIntentSubmission {
+function buildRowDecisionSubmissionFromRows(rows: DashboardArtifactRow[], rowDecision: RowDecisionApproval): BuiltIntentSubmission {
   if (!isDecisionAllowedForLane(rowDecision.lane, rowDecision.decision)) {
     throw intentError(400, `Invalid Artshelf UI decision intent "${rowDecision.decision}" for lane ${rowDecision.lane}`);
   }
-  const row = dashboardArtifactRowsForLane(snapshot, rowDecision.lane).find(
-    (candidate) => candidate.recordId === rowDecision.recordId && candidate.ledgerPath === rowDecision.ledgerPath
-  );
+  const row = rows.find((candidate) => candidate.recordId === rowDecision.recordId && candidate.ledgerPath === rowDecision.ledgerPath);
   if (row === undefined) {
     throw intentError(400, `Dashboard lane ${rowDecision.lane} has no matching row ${rowDecision.recordId} for a row decision`);
   }
@@ -600,25 +915,96 @@ function buildRowDecisionSubmissionFromSnapshot(snapshot: DashboardSnapshot, row
   };
 }
 
+type RequiredActionRows = {
+  needsReview: DashboardArtifactRow[];
+  needsContext: DashboardArtifactRow[];
+  cleanup: DashboardArtifactRow[];
+  resolve: DashboardArtifactRow[];
+};
+
+function visibleRequiredActionRows(options: UiServerOptions, snapshot: DashboardSnapshot): RequiredActionRows {
+  const prepared = livePreparedRowKeys(options, snapshot);
+  return {
+    needsReview: filterPreparedRows(snapshot.buckets.needsReview, prepared),
+    needsContext: filterPreparedRows(snapshot.buckets.needsContext, prepared),
+    cleanup: filterPreparedRows(snapshot.buckets.cleanup, prepared),
+    resolve: filterPreparedRows(snapshot.buckets.resolve, prepared)
+  };
+}
+
+function visibleRowsForLane(rows: RequiredActionRows, lane: "needs-review" | "needs-context" | "cleanup" | "resolve"): DashboardArtifactRow[] {
+  switch (lane) {
+    case "needs-review":
+      return rows.needsReview;
+    case "needs-context":
+      return rows.needsContext;
+    case "cleanup":
+      return rows.cleanup;
+    case "resolve":
+      return rows.resolve;
+  }
+}
+
+function filterPreparedRows(rows: DashboardArtifactRow[], prepared: Set<string>): DashboardArtifactRow[] {
+  return rows.filter((row) => !prepared.has(recordActivityKey(row.recordId, row.ledgerPath ?? "")));
+}
+
+function livePreparedRowKeys(options: UiServerOptions, snapshot: DashboardSnapshot): Set<string> {
+  return new Set(livePreparedPlanEventIndex(options, snapshot).keys());
+}
+
+function approvablePreparedPlanEventIds(options: UiServerOptions, snapshot: DashboardSnapshot): Set<string> {
+  const submitted = submittedPreparedPlanEventIds(options);
+  return new Set([...livePreparedPlanEventIndex(options, snapshot).values()].filter((eventId) => !submitted.has(eventId)));
+}
+
+function reviewablePreparedPlanEventIds(options: UiServerOptions, snapshot: DashboardSnapshot): Set<string> {
+  return new Set(livePreparedPlanEventIndex(options, snapshot).values());
+}
+
+function livePreparedPlanEventIndex(options: UiServerOptions, snapshot: DashboardSnapshot): Map<string, string> {
+  const liveActionKeys = new Set<string>();
+  for (const row of [...snapshot.buckets.needsReview, ...snapshot.buckets.needsContext, ...snapshot.buckets.cleanup, ...snapshot.buckets.resolve]) {
+    liveActionKeys.add(recordActivityKey(row.recordId, row.ledgerPath ?? ""));
+  }
+
+  const prepared = new Map<string, string>();
+  for (const entry of readSessionHistory(options.uiHome, options.sessionId)) {
+    const recordId = stringRecordValue(entry.event.target, "recordId");
+    const ledgerPath = stringRecordValue(entry.event.target, "ledgerPath");
+    if (!recordId || !ledgerPath) continue;
+    const key = recordActivityKey(recordId, ledgerPath);
+    if (!liveActionKeys.has(key)) continue;
+    if (reviewablePreparedPlanEventId(options, entry) !== null) prepared.set(key, entry.event.id);
+  }
+  return prepared;
+}
+
+function reviewablePreparedPlanEventId(options: UiServerOptions, entry: UiSessionHistoryEntry): string | null {
+  if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") return null;
+  const recordId = stringRecordValue(entry.event.target, "recordId");
+  const requestedLedgerPath = stringRecordValue(entry.event.target, "ledgerPath");
+  if (!recordId || !requestedLedgerPath) return null;
+  const ledgerPath = scopedDetailLedgerPath(options, requestedLedgerPath);
+  if (ledgerPath === null) return null;
+  const reply = [...entry.replies].reverse().find((candidate) => stringRecordValue(candidate.payload, "planId") !== null);
+  const planId = reply ? stringRecordValue(reply.payload, "planId") : null;
+  if (!planId) return null;
+  try {
+    const planEntry = readDisposePlanEntry(ledgerPath, planId);
+    if (disposePlanEntrySubjectStaleForExecute(planEntry)) return null;
+    return planEntry.id === recordId ? entry.event.id : null;
+  } catch {
+    return null;
+  }
+}
+
 function isDecisionAllowedForLane(lane: "needs-review" | "needs-context" | "cleanup" | "resolve", decision: string): boolean {
   return lane === "resolve" ? decision === "keep" || decision === "resolve" : decision === "keep" || decision === "trash";
 }
 
 function isBulkDecisionLane(value: unknown): value is "needs-review" | "needs-context" | "cleanup" | "resolve" {
   return value === "needs-review" || value === "needs-context" || value === "cleanup" || value === "resolve";
-}
-
-function dashboardArtifactRowsForLane(snapshot: DashboardSnapshot, lane: "needs-review" | "needs-context" | "cleanup" | "resolve"): DashboardArtifactRow[] {
-  switch (lane) {
-    case "needs-review":
-      return snapshot.buckets.needsReview;
-    case "needs-context":
-      return snapshot.buckets.needsContext;
-    case "cleanup":
-      return snapshot.buckets.cleanup;
-    case "resolve":
-      return snapshot.buckets.resolve;
-  }
 }
 
 function buildApprovalInput(options: UiServerOptions, fields: Record<string, string[]>): ApprovalSnapshotInput {
@@ -693,9 +1079,13 @@ function validateDashboardLaneTarget(
     throw intentError(400, `Invalid Artshelf UI dashboard lane "${String(lane)}"`);
   }
   const expectedRequest = UI_DASHBOARD_LANE_REQUESTS[lane];
+  if (!expectedRequest) {
+    throw intentError(400, `Invalid Artshelf UI dashboard lane "${lane}"`);
+  }
   if (payload.request !== expectedRequest) {
     throw intentError(400, `Invalid Artshelf UI dashboard request "${String(payload.request)}" for lane ${lane}`);
   }
+  rejectQueuedLaneRequest(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId)), lane, expectedRequest);
 
   const snapshot = buildDashboard(dashboardOptions(options));
   const count = dashboardLaneCount(snapshot, lane);
@@ -730,6 +1120,11 @@ function isNonBlank(value: string | undefined): value is string {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+function stringRecordValue(record: Record<string, unknown>, key: string): string | null {
+  const value = record[key];
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
 // Redirect back to the record's detail drawer carrying its ledger scope and the capability token, so
 // the followed GET is authorized and scoped exactly as the originating page was.
 function detailRedirect(target: Record<string, unknown>, token: string): string {
@@ -742,16 +1137,46 @@ function detailRedirect(target: Record<string, unknown>, token: string): string 
   return `${DETAIL_PREFIX}${encodeURIComponent(recordId)}${query}`;
 }
 
-function intentRedirect(target: Record<string, unknown>, token: string): string {
+function intentRedirect(target: Record<string, unknown>, token: string, queuedCount = 0): string {
   if (target.dashboard === "required-actions") {
-    const query = token ? `?token=${encodeURIComponent(token)}` : "";
-    return `/${query}#required-actions`;
+    const params: string[] = [];
+    if (token) params.push(`token=${encodeURIComponent(token)}`);
+    if (queuedCount > 0) params.push(`queued=${encodeURIComponent(String(queuedCount))}`);
+    const query = params.length > 0 ? `?${params.join("&")}` : "";
+    return `/${query}${queuedCount > 0 ? "#session-activity" : "#required-actions"}`;
   }
   if (typeof target.lane === "string") {
     const query = token ? `?token=${encodeURIComponent(token)}` : "";
     return `/${query}#lane-${encodeURIComponent(target.lane)}`;
   }
   return detailRedirect(target, token);
+}
+
+function dashboardActivityRedirect(token: string): string {
+  const query = token ? `?token=${encodeURIComponent(token)}` : "";
+  return `/${query}#session-activity`;
+}
+
+function parseQueuedNotice(query: string, history: UiSessionHistoryEntry[]): number | null {
+  const raw = getQueryParam(query, "queued");
+  if (raw === null) return null;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  const pending = history.filter((entry) => entry.event.source === "browser" && entry.event.status === "pending").length;
+  if (pending <= 0) return null;
+  return Math.min(parsed, pending);
+}
+
+function activityHref(token: string): string {
+  return `${ACTIVITY_PATH}?token=${encodeURIComponent(token)}`;
+}
+
+function dashboardSessionHistory(options: UiServerOptions): UiSessionHistoryEntry[] {
+  try {
+    return readSessionHistory(options.uiHome, options.sessionId);
+  } catch {
+    return [];
+  }
 }
 
 function bundleRedirect(bundleId: string, token: string): string {
@@ -971,18 +1396,26 @@ function authorizeBrowserRead(options: UiServerOptions, _request: any, query: st
   return { ok: true, token };
 }
 
+function uiScriptNonce(): string {
+  return randomBytes(16).toString("base64");
+}
+
+function dashboardContentSecurityPolicy(scriptNonce: string): string {
+  return `default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${scriptNonce}'; connect-src 'self'; img-src 'none'; base-uri 'none'; form-action 'self'`;
+}
+
 function sendHtml(response: any, status: number, html: string, headers: Record<string, string> = {}): void {
-  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", ...SECURITY_HEADERS, ...headers });
+  response.writeHead(status, { "Content-Type": "text/html; charset=utf-8", "Content-Security-Policy": SCRIPTLESS_CONTENT_SECURITY_POLICY, ...SECURITY_HEADERS, ...headers });
   response.end(html);
 }
 
 function sendText(response: any, status: number, text: string): void {
-  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", ...SECURITY_HEADERS });
+  response.writeHead(status, { "Content-Type": "text/plain; charset=utf-8", "Content-Security-Policy": SCRIPTLESS_CONTENT_SECURITY_POLICY, ...SECURITY_HEADERS });
   response.end(text);
 }
 
 function sendRedirect(response: any, status: number, location: string): void {
-  response.writeHead(status, { Location: location, "Content-Type": "text/plain; charset=utf-8", ...SECURITY_HEADERS });
+  response.writeHead(status, { Location: location, "Content-Type": "text/plain; charset=utf-8", "Content-Security-Policy": SCRIPTLESS_CONTENT_SECURITY_POLICY, ...SECURITY_HEADERS });
   response.end(`Intent recorded. Continue at ${location}`);
 }
 

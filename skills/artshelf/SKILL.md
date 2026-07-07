@@ -104,16 +104,22 @@ Use `--agent` on `review`, `status`, `doctor`, `ledgers prune --dry-run`,
 `dispose --dry-run`, and `get --inspect` for compact decisions; use `--json`
 for full audit/API payloads, custom rendering, or debugging. On `get`, `--agent` requires `--inspect`.
 For browser review sessions, use `artshelf ui`, read-only `ui dashboard --json` / `ui detail <record-id> --ledger <path> --json`, token-protected `ui serve [--json]`, `ui bundle <session-id> [<bundle-id>] --json`, `ui execute <session-id> <bundle-id> --json`, `ui poll`, `ui reply`, and `ui end`.
-The served dashboard, detail drawer, and approval workbench share one scriptless template (system fonts, inline styles, CSS `:has()`/`<details>` only - no JavaScript, matching the strict CSP).
+The served dashboard, detail drawer, and approval workbench share system fonts, inline styles, and CSS `:has()`/`<details>` state.
+The dashboard also has a nonce-bound session-activity poller for the token-scoped `/activity` fragment; detail and bundle pages remain scriptless.
 The dashboard now reads top to bottom as compact required-action cards with their CTAs in priority order (one-way-door purge first), an at-a-glance status summary, then collapsed source details.
 Required-action cards own their expandable row lists, and reviewers can queue recommended card approvals, lane-level choices, or individual row choices into one global `Queued for agent` submit bar.
 Bulk lane approvals carry the reviewed row set and are rejected if the lane changes before submit; conflicting card/bulk/row selections are refused.
 Dashboard dry-run lane requests map to `prepare_cleanup_plan`, `check_missing_files`, `review_delete_forever`, or `check_source_problems`.
+Completed dry-run replies that produce reviewed dispose plans become ready-for-approval rows in Required actions, replacing the original row while the plan remains live; those plans can be approved individually or with the prepared-plan approve-all control.
+After dashboard submit, the session-activity panel shows the bounded queued count, pending agent work, prepared plans, stale/rejected states, and execution receipts, while affected rows show they were sent to the agent.
+Submitted approvals stay visibly queued until the agent handles them, and the activity rail can unqueue pending browser work without touching ledgers, files, trash, or plans.
 Sources are collapsed by default behind the source details drawer.
 Use `ui bundle` to list approved bundles or load one immutable snapshot plus its selected exact targets before live-state revalidation, then `ui execute` (the one mutating `ui` subcommand) to run an approved bundle through the revalidate -> execute -> verify loop, recording one of `executed`/`skipped_stale`/`failed`/`needs_manual_review` per target; dispose-backed targets also bind to the reviewed plan entry digest, so missing or unreadable plans, subject content drift, or same-id plan rewrites become stale before receipts instead of changing reason, subject, target, or retention semantics. `ui execute` runs only the bundle's selected exact targets; there is no `ui execute --all` broad action (it is refused), and a purge-lane target is a one-way door - the approved trashed artifact is physically deleted with no recovery path, independently verified afterward, and stamped with a per-target no-recovery receipt.
 If `ui execute` claimed an approval event as `in_progress` and stopped before final receipts, rerun the same session and bundle id to resume that claim.
 The browser captures triage intents and approval bundles only, with no direct ledger/file/trash/plan mutation and no file-content preview.
 Treat the session token printed by `artshelf ui` and `ui serve` as a secret same-machine browser capability; `ui end` revokes browser writes and served dashboard/detail/bundle access while preserving the audit trail.
+
+For a live UI review request, run one attached lifecycle: start/resume `artshelf ui --scope user --json`, keep `artshelf ui serve --scope user --port 0 --json` alive as a managed foreground process, poll repeatedly, reply `in_progress` immediately, process only read-only/dry-run or exactly approved work, reply with a useful final payload, and keep looping until an explicit close/end signal. On close, finish or cancel safely, run `artshelf ui end <session-id> --scope user --json`, stop the served UI process, and summarize back in the originating conversation. If you cannot keep the server and poller attached, say managed UI review is unavailable instead of presenting the browser as live.
 Register existing project ledgers explicitly:
 
 ```bash
@@ -236,12 +242,6 @@ delete files:
 
 ```bash
 artshelf resolve <id> --status resolved --reason "<specific reason>" --ledger <ledger-path> --json
-```
-
-For batches, ask for exact approval:
-
-```text
-approve artshelf resolve missing ledger <ledger-path> ids <id...>
 ```
 
 ## Purge
