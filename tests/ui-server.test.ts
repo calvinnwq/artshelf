@@ -1562,13 +1562,102 @@ test("GET /activity is a token-gated read-only polling fragment that updates aft
     assert.match(activity, /Handled: <span class="num">1<\/span>/i);
     assert.match(activity, /shf_cleanup_a/);
     assert.match(activity, /shf_cleanup_b/);
-    assert.doesNotMatch(activity, /dispose-plan-123/, "the dashboard rail should not dump dry-run plan details");
-    assert.doesNotMatch(activity, new RegExp(escapeRegExp(`approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-123`)));
+    assert.match(activity, /dispose-plan-123/, "the dashboard rail should surface reviewed dry-run plan details");
+    assert.match(activity, new RegExp(escapeRegExp(`approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-123`)));
     assert.match(activity, /No execution ran/i);
 
     endSession(server.home, server.sessionId);
     const ended = await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`);
     assert.equal(ended.status, 401, "after-end polling must be refused");
+  });
+});
+
+test("dashboard activity links purge review replies to the approval workbench", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [trashedRecord("shf_purge", "plan_purge")]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const bundle = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-purge",
+      targets: [
+        {
+          targetId: "shf_purge",
+          recordId: "shf_purge",
+          ledgerPath,
+          registryPath,
+          recordPath: "/trash/plan_purge/shf_purge.txt",
+          planId: "plan_purge",
+          actionType: "trash-purge",
+          label: "Delete forever shf_purge"
+        }
+      ],
+      selectedTargetIds: [],
+      allowEmptySelection: true,
+      reviewed: {}
+    });
+    const event = appendEvent(server.home, server.sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "purge-candidates", registryPath },
+      payload: { request: "review_delete_forever", count: 1 }
+    });
+    replyToEvent(server.home, server.sessionId, event.id, {
+      status: "completed",
+      payload: {
+        kind: "purge_review_prepared",
+        title: "Purge review prepared",
+        bundleId: bundle.id,
+        count: 1
+      }
+    });
+
+    const activity = await (await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`)).text();
+    assert.match(activity, new RegExp(escapeRegExp(`/bundle/${bundle.id}?token=${server.token}`)));
+    assert.match(activity, /Open approval workbench/);
+
+    const workbench = await (await server.request(`/bundle/${bundle.id}`)).text();
+    assert.match(workbench, /0 of 1 selected/);
+    assert.match(workbench, /Delete forever shf_purge/);
+  });
+});
+
+test("dashboard activity renders cleanup lane plan approval targets", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const event = appendEvent(server.home, server.sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "cleanup", registryPath },
+      payload: { request: "prepare_cleanup_plan", count: 1 }
+    });
+    replyToEvent(server.home, server.sessionId, event.id, {
+      status: "completed",
+      payload: {
+        kind: "cleanup_dry_run",
+        title: "Cleanup dry-run prepared",
+        count: 1,
+        plans: [
+          {
+            ledgerName: "primary",
+            ledgerPath,
+            planId: "plan_cleanup_123",
+            count: 1,
+            approvalTarget: `approve artshelf cleanup ledger ${ledgerPath} plan plan_cleanup_123`
+          }
+        ]
+      }
+    });
+
+    const activity = await (await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`)).text();
+    assert.match(activity, /Cleanup dry-run prepared/);
+    assert.match(activity, /plan_cleanup_123/);
+    assert.match(activity, new RegExp(escapeRegExp(`approve artshelf cleanup ledger ${ledgerPath} plan plan_cleanup_123`)));
   });
 });
 

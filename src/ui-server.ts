@@ -248,7 +248,7 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
   }
 
   if (pathname === ACTIVITY_PATH) {
-    sendHtml(response, 200, renderDashboardActivityFragment(dashboardSessionHistory(options), { activityHref: activityHref(access.token), includeScript: false }));
+    sendHtml(response, 200, renderDashboardActivityFragment(dashboardSessionHistory(options), { activityHref: activityHref(access.token), includeScript: false, token: access.token }));
     return;
   }
 

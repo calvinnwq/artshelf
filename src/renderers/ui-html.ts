@@ -502,6 +502,7 @@ export type DashboardSessionActivityRender = {
   includeScript?: boolean;
   managedReview?: boolean;
   reviewablePreparedPlanEventIds?: Set<string>;
+  token?: string;
 };
 
 export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string, activity: DashboardSessionActivityRender = {}): string {
@@ -522,10 +523,11 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const queuedItems = queuedApprovalItems(snapshot, badLedgers, visibleRows, preparedPlans, pendingActions);
   const hasCancelableItems = hasCancelableQueuedItems(history);
   const submittedConfirmation = dashboardSubmittedConfirmation(activity.submittedCount ?? null);
-  const activityOptions: { activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {};
+  const activityOptions: { activityHref?: string; scriptNonce?: string; includeScript?: boolean; token?: string } = {};
   if (activity.activityHref !== undefined) activityOptions.activityHref = activity.activityHref;
   if (activity.scriptNonce !== undefined) activityOptions.scriptNonce = activity.scriptNonce;
   if (activity.includeScript !== undefined) activityOptions.includeScript = activity.includeScript;
+  if (token !== undefined) activityOptions.token = token;
   const mainSurface = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity, pendingActions, preparedPlans, visibleRows)}
 ${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
 ${ledgerHealthSection(ledgers)}
@@ -949,16 +951,16 @@ function ledgerHealthSection(ledgers: DashboardLedgerStatus[]): string {
 
 export function renderDashboardActivityFragment(
   history: UiSessionHistoryEntry[],
-  options: { activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {}
+  options: { activityHref?: string; scriptNonce?: string; includeScript?: boolean; token?: string } = {}
 ): string {
   const queued = history.filter((entry) => isQueuedForAgentStatus(entry.event.status));
   const handled = history.filter((entry) => entry.event.status === "completed" || entry.event.status === "cancelled");
   const problem = history.filter((entry) => ["stale", "rejected", "failed"].includes(entry.event.status));
   const executionRan = history.some((entry) => entry.replies.some((reply) => isExecutionReply(reply)));
   const activityRows = [
-    ...activityGroupCards(queued, "Queued", "warn"),
-    ...activityGroupCards(handled, "Handled by agent", "good"),
-    ...activityGroupCards(problem, "Needs re-review", "bad")
+    ...activityGroupCards(queued, "Queued", "warn", options),
+    ...activityGroupCards(handled, "Handled by agent", "good", options),
+    ...activityGroupCards(problem, "Needs re-review", "bad", options)
   ];
   const activityBody = activityRows.length > 0 ? `<div class="activity-list">${activityRows.join("")}</div>` : `<p class="empty">No queued work yet.</p>`;
   const activityHref = options.activityHref ? ` data-activity-href="${escapeHtml(options.activityHref)}"` : "";
@@ -981,7 +983,12 @@ function activityPollScript(nonce?: string): string {
   return `<script${nonceAttribute}>(function(){function activityHref(){var current=document.getElementById("session-activity");return current&&current.dataset?current.dataset.activityHref:"";}function hasQueuedSelections(){var form=document.querySelector(".review-form");return !!(form&&form.querySelector('input[name^="approval:"]:checked:not(:disabled)'));}async function refreshReviewShell(){var current=document.querySelector(".review-shell");if(!current||hasQueuedSelections())return;try{var response=await fetch(window.location.pathname+window.location.search,{cache:"no-store",credentials:"omit"});if(!response.ok)return;var html=await response.text();var doc=new DOMParser().parseFromString(html,"text/html");var next=doc.querySelector(".review-shell");if(next)current.replaceWith(next);}catch(_error){}}async function refresh(){var href=activityHref();var current=document.getElementById("session-activity");if(!href||!current)return;try{var response=await fetch(href,{cache:"no-store",credentials:"omit"});if(!response.ok)return;var next=await response.text();var changed=current.outerHTML!==next;current.outerHTML=next;if(changed)await refreshReviewShell();}catch(_error){}}setInterval(refresh,2500);refresh();})();</script>`;
 }
 
-function activityGroupCards(entries: UiSessionHistoryEntry[], badge: string, tone: "good" | "warn" | "bad"): string[] {
+function activityGroupCards(
+  entries: UiSessionHistoryEntry[],
+  badge: string,
+  tone: "good" | "warn" | "bad",
+  options: { token?: string } = {}
+): string[] {
   const groups = new Map<string, { label: string; entries: UiSessionHistoryEntry[] }>();
   for (const entry of entries) {
     const label = activityGroupLabel(entry.event);
@@ -992,7 +999,8 @@ function activityGroupCards(entries: UiSessionHistoryEntry[], badge: string, ton
   return [...groups.values()].map((group) => {
     const targets = group.entries.map((entry) => eventTargetLabel(entry.event)).filter((value) => value.length > 0).join(", ");
     const actions = tone === "warn" ? unqueueButtons(group.entries) : "";
-    return `<article class="activity-card ${tone}"><div class="topline"><span class="badge">${escapeHtml(badge)}</span><span class="badge">${escapeHtml(compactStatusLabel(group.entries))}</span><span class="name">${group.entries.length} ${group.entries.length === 1 ? "item" : "items"}: ${escapeHtml(group.label)}</span></div>${targets ? `<p class="detail">${escapeHtml(targets)}</p>` : ""}${actions}</article>`;
+    const replies = group.entries.flatMap((entry) => entry.replies).map((reply) => activityReplyCard(reply, options)).join("");
+    return `<article class="activity-card ${tone}"><div class="topline"><span class="badge">${escapeHtml(badge)}</span><span class="badge">${escapeHtml(compactStatusLabel(group.entries))}</span><span class="name">${group.entries.length} ${group.entries.length === 1 ? "item" : "items"}: ${escapeHtml(group.label)}</span></div>${targets ? `<p class="detail">${escapeHtml(targets)}</p>` : ""}${actions}${replies}</article>`;
   });
 }
 
@@ -1014,12 +1022,14 @@ function compactStatusLabel(entries: UiSessionHistoryEntry[]): string {
   return statuses.length === 1 ? statuses[0] ?? "unknown" : statuses.join(" / ");
 }
 
-function replyCard(reply: UiReply): string {
+function replyCard(reply: UiReply, options: { token?: string } = {}): string {
   const title = replyTitle(reply);
   const planId = stringPayload(reply.payload, "planId");
+  const bundleId = stringPayload(reply.payload, "bundleId");
   const approvalTarget = stringPayload(reply.payload, "approvalTarget") ?? stringPayload(reply.payload, "approvalPhrase");
   const count = numberPayload(reply.payload, "count");
   const records = stringArrayPayload(reply.payload, "records");
+  const plans = replyPlansPayload(reply.payload);
   const execution = isExecutionReply(reply);
   const executionStatus = stringPayload(reply.payload, "executionStatus");
   const executionCounts = executionCountsPayload(reply.payload);
@@ -1029,12 +1039,16 @@ function replyCard(reply: UiReply): string {
   const kind = execution ? "Final execution receipt" : dryRun ? "Dry-run reply" : "Agent reply";
   const fields = [
     planId ? `<dt>plan</dt><dd class="mono">${escapeHtml(planId)}</dd>` : "",
+    bundleId ? `<dt>bundle</dt><dd class="mono">${escapeHtml(bundleId)}</dd>` : "",
     executionStatus ? `<dt>status</dt><dd>${escapeHtml(executionStatus)}</dd>` : "",
     executionCounts ? `<dt>counts</dt><dd class="mono">${executionCounts.map(([key, value]) => `${escapeHtml(key)} ${value}`).join(" &middot; ")}</dd>` : "",
     count !== null ? `<dt>count</dt><dd>${count}</dd>` : "",
     records.length > 0 ? `<dt>records</dt><dd class="mono">${escapeHtml(records.join(", "))}</dd>` : "",
     approvalTarget ? `<dt>approval</dt><dd class="mono">${escapeHtml(approvalTarget)}</dd>` : ""
   ].join("");
+  const bundleLink = bundleId && options.token
+    ? `<p class="activity-actions"><a class="unqueue-btn" href="/bundle/${encodeURIComponent(bundleId)}?token=${encodeURIComponent(options.token)}">Open approval workbench</a></p>`
+    : "";
   const continuity = dryRun ? `<p class="detail">completed dry-run &middot; awaiting approval &middot; No execution ran</p>` : "";
   const note = replyNote(reply.payload);
   return `<div class="reply-card${execution ? " final" : ""}${bad ? " bad" : ""}">
@@ -1043,8 +1057,26 @@ function replyCard(reply: UiReply): string {
 ${continuity}
 ${note ? `<p class="detail">${escapeHtml(note)}</p>` : ""}
 ${fields ? `<dl>${fields}</dl>` : ""}
+${bundleLink}
+${plans.length > 0 ? replyPlanRows(plans) : ""}
 ${executionReceipts.length > 0 ? executionReceiptRows(executionReceipts) : ""}
 </div>`;
+}
+
+function activityReplyCard(reply: UiReply, options: { token?: string }): string {
+  if (isExecutionReply(reply)) return "";
+  if (!isActionableReplyPayload(reply.payload)) return "";
+  return replyCard(reply, options);
+}
+
+function isActionableReplyPayload(payload: Record<string, unknown>): boolean {
+  return (
+    stringPayload(payload, "planId") !== null ||
+    stringPayload(payload, "bundleId") !== null ||
+    stringPayload(payload, "approvalTarget") !== null ||
+    stringPayload(payload, "approvalPhrase") !== null ||
+    replyPlansPayload(payload).length > 0
+  );
 }
 
 function replyTitle(reply: UiReply): string {
@@ -1073,6 +1105,47 @@ type ExecutionReceiptPayload = {
   detail: string;
   evidence: Record<string, unknown> | null;
 };
+
+type ReplyPlanPayload = {
+  ledgerName: string;
+  ledgerPath: string;
+  planId: string;
+  count: number | null;
+  approvalTarget: string;
+};
+
+function replyPlansPayload(payload: Record<string, unknown>): ReplyPlanPayload[] {
+  const plans = payload.plans;
+  if (!Array.isArray(plans)) return [];
+  return plans.flatMap((plan): ReplyPlanPayload[] => {
+    if (!isRecord(plan)) return [];
+    const planId = stringRecordValue(plan, "planId");
+    const approvalTarget = stringRecordValue(plan, "approvalTarget");
+    const ledgerPath = stringRecordValue(plan, "ledgerPath");
+    if (!planId || !approvalTarget || !ledgerPath) return [];
+    const count = typeof plan.count === "number" && Number.isFinite(plan.count) ? plan.count : null;
+    return [
+      {
+        ledgerName: stringRecordValue(plan, "ledgerName") ?? "ledger",
+        ledgerPath,
+        planId,
+        count,
+        approvalTarget
+      }
+    ];
+  });
+}
+
+function replyPlanRows(plans: ReplyPlanPayload[]): string {
+  const rows = plans.map((plan) => {
+    const count = plan.count === null ? "" : `<dt>count</dt><dd>${plan.count}</dd>`;
+    return `<article class="receipt-row">
+<div class="receipt-topline"><span class="badge">Approval target</span><span class="name">${escapeHtml(plan.ledgerName)}</span></div>
+<dl><dt>plan</dt><dd class="mono">${escapeHtml(plan.planId)}</dd>${count}<dt>ledger</dt><dd class="mono">${escapeHtml(plan.ledgerPath)}</dd><dt>approval</dt><dd class="mono">${escapeHtml(plan.approvalTarget)}</dd></dl>
+</article>`;
+  });
+  return `<div class="receipt-list">${rows.join("")}</div>`;
+}
 
 function executionCountsPayload(payload: Record<string, unknown>): Array<[string, number]> | null {
   const counts = payload.counts;
