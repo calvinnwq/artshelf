@@ -277,9 +277,9 @@ Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; 
 For the intended live review experience, run `artshelf ui review`: it starts or
 resumes the UI from the original conversation, keeps the loopback server and
 poller attached, marks submissions `in_progress`, processes each event within
-the read-only/dry-run or exact-approval boundary (exact decisions and
-record-level dry-run requests become reviewed dispose dry-run plans awaiting
-approval), replies into the session, refreshes state, keeps looping for more
+the read-only/dry-run or exact-approval boundary (exact keep/trash/resolve/defer
+decisions become reviewed dispose dry-run plans awaiting approval, while bare
+dry-run requests are recorded-only), replies into the session, refreshes state, keeps looping for more
 submissions, and ends the UI plus poller from the browser close action -
 cancelling anything still pending visibly - before returning a final summary.
 Hosts can still compose the lower-level `ui serve`/`ui poll`/`ui reply`/`ui end`

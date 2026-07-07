@@ -122,7 +122,13 @@ export function startUiServer(options: StartUiServerOptions): Promise<UiServerHa
         url: `http://${LOOPBACK_HOST}:${port}`,
         host: LOOPBACK_HOST,
         port,
-        close: () => new Promise<void>((done) => server.close(() => done()))
+        // Force keep-alive sockets closed so teardown does not block on the browser's idle
+        // connections (they otherwise linger until keepAliveTimeout, stalling the final summary).
+        close: () =>
+          new Promise<void>((done) => {
+            server.close(() => done());
+            server.closeAllConnections();
+          })
       });
     });
   });

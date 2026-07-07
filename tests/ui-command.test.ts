@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
-import { appendEvent, readSession, readSessionHistory, writeApprovalSnapshot } from "../src/session.js";
+import { appendEvent, readSession, readSessionHistory, replyToEvent, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalTarget } from "../src/types.js";
 
 // End-to-end tests for the Artshelf UI v1 AXI command surface (NGX-532). The agent loop -
@@ -396,6 +396,44 @@ test("artshelf ui review turns an exact decision intent into a reviewed dry-run 
   }
 });
 
+test("artshelf ui review records a bare dry-run request without minting an unsurfaced plan", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-dryrun-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "shf_dryrun.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [ledgerRecord("shf_dryrun", subject)]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { recordId: "shf_dryrun", ledgerPath: ledger },
+      payload: { request: "prepare a dispose plan" }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    // A bare dry-run request is decision-less: prepared-plan approval rows are surfaced only from
+    // decisions, so managed review must NOT mint an approvable plan the dashboard can never show.
+    assert.equal(payload.kind, undefined);
+    assert.equal(payload.planId, undefined);
+    assert.match(String(payload.next), /decision/i);
+    // No dispose plan artifact was written for the record.
+    assert.equal(existsSync(join(repo, ".artshelf", "dispose-plans")), false);
+    assert.equal(readLedger(ledger).find((record) => record.id === "shf_dryrun")?.status, "active");
+    assert.equal(existsSync(subject), true);
+  } finally {
+    await managed.stop();
+  }
+});
+
 test("artshelf ui review rejects a blocked decision intent with the block detail", async () => {
   const home = freshHome();
   // resolve-only without a reason is blocked by the dispose safety engine.
@@ -476,20 +514,34 @@ test("artshelf ui review close cancels still-pending work with visible cancelled
 
 test("artshelf ui review signal teardown cancels pending work and ends the session promptly", async () => {
   const home = freshHome();
-  const managed = await managedReview(home, ["--poll-interval-ms", "3000"]);
+  // A deliberately long poll interval: if the signal did NOT interrupt the sleep, teardown could not
+  // finish until the interval elapsed. The generous threshold below still proves interruption while
+  // tolerating CPU contention from the rest of the suite.
+  const pollIntervalMs = 20_000;
+  const managed = await managedReview(home, ["--poll-interval-ms", String(pollIntervalMs)]);
   try {
     const sessionId = managed.packet.session.id;
+    // Drive one event to completion first: once it is completed the manager has finished that poll
+    // and is provably in the long sleep, so the next event is guaranteed still-pending when we signal
+    // (no race with the first poll).
+    const settled = appendEvent(home, sessionId, {
+      type: "comment_added",
+      target: { recordId: "shf_settled", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "processed before the interrupt" }
+    });
+    await waitUntil(() => readSessionHistory(home, sessionId).find((item) => item.event.id === settled.id)?.event.status === "completed");
+
     const pending = appendEvent(home, sessionId, {
       type: "comment_added",
       target: { recordId: "shf_interrupted", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
-      payload: { text: "submitted right before the manager was interrupted" }
+      payload: { text: "submitted while the manager slept, right before the interrupt" }
     });
 
     const killedAt = Date.now();
     managed.child.kill("SIGTERM");
     const exit = await managed.waitForExit();
     assert.equal(exit.code, 0, managed.stderr());
-    assert.ok(Date.now() - killedAt < 2000, "signal teardown must interrupt the poll sleep instead of waiting it out");
+    assert.ok(Date.now() - killedAt < pollIntervalMs / 2, "signal teardown must interrupt the poll sleep instead of waiting it out");
     assert.equal(readSession(home, sessionId).status, "ended");
     const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === pending.id)!;
     assert.equal(entry.event.status, "cancelled");
@@ -508,6 +560,169 @@ test("artshelf ui review refuses to start when it cannot bind the requested port
     const conflicting = ui(freshHome(), ["ui", "review", "--port", String(managed.packet.port), "--json"]);
     assert.notEqual(conflicting.status, 0, "a manager that cannot bind must refuse, not present the browser as live");
     assert.doesNotMatch(conflicting.stdout, /ui-review-start/);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review keeps handling submissions across multiple rounds in one session", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home);
+  try {
+    const sessionId = managed.packet.session.id;
+    const first = appendEvent(home, sessionId, {
+      type: "comment_added",
+      target: { recordId: "shf_first", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "first submission" }
+    });
+    await waitUntil(() => readSessionHistory(home, sessionId).find((item) => item.event.id === first.id)?.event.status === "completed");
+
+    // A SECOND submission arrives only after the first was replied: the loop must keep polling and
+    // handle it in the same live session, not stop after one round.
+    const second = appendEvent(home, sessionId, {
+      type: "comment_added",
+      target: { recordId: "shf_second", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "second submission after the first reply" }
+    });
+    await waitUntil(() => readSessionHistory(home, sessionId).find((item) => item.event.id === second.id)?.event.status === "completed");
+    const secondEntry = readSessionHistory(home, sessionId).find((item) => item.event.id === second.id)!;
+    assert.deepEqual(secondEntry.replies.map((reply) => reply.status), ["in_progress", "completed"]);
+
+    const close = await postClose(managed.packet.baseUrl, managed.packet.token);
+    assert.equal(close.status, 303);
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    const finalLine = managed.lines().map((line) => JSON.parse(line)).find((line) => line.command === "ui-review-end");
+    assert.equal(finalLine.processed.completed, 2);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review replies failed with per-target receipts on a partial bundle run", async () => {
+  const home = freshHome();
+  const { ledger, subject, planId } = repoWithReviewedTrashPlan("shf_live");
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const liveTarget = bundleTarget("shf_live", ledger, subject, { planId });
+    // shf_gone was approved but is no longer in the live ledger: the bundle runs partially.
+    const goneTarget = bundleTarget("shf_gone", ledger, join(dirname(dirname(ledger)), "gone.tar"));
+    const snapshot = seedApprovedBundle(home, sessionId, [liveTarget, goneTarget], ["shf_live", "shf_gone"], registryPath);
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id);
+      return entry !== undefined && entry.event.status !== "pending" && entry.event.status !== "in_progress";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id)!;
+    // A partial run is never presented as done: the rolled-up managed status is failed.
+    assert.equal(entry.event.status, "failed");
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(payload.executionStatus, "partial");
+    const outcomes = Object.fromEntries(payload.receipts.map((receipt: { targetId: string; outcome: string }) => [receipt.targetId, receipt.outcome]));
+    assert.equal(outcomes.shf_live, "executed");
+    assert.equal(outcomes.shf_gone, "skipped_stale");
+    // The still-exact target really executed; the stale one was left untouched.
+    assert.equal(readLedger(ledger).find((record) => record.id === "shf_live")?.status, "trashed");
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review cancels an orphaned in_progress event at teardown instead of stranding it", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home);
+  try {
+    const sessionId = managed.packet.session.id;
+    // An event a crashed prior run left claimed but never finished: pollPendingEvents skips it
+    // (in_progress, not pending), so only teardown can reach it. It must not be left dangling forever.
+    const orphan = appendEvent(home, sessionId, {
+      type: "comment_added",
+      target: { recordId: "shf_orphan", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "claimed by a prior run that died before replying" }
+    });
+    replyToEvent(home, sessionId, orphan.id, {
+      status: "in_progress",
+      expectedStatus: "pending",
+      payload: { note: "orphaned in_progress claim" }
+    });
+
+    const close = await postClose(managed.packet.baseUrl, managed.packet.token);
+    assert.equal(close.status, 303);
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === orphan.id)!;
+    assert.equal(entry.event.status, "cancelled");
+    assert.match(String(entry.replies.at(-1)?.payload.reason), /clos/i);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review tears down visibly when its session is ended out from under it", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home, ["--poll-interval-ms", "1500"]);
+  try {
+    const sessionId = managed.packet.session.id;
+    // Another process ends the session (e.g. `artshelf ui end`). The manager must stop presenting the
+    // browser as live and tear down with an explicit reason rather than idling forever.
+    const ended = ui(home, ["ui", "end", sessionId, "--json"]);
+    assert.equal(ended.status, 0, ended.stderr);
+
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    assert.equal(readSession(home, sessionId).status, "ended");
+    const finalLine = managed.lines().map((line) => JSON.parse(line)).find((line) => line.command === "ui-review-end");
+    assert.equal(finalLine.reason, "session-ended");
+    // The server is really gone after teardown.
+    const reachable = await fetch(`${managed.packet.baseUrl}/healthz`).then(() => true).catch(() => false);
+    assert.equal(reachable, false);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review refuses to execute a trash-purge bundle, keeping deletion a one-way door", async () => {
+  const home = freshHome();
+  const { ledger, subject } = repoWithReviewedTrashPlan("shf_purge");
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const target: UiApprovalTarget = {
+      targetId: "shf_purge",
+      ledgerPath: ledger,
+      registryPath: null,
+      recordPath: subject,
+      planId: null,
+      actionType: "trash-purge",
+      label: "purge shf_purge"
+    };
+    const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: "trash-purge", targets: [target], selectedTargetIds: ["shf_purge"], reviewed: {} });
+    appendEvent(home, sessionId, {
+      type: "approval_bundle_submitted",
+      target: { bundleId: snapshot.id },
+      payload: {
+        bundleId: snapshot.id,
+        actionType: snapshot.actionType,
+        fingerprint: snapshot.fingerprint,
+        registryPath,
+        selectedTargetIds: snapshot.selectedTargetIds,
+        selectedCount: 1,
+        targetCount: 1
+      }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id);
+      return entry !== undefined && entry.event.status !== "pending" && entry.event.status !== "in_progress";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id)!;
+    assert.equal(entry.event.status, "rejected");
+    assert.match(String(entry.replies.at(-1)?.payload.reason), /one-way-door|purge/i);
+    // Nothing was deleted: the reviewed subject still exists on disk.
+    assert.equal(existsSync(subject), true);
   } finally {
     await managed.stop();
   }

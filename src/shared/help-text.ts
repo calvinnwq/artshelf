@@ -578,14 +578,15 @@ with visible cancelled replies, runs ui end semantics, stops the server, and
 prints a final summary packet. Interrupts (Ctrl-C/SIGTERM) tear down the same
 way instead of stranding queued events.
 
-The manager is conservative. Comments and notes are acknowledged without
-mutating ledgers, files, trash, or plans. Exact keep/trash/resolve/defer
-decisions and record-level dry-run requests become reviewed dispose dry-run
-plans, replied with the plan id and exact approval text (defer/snooze plans use
-a default 7d horizon); execution still requires approving that exact plan.
-Approved bundles run only through the existing exact-target ui execute core.
-Broad or execution-shaped browser requests are rejected visibly; there is no
-ui review --all, browser-direct execution, or fresh-plan-then-execute path.
+The manager is conservative. Comments, notes, and bare dry-run requests are
+acknowledged without mutating ledgers, files, trash, or plans. Exact
+keep/trash/resolve/defer decisions become reviewed dispose dry-run plans,
+replied with the plan id and exact approval text (defer/snooze plans use a
+default 7d horizon) so the dashboard can surface a prepared-plan approval row;
+execution still requires approving that exact plan. Approved bundles run only
+through the existing exact-target ui execute core. Broad or execution-shaped
+browser requests are rejected visibly; there is no ui review --all,
+browser-direct execution, or fresh-plan-then-execute path.
 `;
   }
 

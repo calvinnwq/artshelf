@@ -2,7 +2,7 @@ import type { ArtifactProvenanceView, BuildArtifactDetailOptions } from "../arti
 import { buildArtifactDetail } from "../artifact-detail.js";
 import { uiLinkBaseUrl } from "../config/env.js";
 import type { BuildDashboardOptions, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
-import { buildDashboard } from "../dashboard.js";
+import { buildDashboard, PURGE_APPROVAL_ACTION } from "../dashboard.js";
 import type { DisposeRequest } from "../dispose.js";
 import { createDisposePlan } from "../dispose.js";
 import { normalizeRegistryPath } from "../registry.js";
@@ -451,8 +451,15 @@ async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number
   signalProcess().once("SIGTERM", signalHandler);
 
   printManagedStart({ json, home, session, handle, accessUrl, pollIntervalMs });
+  let failure: unknown = null;
   try {
     while (stopReason === null) {
+      // If the session was ended out from under this manager (another process ran `ui end`, or its
+      // storage vanished), stop presenting the browser as live and tear down with a visible reason.
+      if (readSession(home, session.id).status !== "active") {
+        stopReason = "session-ended";
+        break;
+      }
       const pending = pollPendingEvents(home, session.id);
       for (const event of pending) {
         const result = processManagedUiEvent(home, session, event);
@@ -473,40 +480,55 @@ async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number
       });
       wakeSleep = null;
     }
-
-    processed.cancelled += shutdownManagedSession(home, session.id, stopReason ?? "stopped");
+  } catch (error) {
+    // Never leave the browser presented as live after an unexpected loop failure: record it, tear
+    // down below, and surface it in the final summary with a non-zero exit.
+    failure = error;
+    if (stopReason === null) stopReason = `error:${errorMessage(error)}`;
   } finally {
     signalProcess().removeListener("SIGINT", signalHandler);
     signalProcess().removeListener("SIGTERM", signalHandler);
+    try {
+      processed.cancelled += shutdownManagedSession(home, session.id, stopReason ?? "stopped");
+    } catch (error) {
+      if (failure === null) failure = error;
+    }
     await handle.close();
   }
 
-  printManagedEnd({ json, sessionId: session.id, reason: stopReason ?? "stopped", processed });
-  return 0;
+  // The summary always prints, even on error, so the caller gets accurate counts and a reason
+  // instead of a bare stack trace with the server already gone.
+  printManagedEnd({ json, sessionId: session.id, reason: stopReason ?? "stopped", processed, failure });
+  return failure === null ? 0 : 1;
 }
 
-// Close/end teardown. Pending browser work is never stranded invisibly: everything still pending is
-// cancelled with a visible reply while the session can say why, then the session ends (revoking the
-// browser token), then one post-end sweep cancels any event a browser write raced in between.
+// Close/end teardown. No browser work is stranded in a non-terminal state: everything still pending
+// is cancelled with a visible reply while the session can still say why, then the session ends
+// (revoking the browser token), then one post-end sweep cancels anything left non-terminal - a
+// pending event a browser write raced in, or an in_progress event orphaned by a crashed prior run
+// that would otherwise sit in_progress forever with no path to a terminal reply.
 function shutdownManagedSession(home: string, sessionId: string, reason: string): number {
   let cancelled = 0;
   if (readSession(home, sessionId).status === "active") {
-    cancelled += cancelPendingEvents(home, sessionId, pollPendingEvents(home, sessionId), reason);
+    cancelled += cancelUnfinishedEvents(home, sessionId, pollPendingEvents(home, sessionId), reason);
     endSession(home, sessionId);
   }
-  const stragglers = readSessionEvents(home, sessionId).filter((event) => event.status === "pending");
-  return cancelled + cancelPendingEvents(home, sessionId, stragglers, reason);
+  const stragglers = readSessionEvents(home, sessionId).filter(
+    (event) => event.status === "pending" || event.status === "in_progress"
+  );
+  return cancelled + cancelUnfinishedEvents(home, sessionId, stragglers, reason);
 }
 
-function cancelPendingEvents(home: string, sessionId: string, events: UiEvent[], reason: string): number {
+function cancelUnfinishedEvents(home: string, sessionId: string, events: UiEvent[], reason: string): number {
   let cancelled = 0;
   for (const event of events) {
+    if (event.status !== "pending" && event.status !== "in_progress") continue;
     try {
       replyToEvent(home, sessionId, event.id, {
         status: "cancelled",
-        expectedStatus: "pending",
+        expectedStatus: event.status,
         payload: {
-          reason: `Managed review is closing (${reason}) before this event was processed.`,
+          reason: `Managed review is closing (${reason}) before this event reached a terminal state.`,
           next: "Start or resume a review session and resubmit if this work is still needed."
         }
       });
@@ -613,40 +635,25 @@ function processManagedUiEvent(home: string, session: UiSession, event: UiEvent)
         ledgerPath,
         action,
         reason: stringFrom(event.payload.reason) ?? undefined,
-        note: `Reviewed ${action} dry-run plan prepared from the ${decision} decision. No mutation ran; approving the plan runs it through the exact-target execute path.`
+        note: `Prepared a reviewed ${action} dry-run plan from the ${decision} decision (a plan artifact, registered for retention); no disposition was executed. Approve the plan to run it through the exact-target execute path.`
       });
     }
 
     if (event.type === "dry_run_requested") {
+      // Dry-run requests are recorded-only. A reviewed, approvable plan comes from a decision intent
+      // (keep/trash/resolve/defer), because prepared-plan approval rows are surfaced from decisions,
+      // not from bare dry-run requests - minting a plan here would strand it with no approval row.
       const recordId = stringFrom(event.target.recordId);
-      const ledgerPath = stringFrom(event.target.ledgerPath);
-      if (recordId && ledgerPath) {
-        const detailOptions: BuildArtifactDetailOptions = { recordId, ledgerPath };
-        if (session.registryPath !== null) detailOptions.registryPath = session.registryPath;
-        const detail = buildArtifactDetail(detailOptions);
-        const action = RECOMMENDED_DISPOSE_ACTIONS[detail.inspect.recommendation];
-        if (!action) {
-          return replyFailure(home, session.id, event, "rejected", {
-            reason: `Inspect recommends no safe dispose action for ${recordId} (${detail.inspect.recommendation}); no dry-run plan was created.`,
-            next: detail.inspect.nextAction
-          });
-        }
-        return replyManagedDryRunPlan(home, session.id, event, {
-          recordId,
-          ledgerPath,
-          action,
-          note: `Reviewed ${action} dry-run plan prepared from the inspect recommendation (${detail.inspect.recommendation}). No mutation ran; approving the plan runs it through the exact-target execute path.`
-        });
-      }
-      // Lane-level dashboard requests stay recorded-only: preparing plans for a whole lane is broad
-      // work the attached agent must scope down to exact records first.
+      const next = recordId
+        ? `Use a keep/trash/resolve/defer decision on ${recordId} to prepare a reviewed, approvable plan, or run the approval-gated dry-run CLI for the exact target.`
+        : "Scope this to an exact record and use a keep/trash/resolve/defer decision to prepare a reviewed, approvable plan.";
       replyToEvent(home, session.id, event.id, {
         status: "completed",
         expectedStatus: "in_progress",
         payload: {
-          note: "Dry-run request recorded for the attached agent. No mutation was executed from the browser.",
+          note: "Dry-run request recorded for the attached agent. No plan was created and no mutation was executed from the browser.",
           request: event.payload.request ?? event.payload.action ?? null,
-          next: "Use the existing approval-gated dry-run command for the exact target, then reply with the reviewed plan id."
+          next
         }
       });
       return "completed";
@@ -684,15 +691,6 @@ const DECISION_DISPOSE_ACTIONS: Record<UiDecisionIntent, DisposeAction> = {
   trash: "trash-resolve",
   resolve: "resolve-only",
   defer: "snooze"
-};
-
-// Record-level dry-run requests carry no decision, so the inspect recommendation picks the action.
-// "blocked" maps to no action: the safety engine says nothing safe can be prepared.
-const RECOMMENDED_DISPOSE_ACTIONS: Record<string, DisposeAction | undefined> = {
-  keep: "keep",
-  snooze: "snooze",
-  "trash-safe": "trash-resolve",
-  "resolve-only": "resolve-only"
 };
 
 // The browser cannot name a snooze horizon, so managed defer/snooze plans use one default review
@@ -746,6 +744,24 @@ function processManagedBundleEvent(home: string, session: UiSession, event: UiEv
     return replyManagedBundleFailure(home, session.id, event, "rejected", {
       reason: "Approval bundle event did not name an exact bundle id.",
       next: "Reopen the approval workbench and submit the exact reviewed bundle again."
+    });
+  }
+  // Purge is a one-way door. Even though the browser cannot currently mint a purge bundle, the
+  // managed loop must never auto-execute permanent deletion off a poll: refuse purge bundles here so
+  // the destructive path stays a deliberate, separately-invoked `ui execute` / `trash purge` action.
+  try {
+    const snapshot = readApprovalSnapshot(home, session.id, bundleId);
+    if (snapshot.actionType === PURGE_APPROVAL_ACTION) {
+      return replyManagedBundleFailure(home, session.id, event, "rejected", {
+        reason: "Managed review does not execute trash-purge bundles; permanent deletion is a separate one-way-door path.",
+        next: "Delete permanently only by deliberately running `artshelf ui execute <session> <bundle>` or `artshelf trash purge` against the exact reviewed purge plan.",
+        bundleId
+      });
+    }
+  } catch (error) {
+    return replyManagedBundleFailure(home, session.id, event, "failed", {
+      reason: `Could not load the approval bundle to check its action: ${errorMessage(error)}`,
+      next: "Re-review and resubmit the exact bundle."
     });
   }
   try {
@@ -839,15 +855,26 @@ function printManagedStart(input: {
   process.stdout.write("managed server and poller are attached; close the review from the browser to end.\n");
 }
 
-function printManagedEnd(input: { json: boolean; sessionId: string; reason: string; processed: ManagedReviewCounts }): void {
+function printManagedEnd(input: {
+  json: boolean;
+  sessionId: string;
+  reason: string;
+  processed: ManagedReviewCounts;
+  failure?: unknown;
+}): void {
+  const ok = input.failure == null;
   if (input.json) {
-    printCompactJson({ ok: true, command: "ui-review-end", sessionId: input.sessionId, reason: input.reason, processed: input.processed });
+    const packet: Record<string, unknown> = { ok, command: "ui-review-end", sessionId: input.sessionId, reason: input.reason, processed: input.processed };
+    if (!ok) packet.error = errorMessage(input.failure);
+    printCompactJson(packet);
     return;
   }
-  process.stdout.write(`artshelf ui review: session ${input.sessionId} ended (${input.reason})\n`);
-  process.stdout.write(
-    `processed: ${input.processed.completed} completed, ${input.processed.rejected} rejected, ${input.processed.stale} stale, ${input.processed.failed} failed, ${input.processed.cancelled} cancelled\n`
+  const stream = ok ? process.stdout : process.stderr;
+  stream.write(`artshelf ui review: session ${input.sessionId} ended (${input.reason})\n`);
+  stream.write(
+    `processed: ${input.processed.completed} completed, ${input.processed.rejected} rejected, ${input.processed.stale} stale, ${input.processed.failed} failed, ${input.processed.cancelled} cancelled, ${input.processed.closed} closed\n`
   );
+  if (!ok) stream.write(`error: ${errorMessage(input.failure)}\n`);
 }
 
 function parsePort(raw: string | undefined): number | undefined {
