@@ -789,6 +789,9 @@ function replyManagedLaneDryRun(home: string, session: UiSession, event: UiEvent
   if (lane === "registry-reconcile" && request === "check_source_problems") {
     return replyManagedSourceCheck(home, session, event);
   }
+  if (lane === "resolve" && request === "check_missing_files") {
+    return replyManagedMissingFilesCheck(home, session, event);
+  }
   if (lane === "cleanup" && (request === null || request === "prepare_cleanup_plan")) {
     return replyManagedCleanupDryRun(home, session, event);
   }
@@ -849,6 +852,31 @@ function replyManagedSourceCheck(home: string, session: UiSession, event: UiEven
       invalidLedgers: invalidLedgers.map((ledger) => ({ name: ledger.name, path: ledger.path, errors: ledger.errors })),
       problems: problems.map((row) => ({ source: row.source, category: row.category, target: row.recordId ?? row.ledgerPath, ledgerPath: row.ledgerPath })),
       next: problems.length + invalidLedgers.length === 0 ? "Refresh the dashboard; the source lane is clear." : "Review the listed source problems, then run the matching approval-gated reconcile or registry-prune dry-run."
+    }
+  });
+  return "completed";
+}
+
+function replyManagedMissingFilesCheck(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const rows = dashboard.buckets.resolve;
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "missing_file_check",
+      title: "Missing-file check completed",
+      note: "Checked missing-file rows; no ledger, file, trash, or plan was mutated.",
+      count: rows.length,
+      records: rows.map((row) => ({
+        recordId: row.recordId,
+        ledgerName: row.ledgerName,
+        ledgerPath: row.ledgerPath,
+        path: row.path,
+        existence: row.existence,
+        recommendation: row.recommendation
+      })),
+      next: rows.length === 0 ? "Refresh the dashboard; the missing-file lane is clear." : "Review the listed records, then approve exact resolve decisions or prepare reviewed dispose plans."
     }
   });
   return "completed";

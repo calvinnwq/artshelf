@@ -3017,6 +3017,39 @@ test("GET /bundle/<id> renders a persisted approval bundle with token-gated part
   });
 });
 
+test("GET /bundle/<id> keeps an empty purge review selectable without preselecting targets", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const snapshot = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-purge",
+      targets: [
+        {
+          targetId: "t_purge",
+          ledgerPath: ledger.ledgerPath,
+          registryPath: null,
+          recordPath: "/tmp/purge",
+          planId: null,
+          actionType: "trash-purge",
+          label: "purge archived tarball"
+        }
+      ],
+      selectedTargetIds: [],
+      allowEmptySelection: true,
+      reviewed: { request: "review_delete_forever" }
+    });
+
+    const response = await server.request(`/bundle/${snapshot.id}`);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /0 of 1 selected/, "the empty starting selection is visible");
+    assert.match(body, /name="targetId" value="t_purge"/, "the reviewer can explicitly select the purge target");
+    assert.doesNotMatch(body, /name="targetId" value="t_purge" checked/, "purge targets are not preselected");
+    assert.match(body, /<button type="submit">Approve selected targets<\/button>/, "the submit path stays available after selecting a row");
+    assert.doesNotMatch(body, /Approve 0 selected targets/, "the only submit is not disabled by the starting count");
+  });
+});
+
 test("POST /approve records a selected approval bundle and pending agent event", async () => {
   const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
 

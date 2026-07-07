@@ -508,6 +508,40 @@ test("artshelf ui review completes source-check lane dry-runs with problem detai
   }
 });
 
+test("artshelf ui review completes resolve lane dry-runs with missing-file details", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-resolve-lane-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const missing = join(repo, "missing.tar");
+  writeLedgerFile(ledger, [ledgerRecord("shf_missing", missing, { reason: "release archive can be resolved after upload" })]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "resolve", registryPath },
+      payload: { request: "check_missing_files", label: "Check missing files", count: 1 }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(payload.kind, "missing_file_check");
+    assert.equal(payload.count, 1);
+    assert.equal(payload.records[0].recordId, "shf_missing");
+    assert.equal(payload.records[0].ledgerPath, ledger);
+    assert.equal(payload.records[0].path, missing);
+    assert.equal(payload.records[0].recommendation, "resolve-only");
+  } finally {
+    await managed.stop();
+  }
+});
+
 test("artshelf ui review supplies a safe default reason for resolve decisions", async () => {
   const home = freshHome();
   // resolve-only without a reason is blocked by the dispose safety engine.

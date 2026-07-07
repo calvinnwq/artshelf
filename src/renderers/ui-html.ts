@@ -1846,9 +1846,9 @@ function replyNote(payload: Record<string, unknown>): string | null {
 // NGX-539 browser approval workbench (AC4). A pure, scriptless render of the grouped reviewed
 // candidate rows: it shows the exact action being approved, clearly distinguishes selected from
 // unselected rows, and (only when a capability token is present) exposes per-row checkboxes plus a
-// single deliberate "Approve N selected" submit posting to /approve. There is no approve-all or
-// select-all affordance, and an empty selection disables the submit - approval is always a deliberate
-// act over an explicit subset. Like the other surfaces it embeds no file contents and mutates nothing.
+// single deliberate approval submit posting to /approve. There is no approve-all or select-all
+// affordance; approval is always a deliberate act over an explicit subset. Like the other surfaces it
+// embeds no file contents and mutates nothing.
 export function renderApprovalWorkbenchPage(view: UiApprovalWorkbenchView, token?: string): string {
   const summary = `${view.selectedCount} of ${view.totalCount} selected &middot; action ${escapeHtml(view.actionType)}`;
   const peril = view.actionType === PURGE_APPROVAL_ACTION;
@@ -1918,15 +1918,12 @@ function approvalCandidateRow(candidate: UiApprovalCandidate, withSelection: boo
 </article>`;
 }
 
-// The deliberate-approval submit, pinned to the foot of the form. An empty selection is an invalid
-// state: the submit is disabled and a notice explains approval must name an explicit subset, so it can
-// never collapse into an approve-all.
 function approvalSubmit(view: UiApprovalWorkbenchView): string {
   if (view.selectedCount === 0) {
     return `<div class="approve-actions">
-<span class="approve-empty">${ICON.info}Select at least one target to approve. Approval is a deliberate act over an explicit subset, never an approve-all.</span>
-<button type="submit" disabled>Approve 0 selected targets</button>
-</div>`;
+	<span class="approve-empty">${ICON.info}Select at least one target to approve. Approval is a deliberate act over an explicit subset, never an approve-all.</span>
+	<button type="submit">Approve selected targets</button>
+	</div>`;
   }
   const noun = view.selectedCount === 1 ? "target" : "targets";
   const peril = view.actionType === PURGE_APPROVAL_ACTION;
