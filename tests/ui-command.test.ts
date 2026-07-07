@@ -531,24 +531,37 @@ test("artshelf ui review cleanup lane plans only validated dashboard cleanup row
       retention: { mode: "ttl", ttl: "1d" },
       retainUntil: "2026-01-02T00:00:00.000Z",
       cleanup: "trash"
-    }),
-    ledgerRecord("shf_hidden", hiddenSubject, {
-      reason: "",
-      retention: { mode: "ttl", ttl: "1d" },
-      retainUntil: "2026-01-02T00:00:00.000Z",
-      cleanup: "trash"
     })
   ]);
   const missingLedger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-review-cleanup-missing-")), ".artshelf", "missing.jsonl");
   const registryPath = registryWithLedgers([ledger, missingLedger]);
-  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  const managed = await managedReview(home, ["--poll-interval-ms", "1500"], { ARTSHELF_REGISTRY: registryPath });
   try {
     const sessionId = managed.packet.session.id;
     const event = appendEvent(home, sessionId, {
       type: "dry_run_requested",
       target: { lane: "cleanup", registryPath },
-      payload: { request: "prepare_cleanup_plan", label: "Prepare cleanup", count: 1 }
+      payload: {
+        request: "prepare_cleanup_plan",
+        label: "Prepare cleanup",
+        count: 1,
+        reviewedRows: [{ recordId: "shf_cleanup", ledgerPath: ledger, ledgerName: "primary" }]
+      }
     });
+    writeLedgerFile(ledger, [
+      ledgerRecord("shf_cleanup", subject, {
+        reason: "release archive is no longer needed",
+        retention: { mode: "ttl", ttl: "1d" },
+        retainUntil: "2026-01-02T00:00:00.000Z",
+        cleanup: "trash"
+      }),
+      ledgerRecord("shf_hidden", hiddenSubject, {
+        reason: "became due after the cleanup lane request was submitted",
+        retention: { mode: "ttl", ttl: "1d" },
+        retainUntil: "2026-01-02T00:00:00.000Z",
+        cleanup: "trash"
+      })
+    ]);
 
     await waitUntil(() => {
       const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);

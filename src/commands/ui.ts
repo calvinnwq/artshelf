@@ -1,7 +1,7 @@
 import type { ArtifactProvenanceView, BuildArtifactDetailOptions } from "../artifact-detail.js";
 import { buildArtifactDetail } from "../artifact-detail.js";
 import { uiLinkBaseUrl } from "../config/env.js";
-import type { BuildDashboardOptions, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
+import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
 import { buildDashboard, groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../dashboard.js";
 import type { DisposeRequest } from "../dispose.js";
 import { createDisposePlan } from "../dispose.js";
@@ -875,8 +875,22 @@ function replyManagedMissingFilesCheck(home: string, session: UiSession, event: 
 
 function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
   const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const reviewedRows = reviewedCleanupRowsFromEvent(event);
+  if (reviewedRows.length === 0) {
+    return replyFailure(home, session.id, event, "rejected", {
+      reason: "Cleanup dry-run requests require reviewed cleanup row targets from the submitted dashboard snapshot.",
+      next: "Refresh the dashboard and submit Prepare cleanup plan again."
+    });
+  }
+  const scopedLedgers = new Set(dashboard.ledgers.filter((ledger) => ledger.ok).map((ledger) => ledger.path));
   const ledgersByPath = new Map<string, { name: string; path: string; recordIds: Set<string> }>();
-  for (const row of dashboard.buckets.cleanup) {
+  for (const row of reviewedRows) {
+    if (!scopedLedgers.has(row.ledgerPath)) {
+      return replyFailure(home, session.id, event, "rejected", {
+        reason: `Reviewed cleanup row ${row.recordId} belongs to a ledger outside this review scope.`,
+        next: "Refresh the dashboard and submit Prepare cleanup plan again."
+      });
+    }
     let ledger = ledgersByPath.get(row.ledgerPath);
     if (!ledger) {
       ledger = { name: row.ledgerName, path: row.ledgerPath, recordIds: new Set<string>() };
@@ -912,6 +926,26 @@ function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEv
     }
   });
   return "completed";
+}
+
+function reviewedCleanupRowsFromEvent(event: UiEvent): Array<Pick<DashboardArtifactRow, "recordId" | "ledgerPath" | "ledgerName">> {
+  const rows = event.payload.reviewedRows;
+  if (!Array.isArray(rows)) return [];
+  const reviewed: Array<Pick<DashboardArtifactRow, "recordId" | "ledgerPath" | "ledgerName">> = [];
+  const seen = new Set<string>();
+  for (const entry of rows) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    const recordId = stringFrom(record.recordId);
+    const ledgerPath = stringFrom(record.ledgerPath);
+    const ledgerName = stringFrom(record.ledgerName) ?? "ledger";
+    if (!recordId || !ledgerPath) return [];
+    const key = `${recordId}\0${ledgerPath}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    reviewed.push({ recordId, ledgerPath, ledgerName });
+  }
+  return reviewed;
 }
 
 function managedDashboardOptions(session: UiSession, event: UiEvent): BuildDashboardOptions {

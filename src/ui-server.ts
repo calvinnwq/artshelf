@@ -534,7 +534,13 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
         throw intentError(400, `Invalid Artshelf UI required action request "${action}" for lane ${lane}`);
       }
       rejectQueuedLaneRequest(pendingActions, lane, action);
-      intents.push({ type: "dry_run_requested", target: { lane }, payload: { request: action, label: requiredActionRequestLabel(lane) } });
+      const payload: Record<string, unknown> = { request: action, label: requiredActionRequestLabel(lane) };
+      if (lane === "cleanup") {
+        const rows = visibleRowsForLane(visibleRows, "cleanup");
+        validateReviewedBulkLaneRows(rows, fields, "cleanup");
+        payload.reviewedRows = reviewedCleanupRows(rows);
+      }
+      intents.push({ type: "dry_run_requested", target: { lane }, payload });
     } else {
       throw intentError(400, `Invalid Artshelf UI required action approval "${approval}"`);
     }
@@ -838,6 +844,14 @@ function reviewedBulkLaneRows(fields: Record<string, string[]>, lane: "needs-rev
     }
   }
   return rows;
+}
+
+function reviewedCleanupRows(rows: DashboardArtifactRow[]): Array<{ recordId: string; ledgerPath: string; ledgerName: string }> {
+  return rows.map((row) => ({
+    recordId: row.recordId,
+    ledgerPath: row.ledgerPath,
+    ledgerName: row.ledgerName
+  }));
 }
 
 function requiredActionRequestLabel(lane: DashboardBucketKey): string {
@@ -1144,10 +1158,12 @@ function validateDashboardLaneTarget(
   rejectQueuedLaneRequest(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId)), lane, expectedRequest);
 
   const snapshot = buildDashboard(dashboardOptions(options));
-  const count = dashboardLaneCount(snapshot, lane);
+  const visibleRows = visibleRequiredActionRows(options, snapshot);
+  const count = lane === "cleanup" ? visibleRows.cleanup.length : dashboardLaneCount(snapshot, lane);
   if (count <= 0) {
     throw intentError(400, `Dashboard lane ${lane} has no work to request`);
   }
+  const reviewedRows = lane === "cleanup" ? validateReviewedCleanupRowsPayload(payload.reviewedRows, visibleRows.cleanup) : undefined;
 
   const validatedTarget: Record<string, unknown> = { lane, registryPath: normalizeRegistryPath(options.registryPath) };
   if (options.ledgerPath !== undefined) validatedTarget.ledgerPath = normalizeLedgerPath(options.ledgerPath);
@@ -1156,9 +1172,44 @@ function validateDashboardLaneTarget(
     payload: {
       request: expectedRequest,
       ...(typeof payload.label === "string" && payload.label.trim().length > 0 ? { label: payload.label } : {}),
-      count
+      count,
+      ...(reviewedRows !== undefined ? { reviewedRows } : {})
     }
   };
+}
+
+function validateReviewedCleanupRowsPayload(value: unknown, rows: DashboardArtifactRow[]): Array<{ recordId: string; ledgerPath: string; ledgerName: string }> {
+  if (!Array.isArray(value)) {
+    throw intentError(400, "Dashboard cleanup lane requests require reviewed cleanup row targets");
+  }
+  const expected = new Map(rows.map((row) => [rowDecisionKey({ lane: "cleanup", recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" }), row]));
+  const reviewed: Array<{ recordId: string; ledgerPath: string; ledgerName: string }> = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw intentError(400, "Invalid reviewed cleanup row target");
+    }
+    const record = entry as Record<string, unknown>;
+    const recordId = typeof record.recordId === "string" ? record.recordId : "";
+    const ledgerPath = typeof record.ledgerPath === "string" ? record.ledgerPath : "";
+    const ledgerName = typeof record.ledgerName === "string" && record.ledgerName.trim().length > 0 ? record.ledgerName : "ledger";
+    if (!isNonBlank(recordId) || !isNonBlank(ledgerPath)) {
+      throw intentError(400, "Invalid reviewed cleanup row target");
+    }
+    const key = rowDecisionKey({ lane: "cleanup", recordId, ledgerPath });
+    if (!expected.has(key)) {
+      throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+    }
+    if (seen.has(key)) {
+      throw intentError(400, "Duplicate reviewed cleanup row target");
+    }
+    seen.add(key);
+    reviewed.push({ recordId, ledgerPath, ledgerName });
+  }
+  if (seen.size !== expected.size) {
+    throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+  }
+  return reviewed;
 }
 
 function isDashboardRequestLane(value: unknown): value is DashboardBucketKey {

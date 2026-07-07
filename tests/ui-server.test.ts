@@ -1634,7 +1634,11 @@ test("dashboard activity renders cleanup lane plan approval targets", async () =
     const event = appendEvent(server.home, server.sessionId, {
       type: "dry_run_requested",
       target: { lane: "cleanup", registryPath },
-      payload: { request: "prepare_cleanup_plan", count: 1 }
+      payload: {
+        request: "prepare_cleanup_plan",
+        count: 1,
+        reviewedRows: [{ recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" }]
+      }
     });
     replyToEvent(server.home, server.sessionId, event.id, {
       status: "completed",
@@ -2218,15 +2222,20 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
   await withServer({ registryPath }, async (server) => {
-    const response = await postIntent(server, {
-      type: "dry_run_requested",
-      lane: "cleanup",
-      request: "prepare_cleanup_plan",
-      label: "Prepare cleanup plan"
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup", ledgerPath);
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
     });
 
     assert.equal(response.status, 303, "a successful lane request should redirect back to the dashboard lane");
-    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#lane-cleanup`);
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}&queued=1#session-activity`);
 
     const pending = pollPendingEvents(server.home, server.sessionId);
     assert.equal(pending.length, 1, "the lane request should be queued for the agent as a pending event");
@@ -2237,15 +2246,21 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
     assert.deepEqual(event.target, { lane: "cleanup", registryPath });
     assert.deepEqual(event.payload, {
       request: "prepare_cleanup_plan",
-      label: "Prepare cleanup plan",
-      count: 1
+      label: "prepare_cleanup_plan",
+      count: 1,
+      reviewedRows: [{ recordId: "shf_cleanup", ledgerPath, ledgerName: "primary" }]
     });
 
-    const duplicate = await postIntent(server, {
-      type: "dry_run_requested",
-      lane: "cleanup",
-      request: "prepare_cleanup_plan",
-      label: "Prepare cleanup plan"
+    const duplicateParams = new URLSearchParams();
+    duplicateParams.append("token", server.token);
+    duplicateParams.append("type", "required_actions_submitted");
+    duplicateParams.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
+    appendReviewedLaneRow(duplicateParams, "cleanup", "shf_cleanup", ledgerPath);
+    const duplicate = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: duplicateParams.toString(),
+      redirect: "manual"
     });
     assert.equal(duplicate.status, 409);
     assert.match(await duplicate.text(), /already queued for the agent/i);

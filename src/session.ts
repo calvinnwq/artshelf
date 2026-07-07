@@ -778,9 +778,39 @@ function validateDryRunRequest(target: Record<string, unknown>, payload: Record<
     if (typeof payload.count !== "number" || !Number.isFinite(payload.count) || payload.count < 1) {
       throw new Error("Invalid Artshelf UI dry-run request payload.count; expected a positive number");
     }
+    if (target.lane === "cleanup") {
+      validateReviewedCleanupRows(payload.reviewedRows, payload.count);
+    }
     return;
   }
   requireRecordTarget(target);
+}
+
+function validateReviewedCleanupRows(value: unknown, count: number): void {
+  if (!Array.isArray(value) || value.length !== count) {
+    throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows; expected one reviewed row per cleanup target");
+  }
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected an object");
+    }
+    const record = entry as Record<string, unknown>;
+    const recordId = record.recordId;
+    const ledgerPath = record.ledgerPath;
+    const ledgerName = record.ledgerName;
+    if (!isNonEmptyString(recordId) || !isNonEmptyString(ledgerPath)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected recordId and ledgerPath");
+    }
+    if (ledgerName !== undefined && !isNonEmptyString(ledgerName)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected ledgerName to be non-empty");
+    }
+    const key = `${recordId}\0${ledgerPath}`;
+    if (seen.has(key)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows; duplicate row target");
+    }
+    seen.add(key);
+  }
 }
 
 // A comment intent annotates one exact record and must carry the human's note: the record + ledger it
