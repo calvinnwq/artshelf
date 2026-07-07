@@ -15,6 +15,7 @@ export const VALUE_FLAGS = new Set([
   "path",
   "payload",
   "plan-id",
+  "poll-interval-ms",
   "older-than",
   "port",
   "registry",

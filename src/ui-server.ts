@@ -37,8 +37,9 @@ import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./typ
 // pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable approval
 // snapshot as selected vs reviewed rows and the exact action. Submitting a revised subset creates a
 // new immutable approval snapshot for the agent to revalidate.
-// Completed dry-run replies can become prepared-plan approval rows on the dashboard, and pending
-// browser events can be unqueued from the activity rail.
+// Completed dry-run replies can become prepared-plan approval rows on the dashboard, pending
+// browser events can be unqueued from the activity rail, and the managed review close control queues
+// a session_done event for the attached agent. The browser never ends the session directly.
 //
 // The write paths are POST /intents for lightweight triage intents and POST /approve for immutable
 // approval snapshots. Both are guarded by the session capability token and append pending events for
@@ -84,6 +85,7 @@ const BUNDLE_PREFIX = "/bundle/";
 const INTENTS_PATH = "/intents";
 const APPROVE_PATH = "/approve";
 const ACTIVITY_PATH = "/activity";
+const CLOSE_PATH = "/close";
 
 // Detail-drawer intents are tiny, but the dashboard required-actions form also carries reviewed row
 // targets so bulk approvals can be rejected if a lane changed since render. Keep the cap bounded but
@@ -156,6 +158,15 @@ function route(options: UiServerOptions, request: any, response: any): void {
     return;
   }
 
+  if (method === "POST" && pathname === CLOSE_PATH) {
+    // Close is still an agent-mediated session event. The browser records intent; the managed
+    // poller replies, runs ui end semantics, and stops the server.
+    void routeCloseSubmission(options, request, response).catch((error) => {
+      tryServerError(response, error);
+    });
+    return;
+  }
+
   // The dashboard and detail drawer answer reads only. Writes are refused on every read path; the
   // mutating routes are the explicit, token-guarded /intents and /approve endpoints handled above.
   sendHtml(response, 405, renderErrorPage({
@@ -163,6 +174,33 @@ function route(options: UiServerOptions, request: any, response: any): void {
     title: "Method not allowed",
     message: "This review surface answers reads; human triage intents and approval bundles are recorded only through capability-token-guarded forms, and the browser executes nothing."
   }));
+}
+
+async function routeCloseSubmission(options: UiServerOptions, request: any, response: any): Promise<void> {
+  let fields: Record<string, string>;
+  try {
+    fields = flattenFormFields(parseFormUrlEncodedMulti(await readRequestBody(request, MAX_INTENT_BODY_BYTES)));
+  } catch (error) {
+    sendIntentError(response, error);
+    return;
+  }
+
+  const token = fields.token ?? "";
+  if (!authorizeBrowserWrite(options, token)) {
+    sendHtml(response, 401, renderErrorPage({
+      status: 401,
+      title: "Capability token required",
+      message: "Closing a managed review requires the active UI session token; reopen the review surface from the artshelf ui serve link."
+    }));
+    return;
+  }
+
+  appendEvent(options.uiHome, options.sessionId, {
+    type: "session_done",
+    target: { action: "close_review" },
+    payload: { reason: fields.reason ?? "browser close requested" }
+  });
+  sendRedirect(response, 303, dashboardActivityRedirect(token));
 }
 
 function routeRead(options: UiServerOptions, pathname: string, query: string, request: any, response: any): void {

@@ -46,13 +46,14 @@ export async function handleUi(parsed: ParsedArgs, json: boolean): Promise<numbe
   if (sub === "dashboard") return handleUiDashboard(parsed, json);
   if (sub === "detail") return handleUiDetail(parsed, json);
   if (sub === "serve") return handleUiServe(parsed, json);
+  if (sub === "review") return handleUiReview(parsed, json);
   if (sub === "poll") return handleUiPoll(parsed, json);
   if (sub === "reply") return handleUiReply(parsed, json);
   if (sub === "bundle") return handleUiBundle(parsed, json);
   if (sub === "execute") return handleUiExecute(parsed, json);
   if (sub === "end") return handleUiEnd(parsed, json);
   if (sub === undefined) return handleUiStart(parsed, json);
-  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, poll, reply, bundle, execute, or end)`);
+  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, review, poll, reply, bundle, execute, or end)`);
 }
 
 // `artshelf ui [--scope user|repo] [--ledger <path>] [--json]` - start or resume the session for
@@ -410,10 +411,300 @@ async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number>
   return 0;
 }
 
+// `artshelf ui review [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>]`
+// - managed foreground lifecycle that owns the loopback server plus the agent poll/reply loop.
+// It is deliberately conservative: the browser queues events, this agent-side loop immediately
+// claims them as in_progress, then either handles read-only work, executes already-approved exact
+// bundles through ui-execute's core, or rejects unsupported/broad requests with visible reasons.
+async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number> {
+  if (boolFlag(parsed, "all")) {
+    throw new Error("ui review --all is not supported; managed review handles only token-bound session events and exact approved bundles");
+  }
+  const port = parsePort(stringFlag(parsed, "port"));
+  const pollIntervalMs = parsePollInterval(stringFlag(parsed, "poll-interval-ms"));
+  const registryPath = stringFlag(parsed, "registry");
+  const ledgerPath = stringFlag(parsed, "ledger");
+  const scope = resolveScope(stringFlag(parsed, "scope"));
+  const home = resolveUiHome({ scope, cwd: process.cwd() });
+  const sessionRegistryPath = ledgerPath === undefined ? normalizeRegistryPath(registryPath) : registryPath ?? null;
+  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, registryPath: sessionRegistryPath, cwd: process.cwd() });
+  const options: StartUiServerOptions = { uiHome: home, sessionId: session.id };
+  if (port !== undefined) options.port = port;
+  if (session.registryPath !== null) options.registryPath = session.registryPath;
+  if (ledgerPath !== undefined) options.ledgerPath = ledgerPath;
+
+  const handle = await startUiServer(options);
+  const accessUrl = `${handle.url}/?token=${encodeURIComponent(session.token)}`;
+  const processed: ManagedReviewCounts = emptyManagedCounts();
+  let stopReason: string | null = null;
+
+  const signalHandler = (signal: string): void => {
+    stopReason = `signal:${signal}`;
+  };
+  signalProcess().once("SIGINT", signalHandler);
+  signalProcess().once("SIGTERM", signalHandler);
+
+  printManagedStart({ json, home, session, handle, accessUrl, pollIntervalMs });
+  try {
+    while (stopReason === null) {
+      const pending = pollPendingEvents(home, session.id);
+      for (const event of pending) {
+        const result = processManagedUiEvent(home, session, event);
+        processed[result] += 1;
+        if (result === "closed") {
+          stopReason = "browser-close";
+          break;
+        }
+      }
+      if (stopReason !== null) break;
+      await sleep(pollIntervalMs);
+    }
+
+    if (stopReason?.startsWith("signal:") && readSession(home, session.id).status === "active") {
+      endSession(home, session.id);
+      processed.closed += 1;
+    }
+  } finally {
+    signalProcess().removeListener("SIGINT", signalHandler);
+    signalProcess().removeListener("SIGTERM", signalHandler);
+    await handle.close();
+  }
+
+  printManagedEnd({ json, sessionId: session.id, reason: stopReason ?? "stopped", processed });
+  return 0;
+}
+
 function waitForServerClose(handle: UiServerHandle): Promise<void> {
   return new Promise<void>((resolve) => {
     handle.server.once("close", () => resolve());
   });
+}
+
+type ManagedReviewOutcome = "completed" | "rejected" | "stale" | "failed" | "cancelled" | "closed";
+type ManagedReviewCounts = Record<ManagedReviewOutcome, number>;
+
+function emptyManagedCounts(): ManagedReviewCounts {
+  return { completed: 0, rejected: 0, stale: 0, failed: 0, cancelled: 0, closed: 0 };
+}
+
+function processManagedUiEvent(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  try {
+    replyToEvent(home, session.id, event.id, {
+      status: "in_progress",
+      expectedStatus: "pending",
+      payload: { note: "Managed review picked up this browser event." }
+    });
+  } catch (error) {
+    // Another attached process may have claimed it first. Keep the manager alive and make the
+    // disconnected/stale state visible if this process still owns a pending projection.
+    return replyFailure(home, session.id, event, "stale", {
+      reason: `Could not claim pending event: ${errorMessage(error)}`,
+      next: "Refresh the dashboard and resubmit if this action is still needed."
+    });
+  }
+
+  try {
+    if (event.type === "session_done") {
+      replyToEvent(home, session.id, event.id, {
+        status: "completed",
+        expectedStatus: "in_progress",
+        payload: { note: "Managed review close requested; ending the UI session and stopping the attached server." }
+      });
+      endSession(home, session.id);
+      return "closed";
+    }
+
+    const refused = event.type === "approval_bundle_submitted" ? null : broadExecutionRequest(event);
+    if (refused) {
+      return replyFailure(home, session.id, event, "rejected", {
+        reason: "Managed review refuses broad or execution-shaped browser requests; mutations require exact approval bundles and existing approval-gated paths.",
+        refused,
+        next: "Run a reviewed dry-run first, then approve one exact target or bundle."
+      });
+    }
+
+    if (event.type === "approval_bundle_submitted") {
+      const bundleId = eventBundleId(event);
+      if (!bundleId) {
+        return replyFailure(home, session.id, event, "rejected", {
+          reason: "Approval bundle event did not name an exact bundle id.",
+          next: "Reopen the approval workbench and submit the exact reviewed bundle again."
+        });
+      }
+      const { execution } = executeApprovedBundle(home, session.id, bundleId);
+      if (execution.status === "executed") return "completed";
+      if (execution.status === "partial" || execution.status === "refused") return "stale";
+      return "failed";
+    }
+
+    if (event.type === "inspect_requested") {
+      const recordId = stringFrom(event.target.recordId);
+      if (!recordId) {
+        return replyFailure(home, session.id, event, "rejected", {
+          reason: "Inspect requests require an exact record id.",
+          next: "Open a dashboard/detail row and resubmit the inspect request."
+        });
+      }
+      const detailOptions: BuildArtifactDetailOptions = { recordId };
+      const ledgerPath = stringFrom(event.target.ledgerPath);
+      if (ledgerPath !== null) detailOptions.ledgerPath = ledgerPath;
+      if (session.registryPath !== null) detailOptions.registryPath = session.registryPath;
+      const detail = buildArtifactDetail(detailOptions);
+      replyToEvent(home, session.id, event.id, {
+        status: "completed",
+        expectedStatus: "in_progress",
+        payload: {
+          recordId,
+          status: detail.inspect.status,
+          recommendation: detail.inspect.recommendation,
+          nextAction: detail.inspect.nextAction
+        }
+      });
+      return "completed";
+    }
+
+    if (event.type === "dry_run_requested") {
+      replyToEvent(home, session.id, event.id, {
+        status: "completed",
+        expectedStatus: "in_progress",
+        payload: {
+          note: "Dry-run request recorded for the attached agent. No mutation was executed from the browser.",
+          request: event.payload.request ?? event.payload.action ?? null,
+          next: "Use the existing approval-gated dry-run command for the exact target, then reply with the reviewed plan id."
+        }
+      });
+      return "completed";
+    }
+
+    if (event.type === "comment_added" || event.type === "decision_submitted" || event.type === "question_answered" || event.type === "filter_saved" || event.type === "session_note_added") {
+      replyToEvent(home, session.id, event.id, {
+        status: "completed",
+        expectedStatus: "in_progress",
+        payload: {
+          note: "Browser intent recorded for audit; no ledger, file, trash, or plan mutation was executed.",
+          target: event.target
+        }
+      });
+      return "completed";
+    }
+
+    return replyFailure(home, session.id, event, "rejected", {
+      reason: `Managed review does not handle browser event type ${event.type}.`,
+      next: "Refresh the dashboard and use an explicit approval-gated CLI path if this work is still needed."
+    });
+  } catch (error) {
+    return replyFailure(home, session.id, event, "failed", {
+      reason: errorMessage(error),
+      next: "Refresh the dashboard and retry after checking the attached agent output."
+    });
+  }
+}
+
+function replyFailure(
+  home: string,
+  sessionId: string,
+  event: UiEvent,
+  status: Exclude<ManagedReviewOutcome, "completed" | "closed">,
+  payload: Record<string, unknown>
+): ManagedReviewOutcome {
+  try {
+    replyToEvent(home, sessionId, event.id, { status, expectedStatus: "in_progress", payload });
+  } catch {
+    // If a competing agent already advanced the event, avoid inventing another state.
+  }
+  return status;
+}
+
+function eventBundleId(event: UiEvent): string | null {
+  return stringFrom(event.target.bundleId) ?? stringFrom(event.payload.bundleId);
+}
+
+function broadExecutionRequest(event: UiEvent): string | null {
+  const raw = [event.payload.request, event.payload.action, event.payload.command, event.target.action]
+    .map((value) => stringFrom(value))
+    .filter((value): value is string => value !== null)
+    .join(" ");
+  if (!raw) return null;
+  return /\b--all\b|\b--execute\b|\bexecute\b/i.test(raw) ? raw : null;
+}
+
+function stringFrom(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function printManagedStart(input: {
+  json: boolean;
+  home: string;
+  session: UiSession;
+  handle: UiServerHandle;
+  accessUrl: string;
+  pollIntervalMs: number;
+}): void {
+  if (input.json) {
+    printCompactJson({
+      ok: true,
+      command: "ui-review-start",
+      home: input.home,
+      url: input.accessUrl,
+      baseUrl: input.handle.url,
+      host: input.handle.host,
+      port: input.handle.port,
+      session: publicSession(input.session),
+      token: input.session.token,
+      pollIntervalMs: input.pollIntervalMs
+    });
+    return;
+  }
+  process.stdout.write(`artshelf ui review: live review on ${input.accessUrl}\n`);
+  process.stdout.write(`session: ${input.session.id}\n`);
+  process.stdout.write("managed server and poller are attached; close the review from the browser to end.\n");
+}
+
+function printManagedEnd(input: { json: boolean; sessionId: string; reason: string; processed: ManagedReviewCounts }): void {
+  if (input.json) {
+    printCompactJson({ ok: true, command: "ui-review-end", sessionId: input.sessionId, reason: input.reason, processed: input.processed });
+    return;
+  }
+  process.stdout.write(`artshelf ui review: session ${input.sessionId} ended (${input.reason})\n`);
+  process.stdout.write(
+    `processed: ${input.processed.completed} completed, ${input.processed.rejected} rejected, ${input.processed.stale} stale, ${input.processed.failed} failed, ${input.processed.cancelled} cancelled\n`
+  );
+}
+
+function parsePort(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`Invalid --port "${raw}"; expected an integer between 0 and 65535`);
+  }
+  return port;
+}
+
+function parsePollInterval(raw: string | undefined): number {
+  if (raw === undefined) return 250;
+  const interval = Number(raw);
+  if (!Number.isInteger(interval) || interval < 10 || interval > 60_000) {
+    throw new Error(`Invalid --poll-interval-ms "${raw}"; expected an integer between 10 and 60000`);
+  }
+  return interval;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function signalProcess(): {
+  once(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+  removeListener(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+} {
+  return process as unknown as {
+    once(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+    removeListener(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+  };
 }
 
 // Display order for the eight dashboard lanes, matching the UI v1 contract bucket order.

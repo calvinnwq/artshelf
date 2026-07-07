@@ -537,8 +537,11 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
 <div class="guard">${ICON.shield}<span>${escapeHtml(REVIEW_SURFACE_NOTE)}</span></div>
 </div>
 </header>`;
+  const closeControl = token
+    ? `<button class="ghost small" type="submit" form="managed-review-close-form">Close review</button>`
+    : "";
   const agentRail = `<aside class="agent-rail" aria-label="Agent loop">
-<div class="agent-rail-inner"><div class="agent-rail-title"><span>Agent loop</span><span>poll, queue, reply</span></div>${token && queuedItems.length > 0 ? globalSubmitBar(queuedItems) : ""}${submittedConfirmation}${renderDashboardActivityFragment(history, activityOptions)}</div>
+<div class="agent-rail-inner"><div class="agent-rail-title"><span>Agent loop</span><span>poll, queue, reply</span></div>${closeControl}${token && queuedItems.length > 0 ? globalSubmitBar(queuedItems) : ""}${submittedConfirmation}${renderDashboardActivityFragment(history, activityOptions)}</div>
 </aside>`;
   const dashboard = `<main class="review-main">${masthead}<div class="wrap">${mainSurface}</div></main>${agentRail}`;
 
@@ -546,7 +549,10 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
     ? `<form class="review-form review-shell" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${dashboard}</form>`
     : `<div class="review-shell">${dashboard}</div>`;
 
-  const body = reviewSurface;
+  const closeForm = token
+    ? `<form id="managed-review-close-form" method="post" action="/close"><input type="hidden" name="token" value="${escapeHtml(token)}"></form>`
+    : "";
+  const body = `${reviewSurface}${closeForm}`;
   return page("Artshelf review dashboard", body);
 }
 

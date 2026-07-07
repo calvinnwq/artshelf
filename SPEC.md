@@ -427,26 +427,25 @@ The read-only dashboard/detail subcommands are data surfaces over existing ledge
 The browser captures human triage intents and approval bundle submissions as session events but never mutates ledgers, files, trash, or plans directly.
 
 The intended product experience is a managed agent-attached review workflow, not
-just disconnected CLI primitives. When a user asks to review Artshelf actions
-through the UI, the acting agent or host should start or resume the UI session
-from the original conversation, start `ui serve` as a managed foreground child,
-share the capability URL, and stay attached to the same session with a polling
-loop until the workflow ends. Every pending browser event should be immediately
-acknowledged or marked `in_progress` with `ui reply`, processed inside the
-read-only, dry-run, or exact-approval boundary, then completed with a reply
-payload that names the result, safety boundary, and any exact approval target.
-The served UI should refresh activity and live dashboard state so the user can
-continue submitting actions without restarting. An explicit end/close submission
-should terminate the loop, call `ui end`, stop the served UI process, and return
-a concise summary to the original conversation. If the agent or host cannot keep
-the server and poller attached, it should not present the session as a live
-review workflow.
+just disconnected CLI primitives. `artshelf ui review` starts or resumes the UI
+session from the original conversation, starts the loopback server as a managed
+foreground child, shares the capability URL, and stays attached to the same
+session with a polling loop until the workflow ends. Every pending browser event
+is immediately marked `in_progress`, processed inside the read-only, dry-run, or
+exact-approval boundary, then completed with a reply payload that names the
+result, safety boundary, and any exact approval target. The served UI refreshes
+activity and live dashboard state so the user can continue submitting actions
+without restarting. A browser close submission queues `session_done`; the
+attached loop replies, runs `ui end` semantics, stops the served UI process, and
+returns a concise summary. If another agent or host cannot keep the server and
+poller attached, it should not present the session as a live review workflow.
 
 ```bash
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
 artshelf ui dashboard [--registry <path>] [--json]
 artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
 artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
+artshelf ui review [--scope user|repo] [--port <port>] [--poll-interval-ms <ms>] [--registry <path>] [--ledger <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
@@ -465,8 +464,9 @@ The purge-candidate lane groups rows by source/ledger, shows per-group totals an
 - `ui detail <record-id>` composes the path label, inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
 - `ui serve` hosts the `ui dashboard`, `ui detail`, and approval-bundle workbench surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
+- `ui review` is the managed foreground lifecycle. It starts the same token-protected server, keeps a poll loop attached to the session, marks browser work `in_progress`, replies completed/rejected/stale/failed/cancelled outcomes into activity, runs approved bundles only through the exact-target `ui execute` core, rejects broad or execution-shaped browser requests, and closes by ending the session and stopping the server. Its `--json` output is newline-delimited lifecycle packets.
 - The served pages embed no file contents and load no external assets: the dashboard alone carries a nonce-bound session-activity poller for token-scoped `GET /activity`, while detail and bundle pages remain scriptless.
-The server accepts safe GET/HEAD reads for pages, health checks, and the read-only activity fragment, a token-bound `POST /intents` that records dashboard decisions and the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request), and a token-bound `POST /approve` that records approval-bundle submissions as pending session events.
+The server accepts safe GET/HEAD reads for pages, health checks, and the read-only activity fragment, a token-bound `POST /intents` that records dashboard decisions and the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request), a token-bound `POST /approve` that records approval-bundle submissions as pending session events, and a token-bound `POST /close` that records a `session_done` close request for the attached agent.
 It refuses any other mutating method and renders bad or missing ledgers, records, and bundles as explicit non-crashing problem states rather than blank panels.
 The captured intents and approval bundles never mutate ledgers, files, trash, or plans directly; the agent executes approved bundles through `ui execute` or handles other approval-gated commands through the agent-mediated `ui` session loop.
 - After a dashboard submit, the redirect includes a bounded queued count and lands on the session-activity panel.
@@ -496,7 +496,7 @@ Each selected target receives one of four visible outcomes - `executed`, `skippe
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail/bundle access while keeping the session readable for audit.
-- A managed UI review loop must use those lower-level commands as one lifecycle:
+- A managed UI review loop must use `ui review` or an equivalent host-owned lifecycle:
   serve, poll, acknowledge, process, reply, refresh, repeat, then end and tear
   down. Silent server exit, orphaned polling, or browser submissions that remain
   pending without an agent-visible processing state are product failures.

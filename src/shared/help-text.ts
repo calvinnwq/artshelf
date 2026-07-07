@@ -41,6 +41,7 @@ Available Commands:
   dashboard   Show the read-only multi-ledger review dashboard
   detail      Show the read-only artifact detail drawer for one record
   serve       Serve dashboard and drawers in a local browser
+  review      Run a managed live browser review lifecycle
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
   bundle      Load or list persisted approval bundles for the agent
@@ -111,7 +112,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "execute", "end"])]
+  ["ui", new Set(["dashboard", "detail", "serve", "review", "poll", "reply", "bundle", "execute", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -553,6 +554,33 @@ Approval posts carry only the source bundle id and selected target ids;
 the server rehydrates target context from the stored bundle instead of trusting
 hidden browser target JSON. The process runs in the foreground; press Ctrl-C to
 stop it.
+`;
+  }
+
+  if (command === "ui review") {
+    return `Usage:
+  artshelf ui review [--scope user|repo] [--port <port>] [--poll-interval-ms <ms>] [--registry <path>] [--ledger <path>] [--json]
+
+Options:
+  --scope <scope>          Locate or create the guarding UI session in user (default) or repo scope
+  --port <port>            Loopback port to bind (default: an ephemeral free port)
+  --poll-interval-ms <ms>  Agent poll interval, 10..60000 ms (default: 250)
+  --registry <path>        Registry whose ledgers the dashboard aggregates
+  --ledger <path>          Fallback ledger for detail drawers opened without a target
+  --json                   Emit newline-delimited compact lifecycle packets
+
+Review is the managed agent-attached browser workflow: it starts or resumes the
+UI session, serves the token-protected loopback dashboard, keeps a poll loop
+attached, immediately marks browser work in_progress, replies results into the
+session, and keeps listening for follow-up submissions. Browser close queues a
+session_done event; the attached agent loop replies, runs ui end semantics, stops
+the server, and prints a final summary packet.
+
+The manager is conservative. Read-only browser intents are acknowledged without
+mutating ledgers, files, trash, or plans. Approved bundles run only through the
+existing exact-target ui execute core. Broad or execution-shaped browser requests
+are rejected visibly; there is no ui review --all, browser-direct execution, or
+fresh-plan-then-execute path.
 `;
   }
 

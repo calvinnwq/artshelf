@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
-import { appendEvent, writeApprovalSnapshot } from "../src/session.js";
+import { appendEvent, readSession, readSessionHistory, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalTarget } from "../src/types.js";
 
 // End-to-end tests for the Artshelf UI v1 AXI command surface (NGX-532). The agent loop -
@@ -61,6 +61,84 @@ function serveSession(home: string, args: string[] = [], env: Record<string, str
     child.on("exit", (code: number | null) => {
       if (!settled) finish(() => reject(new Error(`ui serve exited before launch packet (${code}): ${stderr}`)));
     });
+  });
+}
+
+type ManagedReviewProcess = {
+  child: any;
+  packet: any;
+  lines: () => string[];
+  stderr: () => string;
+  waitForExit: () => Promise<{ code: number | null; signal: string | null }>;
+  stop: () => Promise<void>;
+};
+
+function managedReview(home: string, args: string[] = [], env: Record<string, string> = {}): Promise<ManagedReviewProcess> {
+  const child = spawn(process.execPath, [CLI.pathname, "ui", "review", "--port", "0", "--poll-interval-ms", "25", ...args, "--json"], {
+    env: { ...process.env, ARTSHELF_NO_UPDATE_CHECK: "1", ARTSHELF_UI_HOME: home, ...env }
+  });
+  child.stdout.setEncoding("utf8");
+  child.stderr.setEncoding("utf8");
+  let stdout = "";
+  let stderr = "";
+  let settled = false;
+  const exitPromise = new Promise<{ code: number | null; signal: string | null }>((resolve) => {
+    child.on("exit", (code: number | null, signal: string | null) => resolve({ code, signal }));
+  });
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      reject(new Error(`ui review timed out before launch packet: ${stderr}`));
+    }, 5000);
+    child.stdout.on("data", (chunk: string) => {
+      stdout += chunk;
+      const line = stdout.split("\n").find((entry) => entry.trim().length > 0);
+      if (!line || settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve({
+        child,
+        packet: JSON.parse(line),
+        lines: () => stdout.split("\n").filter((entry) => entry.trim().length > 0),
+        stderr: () => stderr,
+        waitForExit: () => exitPromise,
+        stop: async () => {
+          if (child.exitCode === null && !child.killed) child.kill("SIGTERM");
+          await exitPromise;
+        }
+      });
+    });
+    child.stderr.on("data", (chunk: string) => {
+      stderr += chunk;
+    });
+    child.on("error", (error: Error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on("exit", (code: number | null) => {
+      if (!settled) {
+        clearTimeout(timer);
+        reject(new Error(`ui review exited before launch packet (${code}): ${stderr}`));
+      }
+    });
+  });
+}
+
+async function waitUntil(predicate: () => boolean, timeoutMs = 5000): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  assert.equal(predicate(), true, "condition was not met before timeout");
+}
+
+async function postClose(url: string, token: string): Promise<any> {
+  return fetch(`${url}/close`, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({ token }).toString(),
+    redirect: "manual"
   });
 }
 
@@ -135,6 +213,83 @@ test("artshelf ui and ui serve share the default registry-scoped session", async
 
   assert.equal(served.session.id, started.session.id);
   assert.equal(readdirSync(join(home, "sessions")).length, 1);
+});
+
+test("artshelf ui review owns the serve/poll/reply/end lifecycle", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home);
+  try {
+    assert.equal(managed.packet.ok, true);
+    assert.equal(managed.packet.command, "ui-review-start");
+    assert.match(managed.packet.url, /^http:\/\/127\.0\.0\.1:\d+\/\?token=/);
+    assert.match(managed.packet.baseUrl, /^http:\/\/127\.0\.0\.1:\d+$/);
+    assert.equal(managed.packet.session.status, "active");
+
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "comment_added",
+      target: { recordId: "shf_1", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+      payload: { text: "human note from managed review" }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed" && entry.replies.some((reply) => reply.status === "in_progress");
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    assert.deepEqual(entry.replies.map((reply) => reply.status), ["in_progress", "completed"]);
+    assert.match(String(entry.replies.at(-1)?.payload.note), /recorded for audit/i);
+
+    const close = await postClose(managed.packet.baseUrl, managed.packet.token);
+    assert.equal(close.status, 303);
+
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    assert.equal(readSession(home, sessionId).status, "ended");
+
+    const finalLine = managed.lines().map((line) => JSON.parse(line)).find((line) => line.command === "ui-review-end");
+    assert.equal(finalLine.ok, true);
+    assert.equal(finalLine.sessionId, sessionId);
+    assert.equal(finalLine.processed.completed, 1);
+    assert.equal(finalLine.processed.closed, 1);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review rejects broad execution-shaped browser requests without mutating", async () => {
+  const home = freshHome();
+  const managed = await managedReview(home);
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "session_note_added",
+      payload: { command: "artshelf cleanup --execute --all" }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "rejected";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    assert.deepEqual(entry.replies.map((reply) => reply.status), ["in_progress", "rejected"]);
+    assert.match(String(entry.replies.at(-1)?.payload.reason), /exact approval/i);
+    assert.match(String(entry.replies.at(-1)?.payload.refused), /--all/i);
+
+    const close = await postClose(managed.packet.baseUrl, managed.packet.token);
+    assert.equal(close.status, 303);
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review refuses --all before starting a managed lifecycle", () => {
+  const home = freshHome();
+  const result = ui(home, ["ui", "review", "--all", "--json"]);
+  assert.notEqual(result.status, 0);
+  assert.match(result.stderr, /ui review --all/i);
 });
 
 test("artshelf ui --scope repo and --ledger open sessions distinct from the multi-ledger default", () => {
@@ -315,7 +470,7 @@ test("artshelf ui help surfaces the agent loop and nested help is focused", () =
   const family = ui(home, ["ui", "--help"]);
   assert.equal(family.status, 0, family.stderr);
   assert.match(family.stdout, /Usage:/);
-  for (const sub of ["poll", "reply", "bundle", "execute", "end"]) assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
+  for (const sub of ["review", "poll", "reply", "bundle", "execute", "end"]) assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
 
   const execute = ui(home, ["ui", "execute", "--help"]);
   assert.equal(execute.status, 0, execute.stderr);
@@ -339,6 +494,13 @@ test("artshelf ui help surfaces the agent loop and nested help is focused", () =
   assert.match(reply.stdout, /artshelf ui reply/);
   assert.match(reply.stdout, /--event/);
   assert.match(reply.stdout, /--status/);
+
+  const review = ui(home, ["help", "ui", "review"]);
+  assert.equal(review.status, 0, review.stderr);
+  assert.match(review.stdout, /artshelf ui review/);
+  assert.match(review.stdout, /in_progress/);
+  assert.match(review.stdout, /ui review --all/);
+  assert.doesNotMatch(review.stdout, /Available Commands:/);
 
   const top = ui(home, ["help"]);
   assert.match(top.stdout, /\n\s+ui\s+\S/);

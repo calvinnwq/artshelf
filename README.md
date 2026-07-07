@@ -154,6 +154,7 @@ artshelf ui [--scope user|repo] [--ledger <path>] [--json]
 artshelf ui dashboard [--registry <path>] [--json]
 artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
 artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
+artshelf ui review [--scope user|repo] [--port <port>] [--poll-interval-ms <ms>] [--registry <path>] [--ledger <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
@@ -180,7 +181,8 @@ or `artshelf help <command>` for focused details. Nested commands such as
 `--json`; `artshelf ui --json` is a compact single-line session packet,
 `ui dashboard --json` and `ui detail --json` emit compact read-only review
 snapshots, `ui serve --json` prints a compact launch packet before the foreground
-server waits, `ui bundle` lists or loads approval bundles, `ui execute` runs an
+server waits, `ui review --json` prints newline-delimited managed lifecycle
+packets, `ui bundle` lists or loads approval bundles, `ui execute` runs an
 approved bundle and replies per-target receipts, and
 `ui poll`/`ui reply`/`ui end` use the same compact agent loop format.
 `review`, `status`, `doctor`, `ledgers prune --dry-run`,
@@ -269,16 +271,17 @@ The purge approval is bound to the exact live trash facts (record id, ledger, tr
 If an earlier execution claimed the approval event as `in_progress` and stopped before final receipts, rerunning the same session and bundle resumes that claim instead of requiring a fresh approval.
 Each selected target gets one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state, and a clean run exits 0 while a partial or refused run exits non-zero with every receipt still recorded.
 The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly.
-The session token printed by `artshelf ui` and `artshelf ui serve` is a same-machine browser capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes and served dashboard/detail/bundle access while keeping the audit trail.
+The session token printed by `artshelf ui`, `artshelf ui serve`, and `artshelf ui review` is a same-machine browser capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes and served dashboard/detail/bundle access while keeping the audit trail.
 Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; otherwise the command prints a host-local instruction instead of a dead localhost link.
 
-For the intended live review experience, an agent or host should wrap those
-primitives into one managed workflow: start the UI from the original
-conversation, keep `ui serve` and `ui poll` attached, mark submissions
-acknowledged or `in_progress`, process each event within the read-only/dry-run or
-exact-approval boundary, reply into the session, refresh state, keep looping for
-more submissions, and end the UI plus poller from an explicit close action before
-returning a final summary.
+For the intended live review experience, run `artshelf ui review`: it starts or
+resumes the UI from the original conversation, keeps the loopback server and
+poller attached, marks submissions `in_progress`, processes each event within
+the read-only/dry-run or exact-approval boundary, replies into the session,
+refreshes state, keeps looping for more submissions, and ends the UI plus poller
+from the browser close action before returning a final summary. Hosts can still
+compose the lower-level `ui serve`/`ui poll`/`ui reply`/`ui end` primitives, but
+must refuse or downgrade visibly if they cannot keep server and poller attached.
 </details>
 
 <details>
