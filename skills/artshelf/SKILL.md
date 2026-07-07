@@ -118,6 +118,8 @@ Use `ui bundle` to list approved bundles or load one immutable snapshot plus its
 If `ui execute` claimed an approval event as `in_progress` and stopped before final receipts, rerun the same session and bundle id to resume that claim.
 The browser captures triage intents and approval bundles only, with no direct ledger/file/trash/plan mutation and no file-content preview.
 Treat the session token printed by `artshelf ui` and `ui serve` as a secret same-machine browser capability; `ui end` revokes browser writes and served dashboard/detail/bundle access while preserving the audit trail.
+
+For a live UI review request, run one attached lifecycle: start/resume `artshelf ui --scope user --json`, keep `artshelf ui serve --scope user --port 0 --json` alive as a managed foreground process, poll repeatedly, reply `in_progress` immediately, process only read-only/dry-run or exactly approved work, reply with a useful final payload, and keep looping until an explicit close/end signal. On close, finish or cancel safely, run `artshelf ui end <session-id> --scope user --json`, stop the served UI process, and summarize back in the originating conversation. If you cannot keep the server and poller attached, say managed UI review is unavailable instead of presenting the browser as live.
 Register existing project ledgers explicitly:
 
 ```bash

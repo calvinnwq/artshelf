@@ -271,6 +271,14 @@ Each selected target gets one of four visible outcomes - `executed`, `skipped_st
 The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly.
 The session token printed by `artshelf ui` and `artshelf ui serve` is a same-machine browser capability; treat it as secret, and use `artshelf ui end` to revoke future browser writes and served dashboard/detail/bundle access while keeping the audit trail.
 Set `ARTSHELF_UI_URL` only when there is a trusted review UI base URL to print; otherwise the command prints a host-local instruction instead of a dead localhost link.
+
+For the intended live review experience, an agent or host should wrap those
+primitives into one managed workflow: start the UI from the original
+conversation, keep `ui serve` and `ui poll` attached, mark submissions
+acknowledged or `in_progress`, process each event within the read-only/dry-run or
+exact-approval boundary, reply into the session, refresh state, keep looping for
+more submissions, and end the UI plus poller from an explicit close action before
+returning a final summary.
 </details>
 
 <details>

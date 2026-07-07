@@ -426,6 +426,22 @@ The command family is the AXI-style shell for the human review UI contract: the 
 The read-only dashboard/detail subcommands are data surfaces over existing ledger, registry, trash, and inspect state.
 The browser captures human triage intents and approval bundle submissions as session events but never mutates ledgers, files, trash, or plans directly.
 
+The intended product experience is a managed agent-attached review workflow, not
+just disconnected CLI primitives. When a user asks to review Artshelf actions
+through the UI, the acting agent or host should start or resume the UI session
+from the original conversation, start `ui serve` as a managed foreground child,
+share the capability URL, and stay attached to the same session with a polling
+loop until the workflow ends. Every pending browser event should be immediately
+acknowledged or marked `in_progress` with `ui reply`, processed inside the
+read-only, dry-run, or exact-approval boundary, then completed with a reply
+payload that names the result, safety boundary, and any exact approval target.
+The served UI should refresh activity and live dashboard state so the user can
+continue submitting actions without restarting. An explicit end/close submission
+should terminate the loop, call `ui end`, stop the served UI process, and return
+a concise summary to the original conversation. If the agent or host cannot keep
+the server and poller attached, it should not present the session as a live
+review workflow.
+
 ```bash
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
 artshelf ui dashboard [--registry <path>] [--json]
@@ -480,6 +496,10 @@ Each selected target receives one of four visible outcomes - `executed`, `skippe
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail/bundle access while keeping the session readable for audit.
+- A managed UI review loop must use those lower-level commands as one lifecycle:
+  serve, poll, acknowledge, process, reply, refresh, repeat, then end and tear
+  down. Silent server exit, orphaned polling, or browser submissions that remain
+  pending without an agent-visible processing state are product failures.
 - `ARTSHELF_UI_URL` may provide a trusted review UI base URL for printed links; when unset, the command prints a host-local instruction instead of inventing a localhost URL.
 
 ### `artshelf update`
@@ -1234,6 +1254,11 @@ dry-run and report plans for later human review.
   trash facts with no recovery path.
   The browser captures human triage intents and approval bundle submissions but
   never mutates ledgers, files, trash, or plans directly.
+- A host or agent can wrap the `artshelf ui` primitives into the intended live
+  review workflow: start the browser UI, stay attached to polling, acknowledge
+  submitted actions, process them within the approval boundary, reply into the
+  session, refresh live state, and end the session plus served process from an
+  explicit close signal.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf

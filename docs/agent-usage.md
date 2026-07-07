@@ -117,6 +117,32 @@ If an earlier execution claimed the approval event as `in_progress` and stopped 
 Each selected target receives one of four visible outcomes - `executed`, `skipped_stale`, `failed`, or `needs_manual_review` - so a partial run never hides a target's state, and a clean run exits 0 while a partial or refused run exits non-zero with every receipt still recorded.
 Treat the session token printed by `artshelf ui` and `artshelf ui serve` as a secret same-machine browser capability; ending the session revokes future browser writes and served dashboard/detail/bundle access while keeping the audit trail readable.
 
+### Managed UI review workflow
+
+The user-facing review should behave like one attached workflow, not a manual
+handoff between browser and shell commands. When a user asks to review Artshelf
+actions through the UI, the agent or host should:
+
+1. Start or resume `artshelf ui` from the original conversation.
+2. Start `artshelf ui serve` as a managed foreground process and give the user
+   the capability URL.
+3. Keep polling the same session with `artshelf ui poll <session-id> --json`.
+4. For every pending event, immediately reply with `acknowledged` or
+   `in_progress` so the UI shows the work was picked up.
+5. Run only read-only, dry-run, or exactly approved actions allowed by the event.
+6. Reply with the final status and payload through `artshelf ui reply`, including
+   receipts, dry-run plan ids, rejection reasons, stale-state explanations, and
+   exact approval text when another approval is needed.
+7. Continue polling and processing more submissions until the user sends an
+   explicit close/end action.
+8. On close, drain or cancel work safely, run `artshelf ui end`, stop the served
+   UI process, and summarize the session back in the original conversation.
+
+If the agent cannot keep both the served UI and the polling loop alive, it should
+say managed UI review is unavailable rather than pretending the browser is
+attached. A dead server, orphaned poller, or pending event that never visibly
+moves to processing is a broken workflow.
+
 ## Portable Skill
 
 The repo ships a portable skill at
