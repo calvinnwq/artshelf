@@ -1,12 +1,12 @@
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardSnapshot } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { disposePlanEntryDigest, disposePlanEntrySubjectStaleForExecute, readDisposePlanEntry } from "./dispose.js";
 import type { ArtifactIdentityFacts } from "./file-identity.js";
-import { artifactIdentityFacts } from "./file-identity.js";
+import { artifactIdentityFacts, sameArtifactIdentityFacts } from "./file-identity.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import {
   renderApprovalWorkbenchPage,
@@ -242,6 +242,7 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
         activityHref: activityHref(access.token),
         managedReview: options.managedReview === true,
         scriptNonce,
+        reviewedCleanupRows: signedReviewedCleanupRowFields(options, snapshot),
         reviewablePreparedPlanEventIds: reviewablePreparedPlanEventIds(options, snapshot)
       }),
       { "Content-Security-Policy": dashboardContentSecurityPolicy(scriptNonce) }
@@ -540,7 +541,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
       if (lane === "cleanup") {
         const rows = visibleRowsForLane(visibleRows, "cleanup");
         validateReviewedBulkLaneRows(rows, fields, "cleanup");
-        payload.reviewedRows = reviewedCleanupRows(rows);
+        payload.reviewedRows = reviewedCleanupRowsFromSignedFields(options, fields, rows);
       }
       intents.push({ type: "dry_run_requested", target: { lane }, payload });
     } else {
@@ -848,6 +849,10 @@ function reviewedBulkLaneRows(fields: Record<string, string[]>, lane: "needs-rev
   return rows;
 }
 
+function reviewedLaneRowValue(row: Pick<DashboardArtifactRow, "recordId" | "ledgerPath">): string {
+  return `${encodeURIComponent(row.recordId)}:${encodeURIComponent(row.ledgerPath ?? "")}`;
+}
+
 type ReviewedCleanupRowPayload = {
   recordId: string;
   ledgerPath: string;
@@ -858,10 +863,13 @@ type ReviewedCleanupRowPayload = {
   fileFacts: ArtifactIdentityFacts;
 };
 
-function reviewedCleanupRows(rows: DashboardArtifactRow[]): ReviewedCleanupRowPayload[] {
-  return rows.map((row) => {
+function signedReviewedCleanupRowFields(options: UiServerOptions, snapshot: DashboardSnapshot): Map<string, string> {
+  const session = readSession(options.uiHome, options.sessionId);
+  const rows = visibleRequiredActionRows(options, snapshot).cleanup;
+  const fields = new Map<string, string>();
+  for (const row of rows) {
     if (row.dueState === null) throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
-    return {
+    fields.set(reviewedLaneRowValue(row), signReviewedCleanupRowPayload(session, {
       recordId: row.recordId,
       ledgerPath: row.ledgerPath,
       ledgerName: row.ledgerName,
@@ -869,8 +877,99 @@ function reviewedCleanupRows(rows: DashboardArtifactRow[]): ReviewedCleanupRowPa
       cleanup: row.cleanup,
       dueState: row.dueState,
       fileFacts: artifactIdentityFacts(row.path)
-    };
-  });
+    }));
+  }
+  return fields;
+}
+
+function reviewedCleanupRowsFromSignedFields(
+  options: UiServerOptions,
+  fields: Record<string, string[]>,
+  rows: DashboardArtifactRow[]
+): ReviewedCleanupRowPayload[] {
+  const values = fields["reviewed:cleanup:facts"] ?? [];
+  if (values.length === 0) {
+    throw intentError(400, "Dashboard cleanup lane requests require signed reviewed cleanup row facts");
+  }
+  const session = readSession(options.uiHome, options.sessionId);
+  return validateReviewedCleanupRowsPayload(values.map((value) => parseReviewedCleanupRowPayload(session, value)), rows);
+}
+
+function signReviewedCleanupRowPayload(session: ReturnType<typeof readSession>, payload: ReviewedCleanupRowPayload): string {
+  const body = hexEncode(encodeURIComponent(JSON.stringify({ version: 1, ...payload })));
+  return `${body}:${cleanupRowPayloadSignature(session, body)}`;
+}
+
+function parseReviewedCleanupRowPayload(session: ReturnType<typeof readSession>, value: string): ReviewedCleanupRowPayload {
+  const [body, signature, extra] = value.split(":");
+  if (extra !== undefined || !isNonBlank(body) || !isNonBlank(signature)) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  if (signature !== cleanupRowPayloadSignature(session, body)) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(hexDecode(body)));
+  } catch {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (record.version !== 1) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  const recordId = typeof record.recordId === "string" ? record.recordId : "";
+  const ledgerPath = typeof record.ledgerPath === "string" ? record.ledgerPath : "";
+  const ledgerName = typeof record.ledgerName === "string" && record.ledgerName.trim().length > 0 ? record.ledgerName : "ledger";
+  const path = typeof record.path === "string" ? record.path : "";
+  const cleanup = typeof record.cleanup === "string" ? record.cleanup : "";
+  const dueState = typeof record.dueState === "string" ? record.dueState : "";
+  const fileFacts = artifactIdentityFactsFrom(record.fileFacts);
+  if (!isNonBlank(recordId) || !isNonBlank(ledgerPath) || !isNonBlank(path) || !isNonBlank(cleanup) || !isNonBlank(dueState) || fileFacts === null) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  return { recordId, ledgerPath, ledgerName, path, cleanup, dueState, fileFacts };
+}
+
+function cleanupRowPayloadSignature(session: ReturnType<typeof readSession>, body: string): string {
+  return createHash("sha256").update(`${session.id}\0${session.createdAt}\0${session.token}\0${body}`).digest("hex");
+}
+
+function hexEncode(value: string): string {
+  let encoded = "";
+  for (const char of value) encoded += char.charCodeAt(0).toString(16).padStart(2, "0");
+  return encoded;
+}
+
+function hexDecode(value: string): string {
+  if (value.length % 2 !== 0 || /[^0-9a-f]/i.test(value)) throw new Error("invalid hex");
+  let decoded = "";
+  for (let i = 0; i < value.length; i += 2) decoded += String.fromCharCode(Number.parseInt(value.slice(i, i + 2), 16));
+  return decoded;
+}
+
+function artifactIdentityFactsFrom(value: unknown): ArtifactIdentityFacts | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.exists === false && record.nodeKind === "missing") return { exists: false, nodeKind: "missing" };
+  if (record.exists !== true) return null;
+  const nodeKind = record.nodeKind;
+  if (nodeKind !== "file" && nodeKind !== "directory" && nodeKind !== "symlink" && nodeKind !== "other") return null;
+  const dev = finiteNumberFrom(record.dev);
+  const ino = finiteNumberFrom(record.ino);
+  const mode = finiteNumberFrom(record.mode);
+  const size = finiteNumberFrom(record.size);
+  const mtimeMs = finiteNumberFrom(record.mtimeMs);
+  const ctimeMs = finiteNumberFrom(record.ctimeMs);
+  if (dev === null || ino === null || mode === null || size === null || mtimeMs === null || ctimeMs === null) return null;
+  return { exists: true, nodeKind, dev, ino, mode, size, mtimeMs, ctimeMs };
+}
+
+function finiteNumberFrom(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function requiredActionRequestLabel(lane: DashboardBucketKey): string {
@@ -1223,14 +1322,24 @@ function validateReviewedCleanupRowsPayload(value: unknown, rows: DashboardArtif
     if (!expectedRow || expectedRow.dueState === null) {
       throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
     }
-    if (path !== expectedRow.path || cleanup !== expectedRow.cleanup || dueState !== expectedRow.dueState || ledgerName !== expectedRow.ledgerName) {
+    const fileFacts = artifactIdentityFactsFrom(record.fileFacts);
+    if (!fileFacts) {
+      throw intentError(400, "Invalid reviewed cleanup row target");
+    }
+    if (
+      path !== expectedRow.path ||
+      cleanup !== expectedRow.cleanup ||
+      dueState !== expectedRow.dueState ||
+      ledgerName !== expectedRow.ledgerName ||
+      !sameArtifactIdentityFacts(artifactIdentityFacts(path), fileFacts)
+    ) {
       throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
     }
     if (seen.has(key)) {
       throw intentError(400, "Duplicate reviewed cleanup row target");
     }
     seen.add(key);
-    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState, fileFacts: artifactIdentityFacts(expectedRow.path) });
+    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState, fileFacts });
   }
   if (seen.size !== expected.size) {
     throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");

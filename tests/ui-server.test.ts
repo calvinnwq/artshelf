@@ -278,6 +278,13 @@ function reviewedLaneRowValue(recordId: string, ledgerPath: string): string {
   return `${encodeURIComponent(recordId)}:${encodeURIComponent(ledgerPath)}`;
 }
 
+async function appendRenderedCleanupFacts(server: ServerHandle, params: URLSearchParams): Promise<void> {
+  const response = await (await server.request(`/?token=${encodeURIComponent(server.token)}`)).text();
+  const matches = [...response.matchAll(/name="reviewed:cleanup:facts" value="([^"]+)"/g)];
+  assert.ok(matches.length > 0, "dashboard should render signed reviewed cleanup row facts");
+  for (const match of matches) params.append("reviewed:cleanup:facts", match[1]!);
+}
+
 // Submit a browser triage intent exactly as the rendered HTML form would: a urlencoded POST to
 // /intents carrying the capability token in the body. `noToken` drops it to exercise the write gate.
 function postIntent(
@@ -2230,6 +2237,7 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
     params.append("type", "required_actions_submitted");
     params.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
     appendReviewedLaneRow(params, "cleanup", "shf_cleanup", ledgerPath);
+    await appendRenderedCleanupFacts(server, params);
     const response = await server.requestRaw("/intents", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -2259,6 +2267,7 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
     duplicateParams.append("type", "required_actions_submitted");
     duplicateParams.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
     appendReviewedLaneRow(duplicateParams, "cleanup", "shf_cleanup", ledgerPath);
+    await appendRenderedCleanupFacts(server, duplicateParams);
     const duplicate = await server.requestRaw("/intents", {
       method: "POST",
       headers: { "content-type": "application/x-www-form-urlencoded" },
@@ -2268,6 +2277,36 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
     assert.equal(duplicate.status, 409);
     assert.match(await duplicate.text(), /already queued for the agent/i);
     assert.equal(pollPendingEvents(server.home, server.sessionId).length, 1, "duplicate lane requests must not add agent work");
+  });
+});
+
+test("POST /intents rejects cleanup lane requests when rendered file facts drift before submit", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  const cleanupPath = realFile(dir, "scratch.txt");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { path: cleanupPath })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup", ledgerPath);
+    await appendRenderedCleanupFacts(server, params);
+    writeFileSync(cleanupPath, "changed after dashboard render");
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 409);
+    assert.match(await response.text(), /changed since this page loaded/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "stale rendered cleanup facts must not enter the agent queue");
   });
 });
 

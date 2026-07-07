@@ -502,6 +502,7 @@ export type DashboardSessionActivityRender = {
   includeScript?: boolean;
   managedReview?: boolean;
   reviewablePreparedPlanEventIds?: Set<string>;
+  reviewedCleanupRows?: Map<string, string>;
   token?: string;
 };
 
@@ -528,7 +529,7 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   if (activity.scriptNonce !== undefined) activityOptions.scriptNonce = activity.scriptNonce;
   if (activity.includeScript !== undefined) activityOptions.includeScript = activity.includeScript;
   if (token !== undefined) activityOptions.token = token;
-  const mainSurface = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity, pendingActions, preparedPlans, visibleRows)}
+  const mainSurface = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity, pendingActions, preparedPlans, visibleRows, activity.reviewedCleanupRows ?? new Map())}
 ${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
 ${ledgerHealthSection(ledgers)}
 ${activitySection(snapshot, token, ledgerIndex)}`;
@@ -575,7 +576,8 @@ function requiredActionsSection(
   rowActivity: Map<string, UiSessionHistoryEntry>,
   pendingActions: PendingActionIndex,
   preparedPlans: Map<string, PreparedPlanApproval>,
-  visibleRows: RequiredActionRows
+  visibleRows: RequiredActionRows,
+  reviewedCleanupRows: Map<string, string>
 ): string {
   const counts = snapshot.counts;
   const cards: string[] = [];
@@ -676,7 +678,7 @@ function requiredActionsSection(
     cards.length === 0
       ? `<div class="allclear">${ICON.check}<span>You're all caught up - nothing needs review right now.</span></div>`
       : `<div class="acts">${cards.join("")}</div>`;
-  return `<section class="block" id="required-actions">${reviewedLaneInputs(visibleRows)}<p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
+  return `<section class="block" id="required-actions">${reviewedLaneInputs(visibleRows, reviewedCleanupRows)}<p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
 }
 
 function actionCard(
@@ -882,24 +884,29 @@ function approvalFieldName(lane: DashboardBucketKey): string {
   return `approval:${lane}`;
 }
 
-function reviewedLaneInputs(rows: RequiredActionRows): string {
+function reviewedLaneInputs(rows: RequiredActionRows, reviewedCleanupRows: Map<string, string>): string {
   return [
     reviewedArtifactLaneInputs("needs-review", rows.needsReview),
     reviewedArtifactLaneInputs("needs-context", rows.needsContext),
-    reviewedArtifactLaneInputs("cleanup", rows.cleanup),
+    reviewedArtifactLaneInputs("cleanup", rows.cleanup, reviewedCleanupRows),
     reviewedArtifactLaneInputs("resolve", rows.resolve)
   ].join("");
 }
 
 function reviewedArtifactLaneInputs(
   lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
-  rows: DashboardArtifactRow[]
+  rows: DashboardArtifactRow[],
+  reviewedCleanupRows: Map<string, string> = new Map()
 ): string {
   return rows
-    .map(
-      (row) =>
-        `<input type="hidden" name="${escapeHtml(reviewedLaneFieldName(lane))}" value="${escapeHtml(reviewedLaneRowValue(row))}">`
-    )
+    .map((row) => {
+      const reviewedRow = `<input type="hidden" name="${escapeHtml(reviewedLaneFieldName(lane))}" value="${escapeHtml(reviewedLaneRowValue(row))}">`;
+      if (lane !== "cleanup") return reviewedRow;
+      const facts = reviewedCleanupRows.get(reviewedLaneRowValue(row));
+      return facts === undefined
+        ? reviewedRow
+        : `${reviewedRow}<input type="hidden" name="reviewed:cleanup:facts" value="${escapeHtml(facts)}">`;
+    })
     .join("");
 }
 
