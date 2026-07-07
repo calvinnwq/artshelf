@@ -6,7 +6,6 @@ import { buildDashboard, groupPurgeCandidates, purgeApprovalTargets, PURGE_APPRO
 import type { DisposeRequest } from "../dispose.js";
 import { createDisposePlan } from "../dispose.js";
 import { createCleanupPlan } from "../ledger.js";
-import { listRegisteredLedgers } from "../registry.js";
 import { normalizeRegistryPath } from "../registry.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
@@ -766,6 +765,7 @@ function replyManagedDryRunPlan(
       title: "Dispose dry-run prepared",
       note: input.note,
       planId: plan.planId,
+      action: plan.entry.action,
       count: 1,
       records: [input.recordId],
       approvalTarget: `approve artshelf dispose ledger ${input.ledgerPath} plan ${plan.planId}`
@@ -883,9 +883,12 @@ function replyManagedMissingFilesCheck(home: string, session: UiSession, event: 
 }
 
 function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
-  const ledgerPath = stringFrom(event.target.ledgerPath);
-  const registryPath = stringFrom(event.target.registryPath) ?? session.registryPath ?? normalizeRegistryPath();
-  const ledgers = ledgerPath ? [{ name: "ledger", path: ledgerPath }] : listRegisteredLedgers(registryPath);
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const ledgersByPath = new Map<string, { name: string; path: string }>();
+  for (const row of dashboard.buckets.cleanup) {
+    if (!ledgersByPath.has(row.ledgerPath)) ledgersByPath.set(row.ledgerPath, { name: row.ledgerName, path: row.ledgerPath });
+  }
+  const ledgers = [...ledgersByPath.values()];
   const plans = ledgers.map((ledger) => ({ ledger, plan: createCleanupPlan(ledger.path) })).filter((entry) => entry.plan.entries.length > 0);
   if (plans.length === 0) {
     return replyFailure(home, session.id, event, "stale", {

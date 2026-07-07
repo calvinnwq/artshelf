@@ -389,6 +389,7 @@ test("artshelf ui review turns an exact decision intent into a reviewed dry-run 
     const plan = readDisposePlanEntry(ledger, planId);
     assert.equal(plan.id, "shf_decision");
     assert.equal(plan.action, "trash-resolve");
+    assert.equal(payload.action, "trash-resolve");
     assert.deepEqual(payload.records, ["shf_decision"]);
     assert.equal(payload.approvalTarget, `approve artshelf dispose ledger ${ledger} plan ${planId}`);
     assert.equal(readLedger(ledger).find((record) => record.id === "shf_decision")?.status, "active");
@@ -428,10 +429,43 @@ test("artshelf ui review prepares a reviewed plan from an exact dry-run request"
     const plan = readDisposePlanEntry(ledger, planId);
     assert.equal(plan.id, "shf_dryrun");
     assert.equal(plan.action, "keep");
+    assert.equal(payload.action, "keep");
     assert.deepEqual(payload.records, ["shf_dryrun"]);
     assert.equal(payload.approvalTarget, `approve artshelf dispose ledger ${ledger} plan ${planId}`);
     assert.equal(readLedger(ledger).find((record) => record.id === "shf_dryrun")?.status, "active");
     assert.equal(existsSync(subject), true);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review reports the resolved snooze action for defer decisions", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-defer-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "shf_defer.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [ledgerRecord("shf_defer", subject, { reason: "review after migration completes" })]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "decision_submitted",
+      target: { recordId: "shf_defer", ledgerPath: ledger },
+      payload: { decision: "defer" }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    const plan = readDisposePlanEntry(ledger, String(payload.planId));
+    assert.equal(plan.action, "snooze");
+    assert.equal(payload.action, "snooze");
   } finally {
     await managed.stop();
   }
@@ -476,6 +510,48 @@ test("artshelf ui review prepares a purge approval workbench from a lane dry-run
     assert.equal(snapshot.targets.length, 1);
     assert.deepEqual(snapshot.selectedTargetIds, []);
     assert.equal(existsSync(target), true);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review cleanup lane plans only validated dashboard cleanup rows", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-cleanup-lane-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "shf_cleanup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [
+    ledgerRecord("shf_cleanup", subject, {
+      reason: "release archive is no longer needed",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: "2026-01-02T00:00:00.000Z",
+      cleanup: "trash"
+    })
+  ]);
+  const missingLedger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-review-cleanup-missing-")), ".artshelf", "missing.jsonl");
+  const registryPath = registryWithLedgers([ledger, missingLedger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "cleanup", registryPath },
+      payload: { request: "prepare_cleanup_plan", label: "Prepare cleanup", count: 1 }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(payload.kind, "cleanup_dry_run");
+    assert.equal(payload.count, 1);
+    assert.equal(payload.plans.length, 1);
+    assert.equal(payload.plans[0].ledgerPath, ledger);
+    assert.equal(payload.plans[0].count, 1);
   } finally {
     await managed.stop();
   }
@@ -628,17 +704,16 @@ test("artshelf ui review signal teardown cancels pending work and ends the sessi
   // finish until the interval elapsed. The generous threshold below still proves interruption while
   // tolerating CPU contention from the rest of the suite.
   const pollIntervalMs = 20_000;
+  const session = startSession(home).session;
+  const settled = appendEvent(home, session.id, {
+    type: "comment_added",
+    target: { recordId: "shf_settled", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
+    payload: { text: "processed before the interrupt" }
+  });
   const managed = await managedReview(home, ["--poll-interval-ms", String(pollIntervalMs)]);
   try {
     const sessionId = managed.packet.session.id;
-    // Drive one event to completion first: once it is completed the manager has finished that poll
-    // and is provably in the long sleep, so the next event is guaranteed still-pending when we signal
-    // (no race with the first poll).
-    const settled = appendEvent(home, sessionId, {
-      type: "comment_added",
-      target: { recordId: "shf_settled", ledgerPath: "/srv/ledgers/a/.artshelf/ledger.jsonl" },
-      payload: { text: "processed before the interrupt" }
-    });
+    assert.equal(sessionId, session.id);
     await waitUntil(() => readSessionHistory(home, sessionId).find((item) => item.event.id === settled.id)?.event.status === "completed");
 
     const pending = appendEvent(home, sessionId, {

@@ -126,7 +126,7 @@ test("renderApprovalWorkbenchPage offers a deliberate approval submit and never 
   assert.ok(!/select all/i.test(html), "the workbench must not offer select-all");
 });
 
-test("renderApprovalWorkbenchPage blocks approval when nothing is selected", () => {
+test("renderApprovalWorkbenchPage prompts for selection when nothing is preselected", () => {
   const view: UiApprovalWorkbenchView = {
     sessionId: "session_x",
     bundleId: "bundle_20260625_120000_abcdef01",
@@ -145,7 +145,8 @@ test("renderApprovalWorkbenchPage blocks approval when nothing is selected", () 
   const html = renderApprovalWorkbenchPage(view, TOKEN);
 
   assert.match(html, /select at least one/i, "an empty selection shows an invalid-selection notice");
-  assert.match(html, /<button[^>]*disabled/i, "the approve submit is disabled with an empty selection");
+  assert.match(html, /Approve selected targets/, "scriptless reviewers can select targets and submit");
+  assert.doesNotMatch(html, /<button[^>]*disabled/i, "the approve submit stays available for explicit selection");
 });
 
 test("renderApprovalWorkbenchPage renders an explicit empty state with no form when there are no candidates", () => {
