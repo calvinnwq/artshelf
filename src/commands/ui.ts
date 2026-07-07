@@ -454,8 +454,10 @@ async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number
   let failure: unknown = null;
   try {
     while (stopReason === null) {
-      // If the session was ended out from under this manager (another process ran `ui end`, or its
-      // storage vanished), stop presenting the browser as live and tear down with a visible reason.
+      // If the session was ended out from under this manager (e.g. another process ran `ui end`),
+      // stop presenting the browser as live and tear down cleanly. A read that throws instead
+      // (session file missing/corrupt) is an abnormal condition surfaced by the catch below as an
+      // error exit, not this clean session-ended path.
       if (readSession(home, session.id).status !== "active") {
         stopReason = "session-ended";
         break;
