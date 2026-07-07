@@ -697,8 +697,8 @@ test("appendEvent records a dry_run_requested intent against a dashboard lane ta
       request: "prepare_cleanup_plan",
       count: 2,
       reviewedRows: [
-        { recordId: "shf_cleanup_a", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary" },
-        { recordId: "shf_cleanup_b", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary" }
+        { recordId: "shf_cleanup_a", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary", path: "/tmp/a.tgz", cleanup: "trash", dueState: "due" },
+        { recordId: "shf_cleanup_b", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary", path: "/tmp/b.tgz", cleanup: "trash", dueState: "due" }
       ]
     }
   });
@@ -711,8 +711,8 @@ test("appendEvent records a dry_run_requested intent against a dashboard lane ta
     request: "prepare_cleanup_plan",
     count: 2,
     reviewedRows: [
-      { recordId: "shf_cleanup_a", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary" },
-      { recordId: "shf_cleanup_b", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary" }
+      { recordId: "shf_cleanup_a", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary", path: "/tmp/a.tgz", cleanup: "trash", dueState: "due" },
+      { recordId: "shf_cleanup_b", ledgerPath: "/ledgers/a/.artshelf/ledger.jsonl", ledgerName: "primary", path: "/tmp/b.tgz", cleanup: "trash", dueState: "due" }
     ]
   });
   assert.deepEqual(pollPendingEvents(home, session.id).map((entry) => entry.id), [event.id]);

@@ -545,7 +545,7 @@ test("artshelf ui review cleanup lane plans only validated dashboard cleanup row
         request: "prepare_cleanup_plan",
         label: "Prepare cleanup",
         count: 1,
-        reviewedRows: [{ recordId: "shf_cleanup", ledgerPath: ledger, ledgerName: "primary" }]
+        reviewedRows: [{ recordId: "shf_cleanup", ledgerPath: ledger, ledgerName: "ledger-0", path: subject, cleanup: "trash", dueState: "due" }]
       }
     });
     writeLedgerFile(ledger, [
@@ -577,6 +577,59 @@ test("artshelf ui review cleanup lane plans only validated dashboard cleanup row
     const planId = String(payload.plans[0].planId);
     const plan = JSON.parse(readFileSync(join(dirname(ledger), "plans", `${planId}.json`), "utf8"));
     assert.deepEqual(plan.entries.map((planEntry: Record<string, unknown>) => planEntry.id), ["shf_cleanup"]);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review rejects cleanup rows whose reviewed facts changed", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-cleanup-stale-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "shf_cleanup.tar");
+  const changedSubject = join(repo, "shf_cleanup_changed.tar");
+  writeFileSync(subject, "payload");
+  writeFileSync(changedSubject, "payload");
+  writeLedgerFile(ledger, [
+    ledgerRecord("shf_cleanup", subject, {
+      reason: "release archive is no longer needed",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: "2026-01-02T00:00:00.000Z",
+      cleanup: "trash"
+    })
+  ]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, ["--poll-interval-ms", "1500"], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "cleanup", registryPath },
+      payload: {
+        request: "prepare_cleanup_plan",
+        label: "Prepare cleanup",
+        count: 1,
+        reviewedRows: [{ recordId: "shf_cleanup", ledgerPath: ledger, ledgerName: "ledger-0", path: subject, cleanup: "trash", dueState: "due" }]
+      }
+    });
+    writeLedgerFile(ledger, [
+      ledgerRecord("shf_cleanup", changedSubject, {
+        reason: "release archive is no longer needed",
+        retention: { mode: "ttl", ttl: "1d" },
+        retainUntil: "2026-01-02T00:00:00.000Z",
+        cleanup: "trash"
+      })
+    ]);
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "stale";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.match(String(payload.reason), /changed/i);
+    assert.equal(existsSync(join(dirname(ledger), "plans")), false);
   } finally {
     await managed.stop();
   }

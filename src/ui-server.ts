@@ -846,12 +846,18 @@ function reviewedBulkLaneRows(fields: Record<string, string[]>, lane: "needs-rev
   return rows;
 }
 
-function reviewedCleanupRows(rows: DashboardArtifactRow[]): Array<{ recordId: string; ledgerPath: string; ledgerName: string }> {
-  return rows.map((row) => ({
-    recordId: row.recordId,
-    ledgerPath: row.ledgerPath,
-    ledgerName: row.ledgerName
-  }));
+function reviewedCleanupRows(rows: DashboardArtifactRow[]): Array<{ recordId: string; ledgerPath: string; ledgerName: string; path: string; cleanup: string; dueState: string }> {
+  return rows.map((row) => {
+    if (row.dueState === null) throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+    return {
+      recordId: row.recordId,
+      ledgerPath: row.ledgerPath,
+      ledgerName: row.ledgerName,
+      path: row.path,
+      cleanup: row.cleanup,
+      dueState: row.dueState
+    };
+  });
 }
 
 function requiredActionRequestLabel(lane: DashboardBucketKey): string {
@@ -1178,12 +1184,12 @@ function validateDashboardLaneTarget(
   };
 }
 
-function validateReviewedCleanupRowsPayload(value: unknown, rows: DashboardArtifactRow[]): Array<{ recordId: string; ledgerPath: string; ledgerName: string }> {
+function validateReviewedCleanupRowsPayload(value: unknown, rows: DashboardArtifactRow[]): Array<{ recordId: string; ledgerPath: string; ledgerName: string; path: string; cleanup: string; dueState: string }> {
   if (!Array.isArray(value)) {
     throw intentError(400, "Dashboard cleanup lane requests require reviewed cleanup row targets");
   }
   const expected = new Map(rows.map((row) => [rowDecisionKey({ lane: "cleanup", recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" }), row]));
-  const reviewed: Array<{ recordId: string; ledgerPath: string; ledgerName: string }> = [];
+  const reviewed: Array<{ recordId: string; ledgerPath: string; ledgerName: string; path: string; cleanup: string; dueState: string }> = [];
   const seen = new Set<string>();
   for (const entry of value) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
@@ -1193,18 +1199,25 @@ function validateReviewedCleanupRowsPayload(value: unknown, rows: DashboardArtif
     const recordId = typeof record.recordId === "string" ? record.recordId : "";
     const ledgerPath = typeof record.ledgerPath === "string" ? record.ledgerPath : "";
     const ledgerName = typeof record.ledgerName === "string" && record.ledgerName.trim().length > 0 ? record.ledgerName : "ledger";
+    const path = typeof record.path === "string" ? record.path : "";
+    const cleanup = typeof record.cleanup === "string" ? record.cleanup : "";
+    const dueState = typeof record.dueState === "string" ? record.dueState : "";
     if (!isNonBlank(recordId) || !isNonBlank(ledgerPath)) {
       throw intentError(400, "Invalid reviewed cleanup row target");
     }
     const key = rowDecisionKey({ lane: "cleanup", recordId, ledgerPath });
-    if (!expected.has(key)) {
+    const expectedRow = expected.get(key);
+    if (!expectedRow || expectedRow.dueState === null) {
+      throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+    }
+    if (path !== expectedRow.path || cleanup !== expectedRow.cleanup || dueState !== expectedRow.dueState || ledgerName !== expectedRow.ledgerName) {
       throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
     }
     if (seen.has(key)) {
       throw intentError(400, "Duplicate reviewed cleanup row target");
     }
     seen.add(key);
-    reviewed.push({ recordId, ledgerPath, ledgerName });
+    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState });
   }
   if (seen.size !== expected.size) {
     throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");

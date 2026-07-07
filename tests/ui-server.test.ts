@@ -1627,7 +1627,8 @@ test("dashboard activity renders cleanup lane plan approval targets", async () =
   const dir = fixtureDir();
   const ledgerPath = join(dir, "primary", "ledger.jsonl");
   const registryPath = join(dir, "ledgers.json");
-  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") })]);
+  const cleanupPath = realFile(dir, "cleanup-a.txt");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: cleanupPath })]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
   await withServer({ registryPath }, async (server) => {
@@ -1637,7 +1638,7 @@ test("dashboard activity renders cleanup lane plan approval targets", async () =
       payload: {
         request: "prepare_cleanup_plan",
         count: 1,
-        reviewedRows: [{ recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" }]
+        reviewedRows: [{ recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due" }]
       }
     });
     replyToEvent(server.home, server.sessionId, event.id, {
@@ -2218,7 +2219,8 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
   const registryPath = join(dir, "ledgers.json");
-  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
+  const cleanupPath = realFile(dir, "scratch.txt");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { path: cleanupPath })]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
   await withServer({ registryPath }, async (server) => {
@@ -2248,7 +2250,7 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
       request: "prepare_cleanup_plan",
       label: "prepare_cleanup_plan",
       count: 1,
-      reviewedRows: [{ recordId: "shf_cleanup", ledgerPath, ledgerName: "primary" }]
+      reviewedRows: [{ recordId: "shf_cleanup", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due" }]
     });
 
     const duplicateParams = new URLSearchParams();

@@ -27,7 +27,7 @@ import {
 import type { ParsedArgs } from "../shared/cli-types.js";
 import { boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { UI_HELP } from "../shared/help-text.js";
-import type { DisposeAction, UiApprovalSnapshot, UiApprovalTarget, UiDecisionIntent, UiEvent, UiSession, UiSessionScope } from "../types.js";
+import type { CleanupAction, CleanupPlanEntry, DisposeAction, DueStatus, UiApprovalSnapshot, UiApprovalTarget, UiDecisionIntent, UiEvent, UiSession, UiSessionScope } from "../types.js";
 import { executeApprovedBundle } from "../ui-execute.js";
 import type { StartUiServerOptions, UiServerHandle } from "../ui-server.js";
 import { startUiServer } from "../ui-server.js";
@@ -571,9 +571,7 @@ function emptyManagedCounts(): ManagedReviewCounts {
 }
 
 function processManagedUiEvent(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
-  // Approved bundles keep their own claim protocol: executeApprovedBundle claims the pending event
-  // with the bundle id + fingerprint witness and replies per-target receipts itself. A generic
-  // pickup claim here would make the execute core refuse the bundle as a mismatched claim.
+  // Approved bundles use their own bundle id + fingerprint claim protocol before execution receipts.
   if (event.type === "approval_bundle_submitted") return processManagedBundleEvent(home, session, event);
 
   try {
@@ -883,7 +881,8 @@ function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEv
     });
   }
   const scopedLedgers = new Set(dashboard.ledgers.filter((ledger) => ledger.ok).map((ledger) => ledger.path));
-  const ledgersByPath = new Map<string, { name: string; path: string; recordIds: Set<string> }>();
+  const liveRows = new Map(dashboard.buckets.cleanup.map((row) => [cleanupReviewedRowKey(row), row]));
+  const ledgersByPath = new Map<string, { name: string; path: string; recordIds: Set<string>; expectedEntries: CleanupPlanEntry[] }>();
   for (const row of reviewedRows) {
     if (!scopedLedgers.has(row.ledgerPath)) {
       return replyFailure(home, session.id, event, "rejected", {
@@ -891,17 +890,34 @@ function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEv
         next: "Refresh the dashboard and submit Prepare cleanup plan again."
       });
     }
+    const liveRow = liveRows.get(cleanupReviewedRowKey(row));
+    if (!liveRow || cleanupReviewedRowChanged(row, liveRow)) {
+      return replyFailure(home, session.id, event, "stale", {
+        reason: `Reviewed cleanup row ${row.recordId} changed since the dashboard request was submitted.`,
+        next: "Refresh the dashboard and submit Prepare cleanup plan again."
+      });
+    }
     let ledger = ledgersByPath.get(row.ledgerPath);
     if (!ledger) {
-      ledger = { name: row.ledgerName, path: row.ledgerPath, recordIds: new Set<string>() };
+      ledger = { name: row.ledgerName, path: row.ledgerPath, recordIds: new Set<string>(), expectedEntries: [] };
       ledgersByPath.set(row.ledgerPath, ledger);
     }
     ledger.recordIds.add(row.recordId);
+    ledger.expectedEntries.push({ id: row.recordId, path: row.path, action: row.cleanup, dueStatus: row.dueState });
   }
   const ledgers = [...ledgersByPath.values()];
-  const plans = ledgers
-    .map((ledger) => ({ ledger, plan: createCleanupPlan(ledger.path, { recordIds: [...ledger.recordIds] }) }))
-    .filter((entry) => entry.plan.entries.length > 0);
+  const plans = [];
+  for (const ledger of ledgers) {
+    try {
+      const plan = createCleanupPlan(ledger.path, { recordIds: [...ledger.recordIds], expectedEntries: ledger.expectedEntries });
+      if (plan.entries.length > 0) plans.push({ ledger, plan });
+    } catch (error) {
+      return replyFailure(home, session.id, event, "stale", {
+        reason: `Reviewed cleanup rows for ${ledger.name} changed before a plan could be prepared: ${errorMessage(error)}`,
+        next: "Refresh the dashboard and submit Prepare cleanup plan again."
+      });
+    }
+  }
   if (plans.length === 0) {
     return replyFailure(home, session.id, event, "stale", {
       reason: "There are no cleanup dry-run entries left to review.",
@@ -928,10 +944,14 @@ function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEv
   return "completed";
 }
 
-function reviewedCleanupRowsFromEvent(event: UiEvent): Array<Pick<DashboardArtifactRow, "recordId" | "ledgerPath" | "ledgerName">> {
+type ReviewedCleanupRow = Pick<DashboardArtifactRow, "recordId" | "ledgerPath" | "ledgerName" | "path" | "cleanup"> & {
+  dueState: DueStatus;
+};
+
+function reviewedCleanupRowsFromEvent(event: UiEvent): ReviewedCleanupRow[] {
   const rows = event.payload.reviewedRows;
   if (!Array.isArray(rows)) return [];
-  const reviewed: Array<Pick<DashboardArtifactRow, "recordId" | "ledgerPath" | "ledgerName">> = [];
+  const reviewed: ReviewedCleanupRow[] = [];
   const seen = new Set<string>();
   for (const entry of rows) {
     if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
@@ -939,13 +959,39 @@ function reviewedCleanupRowsFromEvent(event: UiEvent): Array<Pick<DashboardArtif
     const recordId = stringFrom(record.recordId);
     const ledgerPath = stringFrom(record.ledgerPath);
     const ledgerName = stringFrom(record.ledgerName) ?? "ledger";
-    if (!recordId || !ledgerPath) return [];
+    const path = stringFrom(record.path);
+    const cleanup = cleanupActionFrom(record.cleanup);
+    const dueState = dueStatusFrom(record.dueState);
+    if (!recordId || !ledgerPath || !path || !cleanup || !dueState) return [];
     const key = `${recordId}\0${ledgerPath}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    reviewed.push({ recordId, ledgerPath, ledgerName });
+    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState });
   }
   return reviewed;
+}
+
+function cleanupReviewedRowChanged(reviewed: ReviewedCleanupRow, live: DashboardArtifactRow): boolean {
+  return (
+    live.ledgerName !== reviewed.ledgerName ||
+    live.path !== reviewed.path ||
+    live.cleanup !== reviewed.cleanup ||
+    live.dueState !== reviewed.dueState ||
+    live.recommendation !== "trash-safe" ||
+    live.status !== "active"
+  );
+}
+
+function cleanupReviewedRowKey(row: Pick<DashboardArtifactRow, "recordId" | "ledgerPath">): string {
+  return `${row.recordId}\0${row.ledgerPath}`;
+}
+
+function cleanupActionFrom(value: unknown): CleanupAction | null {
+  return value === "trash" || value === "review" || value === "delete" ? value : null;
+}
+
+function dueStatusFrom(value: unknown): DueStatus | null {
+  return value === "due" || value === "manual-review" || value === "missing-path" || value === "kept" ? value : null;
 }
 
 function managedDashboardOptions(session: UiSession, event: UiEvent): BuildDashboardOptions {
@@ -992,6 +1038,15 @@ function processManagedBundleEvent(home: string, session: UiSession, event: UiEv
         });
       }
       return "completed";
+    }
+    try {
+      replyToEvent(home, session.id, event.id, {
+        status: "in_progress",
+        expectedStatus: "pending",
+        payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint }
+      });
+    } catch {
+      return "stale";
     }
   } catch (error) {
     return replyManagedBundleFailure(home, session.id, event, "failed", {

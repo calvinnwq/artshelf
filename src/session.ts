@@ -127,6 +127,8 @@ export const UI_DASHBOARD_LANE_REQUESTS: Record<string, string> = {
   "purge-candidates": "review_delete_forever",
   "registry-reconcile": "check_source_problems"
 };
+const UI_CLEANUP_ACTIONS = new Set(["trash", "review", "delete"]);
+const UI_DUE_STATUSES = new Set(["due", "manual-review", "missing-path", "kept"]);
 
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
@@ -799,11 +801,20 @@ function validateReviewedCleanupRows(value: unknown, count: number): void {
     const recordId = record.recordId;
     const ledgerPath = record.ledgerPath;
     const ledgerName = record.ledgerName;
+    const path = record.path;
+    const cleanup = record.cleanup;
+    const dueState = record.dueState;
     if (!isNonEmptyString(recordId) || !isNonEmptyString(ledgerPath)) {
       throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected recordId and ledgerPath");
     }
     if (ledgerName !== undefined && !isNonEmptyString(ledgerName)) {
       throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected ledgerName to be non-empty");
+    }
+    if (!isNonEmptyString(path) || !isNonEmptyString(cleanup) || !UI_CLEANUP_ACTIONS.has(cleanup)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected path and cleanup action");
+    }
+    if (!isNonEmptyString(dueState) || !UI_DUE_STATUSES.has(dueState)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected dueState");
     }
     const key = `${recordId}\0${ledgerPath}`;
     if (seen.has(key)) {

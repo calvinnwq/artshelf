@@ -62,6 +62,7 @@ type CleanupReceiptFile = {
 
 type CleanupPlanOptions = {
   recordIds?: string[];
+  expectedEntries?: CleanupPlanEntry[];
 };
 
 export type PutInput = {
@@ -663,6 +664,9 @@ function buildCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}):
     }
     entries.push({ id: item.id, path: item.path, action: item.cleanup, dueStatus: item.dueStatus });
   }
+  if (options.expectedEntries !== undefined && !sameCleanupPlanEntries(entries, options.expectedEntries)) {
+    throw new Error("cleanup reviewed rows no longer match live cleanup plan entries");
+  }
 
   const planId = makePlanId(generatedAt);
   const planPath = cleanupPlanPath(ledgerPath, planId);
@@ -675,6 +679,27 @@ function buildCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}):
     planPath
   };
   return plan;
+}
+
+function sameCleanupPlanEntries(left: CleanupPlanEntry[], right: CleanupPlanEntry[]): boolean {
+  if (left.length !== right.length) return false;
+  const unmatched = new Map<string, number>();
+  for (const entry of left) {
+    const key = cleanupPlanEntryKey(entry);
+    unmatched.set(key, (unmatched.get(key) ?? 0) + 1);
+  }
+  for (const entry of right) {
+    const key = cleanupPlanEntryKey(entry);
+    const count = unmatched.get(key) ?? 0;
+    if (count === 0) return false;
+    if (count === 1) unmatched.delete(key);
+    else unmatched.set(key, count - 1);
+  }
+  return unmatched.size === 0;
+}
+
+function cleanupPlanEntryKey(entry: CleanupPlanEntry): string {
+  return `${entry.id}\0${entry.path}\0${entry.action}\0${entry.dueStatus}`;
 }
 
 function buildTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgePlan {
