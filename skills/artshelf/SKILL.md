@@ -117,7 +117,8 @@ If `ui execute` claimed an approval event as `in_progress` and stopped before fi
 The browser captures triage intents and approval bundles only, with no direct ledger/file/trash/plan mutation and no file-content preview.
 Treat the session token printed by `artshelf ui`, `ui serve`, and `ui review` as a secret same-machine browser capability; `ui end` revokes browser writes and served dashboard/detail/bundle access while preserving the audit trail.
 
-For a live UI review request, run one attached lifecycle with `artshelf ui review --scope user --port 0 --json`: it starts/resumes the session, keeps the server and poller attached, replies `in_progress` immediately, processes only read-only/dry-run or exactly approved work, replies final payloads, and keeps looping until browser close; exact keep/trash/resolve/defer decisions and exact dispose dry-run requests become reviewed dispose dry-run plans, while dashboard lane dry-run requests can prepare reviewed cleanup plans, source/missing-file checks, or purge review workbench handoffs.
+For a live UI review request, run one attached lifecycle with `artshelf ui review --scope user --port 0 --json`: it starts/resumes the session, keeps the server and poller attached, replies `in_progress` immediately, processes only read-only/dry-run or exactly approved non-purge bundle work, replies final payloads, and keeps looping until browser close; exact keep/trash/resolve/defer decisions and exact dispose dry-run requests become reviewed dispose dry-run plans, while dashboard lane dry-run requests can prepare reviewed cleanup plans, source/missing-file checks, or purge review workbench handoffs.
+Purge bundles submitted in managed review are reserved for a separate explicit one-way-door execute instead of being auto-executed by the manager.
 On close or interrupt it cancels still-pending events visibly, ends the session, stops the server, and prints a summary packet. If you compose primitives manually, use the same lifecycle: start/resume `artshelf ui --scope user --json`, keep `artshelf ui serve --scope user --port 0 --json` alive, poll repeatedly, reply, run only allowed work, then `ui end` and stop the server. If you cannot keep the server and poller attached, say managed UI review is unavailable instead of presenting the browser as live.
 Register existing project ledgers explicitly:
 
@@ -149,13 +150,14 @@ artshelf trash purge --older-than 7d --dry-run --ledger <ledger-path> --json
 ```
 Do not scan arbitrary filesystem locations for ledgers unless the user opted
 into that discovery scope. Scheduled jobs may review registry-prune plans but
-must not execute them. Never schedule cleanup, dispose, registry-prune, purge, or approved bundle execution:
+must not execute them. Never schedule cleanup, dispose, registry-prune, purge, managed UI review, or approved bundle execution:
 
 ```bash
 artshelf cleanup --execute --plan-id <id>
 artshelf dispose --execute --plan-id <id>
 artshelf ledgers prune --execute --plan-id <id>
 artshelf trash purge --execute --plan-id <id>
+artshelf ui review
 artshelf ui execute <session-id> <bundle-id>
 ```
 

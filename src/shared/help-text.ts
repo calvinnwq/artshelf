@@ -52,8 +52,9 @@ Flags:
   -h, --help   help for ui
 
 The browser records exact-target triage intents and approval bundle submissions;
-the agent polls them, uses ui execute for approved bundles, and replies with
-receipts. The dashboard, detail, and bundle surfaces never read file contents.
+ui review or a host poller processes them, uses ui execute for approved
+non-purge bundles, reserves purge bundles for explicit one-way-door execution,
+and replies with receipts. The dashboard, detail, and bundle surfaces never read file contents.
 The browser captures handoff events only; it never executes or mutates ledgers,
 files, trash, or plans directly.
 Defaults to user-level, multi-ledger review.
@@ -535,11 +536,11 @@ require the active UI session capability token printed in the serve URL; ending
 that session revokes browser access. The pages embed no file contents and load no
 external assets. The dashboard includes a nonce-bound session-activity poller for
 the token-scoped /activity fragment; detail and bundle pages remain scriptless.
-The dashboard lets reviewers queue recommended lane approvals and then
-submit the selected work as pending session events. Bulk lane approvals are bound
-to the reviewed row set and stale or conflicting card/bulk/row selections are
-rejected before they enter the agent queue. Dashboard dry-run lane requests map
-to prepare_cleanup_plan, check_missing_files, review_delete_forever, or
+The dashboard lets reviewers queue recommended lane approvals, reviewed cleanup
+plan preparation, and row choices as pending session events. Bulk lane approvals
+are bound to the reviewed row set and stale or conflicting card/bulk/row/request
+selections are rejected before they enter the agent queue. Dashboard dry-run lane
+requests map to prepare_cleanup_plan, check_missing_files, review_delete_forever, or
 check_source_problems. After dashboard submit, session activity shows bounded
 queued counts, pending agent work, prepared plans, stale/rejected states,
 execution receipts, and unqueue controls for pending browser work without
@@ -583,8 +584,9 @@ acknowledged without mutating ledgers, files, trash, or plans. Exact
 keep/trash/resolve/defer decisions become reviewed dispose dry-run plans,
 replied with the plan id and exact approval text (defer/snooze plans use a
 default 7d horizon) so the dashboard can surface a prepared-plan approval row;
-execution still requires approving that exact plan. Approved bundles run only
-through the existing exact-target ui execute core. Broad or execution-shaped
+execution still requires approving that exact plan. Approved non-purge bundles run only
+through the existing exact-target ui execute core, while purge bundles are reserved
+for separate explicit one-way-door execution. Broad or execution-shaped
 browser requests are rejected visibly; there is no ui review --all,
 browser-direct execution, or fresh-plan-then-execute path.
 `;

@@ -423,7 +423,8 @@ async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number>
 // - managed foreground lifecycle that owns the loopback server plus the agent poll/reply loop.
 // It is deliberately conservative: the browser queues events, this agent-side loop immediately
 // claims them as in_progress, then either handles read-only work, executes already-approved exact
-// bundles through ui-execute's core, or rejects unsupported/broad requests with visible reasons.
+// non-purge bundles through ui-execute's core, reserves purge bundles for explicit execution, or
+// rejects unsupported/broad requests with visible reasons.
 async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number> {
   if (boolFlag(parsed, "all")) {
     throw new Error("ui review --all is not supported; managed review handles only token-bound session events and exact approved bundles");
