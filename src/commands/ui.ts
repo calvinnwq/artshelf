@@ -815,11 +815,7 @@ function replyManagedPurgeReview(home: string, session: UiSession, event: UiEven
     targets,
     selectedTargetIds: [],
     allowEmptySelection: true,
-    reviewed: {
-      request: "review_delete_forever",
-      count: targets.length,
-      registryPath: dashboard.registryPath
-    }
+    reviewed: {}
   });
   replyToEvent(home, session.id, event.id, {
     status: "completed",

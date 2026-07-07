@@ -509,6 +509,7 @@ test("artshelf ui review prepares a purge approval workbench from a lane dry-run
     assert.equal(snapshot.actionType, "trash-purge");
     assert.equal(snapshot.targets.length, 1);
     assert.deepEqual(snapshot.selectedTargetIds, []);
+    assert.deepEqual(snapshot.reviewed, {});
     assert.equal(existsSync(target), true);
   } finally {
     await managed.stop();
