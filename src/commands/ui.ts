@@ -2,9 +2,11 @@ import type { ArtifactProvenanceView, BuildArtifactDetailOptions } from "../arti
 import { buildArtifactDetail } from "../artifact-detail.js";
 import { uiLinkBaseUrl } from "../config/env.js";
 import type { BuildDashboardOptions, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
-import { buildDashboard, PURGE_APPROVAL_ACTION } from "../dashboard.js";
+import { buildDashboard, groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../dashboard.js";
 import type { DisposeRequest } from "../dispose.js";
 import { createDisposePlan } from "../dispose.js";
+import { createCleanupPlan } from "../ledger.js";
+import { listRegisteredLedgers } from "../registry.js";
 import { normalizeRegistryPath } from "../registry.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
@@ -20,7 +22,8 @@ import {
   resolveUiHome,
   selectedApprovalTargets,
   startOrResumeSession,
-  UI_REPLY_STATUSES
+  UI_REPLY_STATUSES,
+  writeApprovalSnapshot
 } from "../session.js";
 import type { ParsedArgs } from "../shared/cli-types.js";
 import { boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
@@ -636,29 +639,31 @@ function processManagedUiEvent(home: string, session: UiSession, event: UiEvent)
         recordId,
         ledgerPath,
         action,
-        reason: stringFrom(event.payload.reason) ?? undefined,
+        reason: managedDisposeReason(action, stringFrom(event.payload.reason)),
         note: `Prepared a reviewed ${action} dry-run plan from the ${decision} decision (a plan artifact, registered for retention); no disposition was executed. Approve the plan to run it through the exact-target execute path.`
       });
     }
 
     if (event.type === "dry_run_requested") {
-      // Dry-run requests are recorded-only. A reviewed, approvable plan comes from a decision intent
-      // (keep/trash/resolve/defer), because prepared-plan approval rows are surfaced from decisions,
-      // not from bare dry-run requests - minting a plan here would strand it with no approval row.
       const recordId = stringFrom(event.target.recordId);
-      const next = recordId
-        ? `Use a keep/trash/resolve/defer decision on ${recordId} to prepare a reviewed, approvable plan, or run the approval-gated dry-run CLI for the exact target.`
-        : "Scope this to an exact record and use a keep/trash/resolve/defer decision to prepare a reviewed, approvable plan.";
-      replyToEvent(home, session.id, event.id, {
-        status: "completed",
-        expectedStatus: "in_progress",
-        payload: {
-          note: "Dry-run request recorded for the attached agent. No plan was created and no mutation was executed from the browser.",
-          request: event.payload.request ?? event.payload.action ?? null,
-          next
+      const ledgerPath = stringFrom(event.target.ledgerPath);
+      if (recordId && ledgerPath) {
+        const action = managedDryRunDisposeAction(event, recordId, ledgerPath);
+        if (!action) {
+          return replyFailure(home, session.id, event, "rejected", {
+            reason: "The requested record dry-run does not map to an approval-gated dispose action.",
+            next: "Choose keep, trash, resolve, or defer from the record detail drawer."
+          });
         }
-      });
-      return "completed";
+        return replyManagedDryRunPlan(home, session.id, event, {
+          recordId,
+          ledgerPath,
+          action,
+          reason: managedDisposeReason(action, stringFrom(event.payload.reason)),
+          note: `Prepared a reviewed ${action} dry-run plan from the browser dry-run request (a plan artifact, registered for retention); no disposition was executed. Approve the plan to run it through the exact-target execute path.`
+        });
+      }
+      return replyManagedLaneDryRun(home, session, event);
     }
 
     if (event.type === "comment_added" || event.type === "question_answered" || event.type === "filter_saved" || event.type === "session_note_added") {
@@ -695,9 +700,30 @@ const DECISION_DISPOSE_ACTIONS: Record<UiDecisionIntent, DisposeAction> = {
   defer: "snooze"
 };
 
+const MANAGED_RESOLVE_REASON = "Resolved from Artshelf UI review";
+
 // The browser cannot name a snooze horizon, so managed defer/snooze plans use one default review
 // horizon. The exact retainUntil lands in the reviewed plan the human approves before execution.
 const MANAGED_SNOOZE_TTL = "7d";
+
+function managedDisposeReason(action: DisposeAction, reason: string | null): string | undefined {
+  if (reason !== null && reason.trim().length > 0) return reason;
+  if (action === "resolve-only") return MANAGED_RESOLVE_REASON;
+  return undefined;
+}
+
+function managedDryRunDisposeAction(event: UiEvent, recordId: string, ledgerPath: string): DisposeAction | null {
+  const requested = stringFrom(event.payload.action) ?? stringFrom(event.payload.request);
+  if (requested === "trash-resolve" || requested === "resolve-only" || requested === "snooze" || requested === "keep") {
+    return requested;
+  }
+  const detail = buildArtifactDetail({ recordId, ledgerPath });
+  if (detail.inspect.recommendation === "trash-safe") return "trash-resolve";
+  if (detail.inspect.recommendation === "resolve-only") return "resolve-only";
+  if (detail.inspect.recommendation === "snooze") return "snooze";
+  if (detail.inspect.recommendation === "keep") return "keep";
+  return null;
+}
 
 // Create (or reuse) the reviewed dispose dry-run plan for one exact record and reply its identity -
 // planId, records, and the exact approval target phrase - so the dashboard's prepared-plan approval
@@ -735,6 +761,125 @@ function replyManagedDryRunPlan(
   return "completed";
 }
 
+function replyManagedLaneDryRun(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const lane = stringFrom(event.target.lane);
+  const request = stringFrom(event.payload.request);
+  if (!lane) {
+    return replyFailure(home, session.id, event, "rejected", {
+      reason: "Dry-run requests require either an exact record target or a dashboard lane.",
+      next: "Refresh the dashboard/detail view and resubmit the exact dry-run request."
+    });
+  }
+  if (lane === "purge-candidates" && request === "review_delete_forever") {
+    return replyManagedPurgeReview(home, session, event);
+  }
+  if (lane === "registry-reconcile" && request === "check_source_problems") {
+    return replyManagedSourceCheck(home, session, event);
+  }
+  if (lane === "cleanup" && (request === null || request === "prepare_cleanup_plan")) {
+    return replyManagedCleanupDryRun(home, session, event);
+  }
+  return replyFailure(home, session.id, event, "rejected", {
+    reason: `Managed review does not know how to handle ${lane} dry-run request ${request ?? "(none)"}.`,
+    next: "Refresh the dashboard and choose an available lane action."
+  });
+}
+
+function replyManagedPurgeReview(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const targets = purgeApprovalTargets(groupPurgeCandidates(dashboard.buckets.purgeCandidates));
+  if (targets.length === 0) {
+    return replyFailure(home, session.id, event, "stale", {
+      reason: "There are no purge candidates left to review.",
+      next: "Refresh the dashboard before requesting another delete review."
+    });
+  }
+  const source = writeApprovalSnapshot(home, session.id, {
+    actionType: PURGE_APPROVAL_ACTION,
+    targets,
+    selectedTargetIds: targets.map((target) => target.targetId),
+    reviewed: {
+      request: "review_delete_forever",
+      count: targets.length,
+      registryPath: dashboard.registryPath
+    }
+  });
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "purge_review_prepared",
+      title: "Purge review prepared",
+      note: "Prepared an approval workbench for exact trash-purge targets; no deletion was executed.",
+      bundleId: source.id,
+      count: targets.length,
+      actionType: PURGE_APPROVAL_ACTION,
+      next: `Open artshelf ui bundle ${session.id} ${source.id}, choose exact targets, then submit the approval bundle.`
+    }
+  });
+  return "completed";
+}
+
+function replyManagedSourceCheck(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const invalidLedgers = dashboard.ledgers.filter((ledger) => !ledger.ok);
+  const problems = dashboard.buckets.registryReconcile;
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "source_check",
+      title: "Source check completed",
+      note: "Checked registered sources and path-drift rows; no registry, ledger, file, trash, or plan was mutated.",
+      count: invalidLedgers.length + problems.length,
+      invalidLedgers: invalidLedgers.map((ledger) => ({ name: ledger.name, path: ledger.path, errors: ledger.errors })),
+      problems: problems.map((row) => ({ source: row.source, category: row.category, target: row.recordId ?? row.ledgerPath, ledgerPath: row.ledgerPath })),
+      next: problems.length + invalidLedgers.length === 0 ? "Refresh the dashboard; the source lane is clear." : "Review the listed source problems, then run the matching approval-gated reconcile or registry-prune dry-run."
+    }
+  });
+  return "completed";
+}
+
+function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const ledgerPath = stringFrom(event.target.ledgerPath);
+  const registryPath = stringFrom(event.target.registryPath) ?? session.registryPath ?? normalizeRegistryPath();
+  const ledgers = ledgerPath ? [{ name: "ledger", path: ledgerPath }] : listRegisteredLedgers(registryPath);
+  const plans = ledgers.map((ledger) => ({ ledger, plan: createCleanupPlan(ledger.path) })).filter((entry) => entry.plan.entries.length > 0);
+  if (plans.length === 0) {
+    return replyFailure(home, session.id, event, "stale", {
+      reason: "There are no cleanup dry-run entries left to review.",
+      next: "Refresh the dashboard before requesting another cleanup plan."
+    });
+  }
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "cleanup_dry_run",
+      title: "Cleanup dry-run prepared",
+      note: "Prepared reviewed cleanup plan artifacts through the existing dry-run path; no cleanup was executed.",
+      count: plans.reduce((total, entry) => total + entry.plan.entries.length, 0),
+      plans: plans.map((entry) => ({
+        ledgerPath: entry.ledger.path,
+        ledgerName: entry.ledger.name,
+        planId: entry.plan.planId,
+        count: entry.plan.entries.length,
+        approvalTarget: `approve artshelf cleanup ledger ${entry.ledger.path} plan ${entry.plan.planId}`
+      }))
+    }
+  });
+  return "completed";
+}
+
+function managedDashboardOptions(session: UiSession, event: UiEvent): BuildDashboardOptions {
+  const options: BuildDashboardOptions = {};
+  const registryPath = stringFrom(event.target.registryPath) ?? session.registryPath;
+  const ledgerPath = stringFrom(event.target.ledgerPath) ?? session.ledgerPath;
+  if (registryPath !== null) options.registryPath = registryPath;
+  if (ledgerPath !== null) options.ledgerPath = ledgerPath;
+  return options;
+}
+
 // Managed execution of one browser-approved bundle. executeApprovedBundle owns the claim and the
 // per-target receipts reply; the returned aggregate maps onto the same reply status it wrote:
 // executed -> completed, refused -> stale (re-review), anything partial -> failed (never silently
@@ -748,17 +893,28 @@ function processManagedBundleEvent(home: string, session: UiSession, event: UiEv
       next: "Reopen the approval workbench and submit the exact reviewed bundle again."
     });
   }
-  // Purge is a one-way door. Even though the browser cannot currently mint a purge bundle, the
-  // managed loop must never auto-execute permanent deletion off a poll: refuse purge bundles here so
-  // the destructive path stays a deliberate, separately-invoked `ui execute` / `trash purge` action.
   try {
     const snapshot = readApprovalSnapshot(home, session.id, bundleId);
     if (snapshot.actionType === PURGE_APPROVAL_ACTION) {
-      return replyManagedBundleFailure(home, session.id, event, "rejected", {
-        reason: "Managed review does not execute trash-purge bundles; permanent deletion is a separate one-way-door path.",
-        next: "Delete permanently only by deliberately running `artshelf ui execute <session> <bundle>` or `artshelf trash purge` against the exact reviewed purge plan.",
-        bundleId
-      });
+      try {
+        replyToEvent(home, session.id, event.id, {
+          status: "in_progress",
+          expectedStatus: "pending",
+          payload: {
+            bundleId: snapshot.id,
+            fingerprint: snapshot.fingerprint,
+            reason: "Managed review does not auto-execute trash-purge bundles; permanent deletion is a separate one-way-door path.",
+            next: "Delete permanently only by deliberately running `artshelf ui execute <session> <bundle>` or `artshelf trash purge` against the exact reviewed purge plan."
+          }
+        });
+      } catch {
+        return replyManagedBundleFailure(home, session.id, event, "failed", {
+          reason: "Could not reserve the purge bundle for explicit execution.",
+          next: "Refresh the approval workbench and resubmit if this deletion is still wanted.",
+          bundleId
+        });
+      }
+      return "completed";
     }
   } catch (error) {
     return replyManagedBundleFailure(home, session.id, event, "failed", {

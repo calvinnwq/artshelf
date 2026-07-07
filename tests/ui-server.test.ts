@@ -904,6 +904,51 @@ test("prepared dry-run plans replace original required-action rows with plan app
   });
 });
 
+test("exact dry-run request prepared plans can be approved from required actions", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const event = appendEvent(server.home, server.sessionId, {
+      type: "dry_run_requested",
+      target: { recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" },
+      payload: { request: "trash-resolve" }
+    });
+    const disposePlan = createDisposePlan(ledgerPath, { id: "shf_cleanup_a", action: "trash-resolve", reason: "reviewed" });
+    replyToEvent(server.home, server.sessionId, event.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        planId: disposePlan.planId,
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan ${disposePlan.planId}`,
+        records: ["shf_cleanup_a"],
+        action: "trash-resolve"
+      }
+    });
+
+    const html = await (await server.request("/")).text();
+    const required = requiredActionsHtml(html);
+    assert.match(required, new RegExp(`approve-plan:${event.id}`));
+
+    const approvalParams = new URLSearchParams();
+    approvalParams.append("token", server.token);
+    approvalParams.append("type", "required_actions_submitted");
+    approvalParams.append("approval:ready-approval", `approve-plan:${event.id}`);
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: approvalParams.toString(),
+      redirect: "manual"
+    });
+    assert.equal(response.status, 303);
+    const approvalEvent = readSessionEvents(server.home, server.sessionId).find((candidate) => candidate.type === "approval_bundle_submitted");
+    assert.equal(approvalEvent?.payload.preparedEventId, event.id);
+  });
+});
+
 test("prepared rows are excluded from reviewed bulk expansion", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "primary", "ledger.jsonl");

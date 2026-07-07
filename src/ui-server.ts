@@ -646,7 +646,11 @@ function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEv
   }
 
   const entry = readSessionHistory(options.uiHome, options.sessionId).find((candidate) => candidate.event.id === eventId);
-  if (entry === undefined || entry.event.type !== "decision_submitted" || entry.event.status !== "completed") {
+  if (
+    entry === undefined ||
+    (entry.event.type !== "decision_submitted" && entry.event.type !== "dry_run_requested") ||
+    entry.event.status !== "completed"
+  ) {
     throw intentError(400, `Prepared plan event ${eventId} is not ready for approval`);
   }
 
@@ -1025,7 +1029,10 @@ function livePreparedPlanEventIndex(options: UiServerOptions, snapshot: Dashboar
 }
 
 function reviewablePreparedPlanEventId(options: UiServerOptions, entry: UiSessionHistoryEntry): string | null {
-  if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") return null;
+  if (
+    entry.event.status !== "completed" ||
+    (entry.event.type !== "decision_submitted" && entry.event.type !== "dry_run_requested")
+  ) return null;
   const recordId = stringRecordValue(entry.event.target, "recordId");
   const requestedLedgerPath = stringRecordValue(entry.event.target, "ledgerPath");
   if (!recordId || !requestedLedgerPath) return null;

@@ -1187,7 +1187,10 @@ function preparedPlanIndex(history: UiSessionHistoryEntry[], reviewableEventIds?
   const index = new Map<string, PreparedPlanApproval>();
   const submittedPlanEvents = submittedPreparedPlanEventIds(history);
   for (const entry of history) {
-    if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") continue;
+    if (
+      entry.event.status !== "completed" ||
+      (entry.event.type !== "decision_submitted" && entry.event.type !== "dry_run_requested")
+    ) continue;
     if (reviewableEventIds !== undefined && !reviewableEventIds.has(entry.event.id)) continue;
     const recordId = typeof entry.event.target.recordId === "string" ? entry.event.target.recordId : "";
     const ledgerPath = typeof entry.event.target.ledgerPath === "string" ? entry.event.target.ledgerPath : "";

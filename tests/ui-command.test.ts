@@ -6,7 +6,7 @@ import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
 import { readLedger } from "../src/ledger.js";
-import { appendEvent, readSession, readSessionHistory, replyToEvent, writeApprovalSnapshot } from "../src/session.js";
+import { appendEvent, readApprovalSnapshot, readSession, readSessionHistory, replyToEvent, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalTarget } from "../src/types.js";
 
 // End-to-end tests for the Artshelf UI v1 AXI command surface (NGX-532). The agent loop -
@@ -396,7 +396,7 @@ test("artshelf ui review turns an exact decision intent into a reviewed dry-run 
   }
 });
 
-test("artshelf ui review records a bare dry-run request without minting an unsurfaced plan", async () => {
+test("artshelf ui review prepares a reviewed plan from an exact dry-run request", async () => {
   const home = freshHome();
   const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-dryrun-"));
   mkdirSync(join(repo, ".git"), { recursive: true });
@@ -420,13 +420,14 @@ test("artshelf ui review records a bare dry-run request without minting an unsur
     });
     const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
     const payload = entry.replies.at(-1)!.payload as Record<string, any>;
-    // A bare dry-run request is decision-less: prepared-plan approval rows are surfaced only from
-    // decisions, so managed review must NOT mint an approvable plan the dashboard can never show.
-    assert.equal(payload.kind, undefined);
-    assert.equal(payload.planId, undefined);
-    assert.match(String(payload.next), /decision/i);
-    // No dispose plan artifact was written for the record.
-    assert.equal(existsSync(join(repo, ".artshelf", "dispose-plans")), false);
+    assert.equal(payload.kind, "dispose_dry_run");
+    const planId = String(payload.planId);
+    assert.match(planId, /\S/);
+    const plan = readDisposePlanEntry(ledger, planId);
+    assert.equal(plan.id, "shf_dryrun");
+    assert.equal(plan.action, "keep");
+    assert.deepEqual(payload.records, ["shf_dryrun"]);
+    assert.equal(payload.approvalTarget, `approve artshelf dispose ledger ${ledger} plan ${planId}`);
     assert.equal(readLedger(ledger).find((record) => record.id === "shf_dryrun")?.status, "active");
     assert.equal(existsSync(subject), true);
   } finally {
@@ -434,7 +435,78 @@ test("artshelf ui review records a bare dry-run request without minting an unsur
   }
 });
 
-test("artshelf ui review rejects a blocked decision intent with the block detail", async () => {
+test("artshelf ui review prepares a purge approval workbench from a lane dry-run request", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-purge-lane-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const target = join(repo, ".artshelf", "trash", "shf_purge.tar");
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, "payload");
+  writeLedgerFile(ledger, [
+    ledgerRecord("shf_purge", join(repo, "shf_purge.tar"), {
+      status: "trashed",
+      targetPath: target,
+      cleanedAt: "2026-01-02T00:00:00.000Z",
+      cleanupPlanId: "plan_cleanup",
+      receiptPath: join(repo, ".artshelf", "receipts", "plan_cleanup.json")
+    })
+  ]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "purge-candidates", registryPath },
+      payload: { request: "review_delete_forever", label: "Review delete", count: 1 }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(payload.kind, "purge_review_prepared");
+    const snapshot = readApprovalSnapshot(home, sessionId, String(payload.bundleId));
+    assert.equal(snapshot.actionType, "trash-purge");
+    assert.equal(snapshot.targets.length, 1);
+    assert.deepEqual(snapshot.selectedTargetIds, [snapshot.targets[0]!.targetId]);
+    assert.equal(existsSync(target), true);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review completes source-check lane dry-runs with problem details", async () => {
+  const home = freshHome();
+  const missingLedger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-review-source-lane-")), ".artshelf", "missing.jsonl");
+  const registryPath = registryWithLedgers([missingLedger]);
+  const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "registry-reconcile", registryPath },
+      payload: { request: "check_source_problems", label: "Check sources", count: 1 }
+    });
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "completed";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.equal(payload.kind, "source_check");
+    assert.equal(payload.count, 2);
+    assert.equal(payload.invalidLedgers[0].path, missingLedger);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review supplies a safe default reason for resolve decisions", async () => {
   const home = freshHome();
   // resolve-only without a reason is blocked by the dispose safety engine.
   const ledger = join(mkdtempSync(join(tmpdir(), "artshelf-ui-review-blocked-")), ".artshelf", "ledger.jsonl");
@@ -451,11 +523,13 @@ test("artshelf ui review rejects a blocked decision intent with the block detail
 
     await waitUntil(() => {
       const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
-      return entry !== undefined && entry.event.status !== "pending" && entry.event.status !== "in_progress";
+      return entry?.event.status === "completed";
     });
     const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
-    assert.equal(entry.event.status, "rejected");
-    assert.match(String(entry.replies.at(-1)?.payload.reason), /reason/i);
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    const plan = readDisposePlanEntry(ledger, String(payload.planId));
+    assert.equal(plan.action, "resolve-only");
+    assert.match(plan.reason, /Artshelf UI review/i);
   } finally {
     await managed.stop();
   }
@@ -683,7 +757,7 @@ test("artshelf ui review tears down visibly when its session is ended out from u
   }
 });
 
-test("artshelf ui review refuses to execute a trash-purge bundle, keeping deletion a one-way door", async () => {
+test("artshelf ui review reserves a trash-purge bundle for explicit ui execute", async () => {
   const home = freshHome();
   const { ledger, subject } = repoWithReviewedTrashPlan("shf_purge");
   const registryPath = registryWithLedgers([ledger]);
@@ -716,12 +790,16 @@ test("artshelf ui review refuses to execute a trash-purge bundle, keeping deleti
 
     await waitUntil(() => {
       const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id);
-      return entry !== undefined && entry.event.status !== "pending" && entry.event.status !== "in_progress";
+      return entry?.event.status === "in_progress";
     });
     const entry = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id)!;
-    assert.equal(entry.event.status, "rejected");
-    assert.match(String(entry.replies.at(-1)?.payload.reason), /one-way-door|purge/i);
-    // Nothing was deleted: the reviewed subject still exists on disk.
+    assert.equal(entry.event.status, "in_progress");
+    assert.equal(entry.replies.at(-1)?.payload.bundleId, snapshot.id);
+    assert.equal(entry.replies.at(-1)?.payload.fingerprint, snapshot.fingerprint);
+    assert.match(String(entry.replies.at(-1)?.payload.next), /ui execute/i);
+
+    const execute = ui(home, ["ui", "execute", sessionId, snapshot.id, "--json"], { ARTSHELF_REGISTRY: registryPath });
+    assert.doesNotMatch(execute.stderr, /requires a pending or in_progress event/i);
     assert.equal(existsSync(subject), true);
   } finally {
     await managed.stop();
