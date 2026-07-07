@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
+import { artifactIdentityFacts } from "../src/file-identity.js";
 import { readLedger } from "../src/ledger.js";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
 import {
@@ -1638,7 +1639,7 @@ test("dashboard activity renders cleanup lane plan approval targets", async () =
       payload: {
         request: "prepare_cleanup_plan",
         count: 1,
-        reviewedRows: [{ recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due" }]
+        reviewedRows: [{ recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due", fileFacts: artifactIdentityFacts(cleanupPath) }]
       }
     });
     replyToEvent(server.home, server.sessionId, event.id, {
@@ -2250,7 +2251,7 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
       request: "prepare_cleanup_plan",
       label: "prepare_cleanup_plan",
       count: 1,
-      reviewedRows: [{ recordId: "shf_cleanup", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due" }]
+      reviewedRows: [{ recordId: "shf_cleanup", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due", fileFacts: artifactIdentityFacts(cleanupPath) }]
     });
 
     const duplicateParams = new URLSearchParams();

@@ -5,6 +5,8 @@ import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, D
 import { buildDashboard, groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../dashboard.js";
 import type { DisposeRequest } from "../dispose.js";
 import { createDisposePlan } from "../dispose.js";
+import type { ArtifactIdentityFacts } from "../file-identity.js";
+import { artifactIdentityFacts, sameArtifactIdentityFacts } from "../file-identity.js";
 import { createCleanupPlan } from "../ledger.js";
 import { normalizeRegistryPath } from "../registry.js";
 import { printCompactJson } from "../renderers/json.js";
@@ -946,6 +948,7 @@ function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEv
 
 type ReviewedCleanupRow = Pick<DashboardArtifactRow, "recordId" | "ledgerPath" | "ledgerName" | "path" | "cleanup"> & {
   dueState: DueStatus;
+  fileFacts: ArtifactIdentityFacts;
 };
 
 function reviewedCleanupRowsFromEvent(event: UiEvent): ReviewedCleanupRow[] {
@@ -962,11 +965,12 @@ function reviewedCleanupRowsFromEvent(event: UiEvent): ReviewedCleanupRow[] {
     const path = stringFrom(record.path);
     const cleanup = cleanupActionFrom(record.cleanup);
     const dueState = dueStatusFrom(record.dueState);
-    if (!recordId || !ledgerPath || !path || !cleanup || !dueState) return [];
+    const fileFacts = artifactIdentityFactsFrom(record.fileFacts);
+    if (!recordId || !ledgerPath || !path || !cleanup || !dueState || !fileFacts) return [];
     const key = `${recordId}\0${ledgerPath}`;
     if (seen.has(key)) return [];
     seen.add(key);
-    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState });
+    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState, fileFacts });
   }
   return reviewed;
 }
@@ -978,7 +982,8 @@ function cleanupReviewedRowChanged(reviewed: ReviewedCleanupRow, live: Dashboard
     live.cleanup !== reviewed.cleanup ||
     live.dueState !== reviewed.dueState ||
     live.recommendation !== "trash-safe" ||
-    live.status !== "active"
+    live.status !== "active" ||
+    !sameArtifactIdentityFacts(artifactIdentityFacts(reviewed.path), reviewed.fileFacts)
   );
 }
 
@@ -992,6 +997,27 @@ function cleanupActionFrom(value: unknown): CleanupAction | null {
 
 function dueStatusFrom(value: unknown): DueStatus | null {
   return value === "due" || value === "manual-review" || value === "missing-path" || value === "kept" ? value : null;
+}
+
+function artifactIdentityFactsFrom(value: unknown): ArtifactIdentityFacts | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.exists === false && record.nodeKind === "missing") return { exists: false, nodeKind: "missing" };
+  if (record.exists !== true) return null;
+  const nodeKind = record.nodeKind;
+  if (nodeKind !== "file" && nodeKind !== "directory" && nodeKind !== "symlink" && nodeKind !== "other") return null;
+  const dev = finiteNumberFrom(record.dev);
+  const ino = finiteNumberFrom(record.ino);
+  const mode = finiteNumberFrom(record.mode);
+  const size = finiteNumberFrom(record.size);
+  const mtimeMs = finiteNumberFrom(record.mtimeMs);
+  const ctimeMs = finiteNumberFrom(record.ctimeMs);
+  if (dev === null || ino === null || mode === null || size === null || mtimeMs === null || ctimeMs === null) return null;
+  return { exists: true, nodeKind, dev, ino, mode, size, mtimeMs, ctimeMs };
+}
+
+function finiteNumberFrom(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function managedDashboardOptions(session: UiSession, event: UiEvent): BuildDashboardOptions {
@@ -1031,6 +1057,13 @@ function processManagedBundleEvent(home: string, session: UiSession, event: UiEv
           }
         });
       } catch {
+        let current: UiEvent | undefined;
+        try {
+          current = readSessionEvents(home, session.id).find((entry) => entry.id === event.id);
+        } catch {
+          return "stale";
+        }
+        if (!current || current.status !== "pending") return "stale";
         return replyManagedBundleFailure(home, session.id, event, "failed", {
           reason: "Could not reserve the purge bundle for explicit execution.",
           next: "Refresh the approval workbench and resubmit if this deletion is still wanted.",

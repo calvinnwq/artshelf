@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
+import { artifactIdentityFacts } from "../src/file-identity.js";
 import { groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../src/dashboard.js";
 import type { DashboardTrashRow } from "../src/dashboard.js";
 import { readLedger } from "../src/ledger.js";
@@ -545,7 +546,7 @@ test("artshelf ui review cleanup lane plans only validated dashboard cleanup row
         request: "prepare_cleanup_plan",
         label: "Prepare cleanup",
         count: 1,
-        reviewedRows: [{ recordId: "shf_cleanup", ledgerPath: ledger, ledgerName: "ledger-0", path: subject, cleanup: "trash", dueState: "due" }]
+        reviewedRows: [reviewedCleanupRow("shf_cleanup", ledger, subject)]
       }
     });
     writeLedgerFile(ledger, [
@@ -610,7 +611,7 @@ test("artshelf ui review rejects cleanup rows whose reviewed facts changed", asy
         request: "prepare_cleanup_plan",
         label: "Prepare cleanup",
         count: 1,
-        reviewedRows: [{ recordId: "shf_cleanup", ledgerPath: ledger, ledgerName: "ledger-0", path: subject, cleanup: "trash", dueState: "due" }]
+        reviewedRows: [reviewedCleanupRow("shf_cleanup", ledger, subject)]
       }
     });
     writeLedgerFile(ledger, [
@@ -621,6 +622,51 @@ test("artshelf ui review rejects cleanup rows whose reviewed facts changed", asy
         cleanup: "trash"
       })
     ]);
+
+    await waitUntil(() => {
+      const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
+      return entry?.event.status === "stale";
+    });
+    const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id)!;
+    const payload = entry.replies.at(-1)!.payload as Record<string, any>;
+    assert.match(String(payload.reason), /changed/i);
+    assert.equal(existsSync(join(dirname(ledger), "plans")), false);
+  } finally {
+    await managed.stop();
+  }
+});
+
+test("artshelf ui review rejects cleanup rows whose reviewed file identity changed", async () => {
+  const home = freshHome();
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-review-cleanup-file-stale-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const subject = join(repo, "shf_cleanup.tar");
+  writeFileSync(subject, "payload");
+  writeLedgerFile(ledger, [
+    ledgerRecord("shf_cleanup", subject, {
+      reason: "release archive is no longer needed",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: "2026-01-02T00:00:00.000Z",
+      cleanup: "trash"
+    })
+  ]);
+  const registryPath = registryWithLedgers([ledger]);
+  const managed = await managedReview(home, ["--poll-interval-ms", "1500"], { ARTSHELF_REGISTRY: registryPath });
+  try {
+    const sessionId = managed.packet.session.id;
+    const event = appendEvent(home, sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "cleanup", registryPath },
+      payload: {
+        request: "prepare_cleanup_plan",
+        label: "Prepare cleanup",
+        count: 1,
+        reviewedRows: [reviewedCleanupRow("shf_cleanup", ledger, subject)]
+      }
+    });
+    rmSync(subject);
+    writeFileSync(subject, "replacement payload");
 
     await waitUntil(() => {
       const entry = readSessionHistory(home, sessionId).find((item) => item.event.id === event.id);
@@ -1350,6 +1396,10 @@ function ledgerRecord(id: string, path: string, over: Record<string, unknown> = 
     status: "active",
     ...over
   };
+}
+
+function reviewedCleanupRow(recordId: string, ledgerPath: string, path: string): Record<string, unknown> {
+  return { recordId, ledgerPath, ledgerName: "ledger-0", path, cleanup: "trash", dueState: "due", fileFacts: artifactIdentityFacts(path) };
 }
 
 function bundleTarget(targetId: string, ledgerPath: string, recordPath: string, over: Partial<UiApprovalTarget> = {}): UiApprovalTarget {
