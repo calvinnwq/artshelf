@@ -582,13 +582,8 @@ function processManagedUiEvent(home: string, session: UiSession, event: UiEvent)
       expectedStatus: "pending",
       payload: { note: "Managed review picked up this browser event." }
     });
-  } catch (error) {
-    // Another attached process may have claimed it first. Keep the manager alive and make the
-    // disconnected/stale state visible if this process still owns a pending projection.
-    return replyFailure(home, session.id, event, "stale", {
-      reason: `Could not claim pending event: ${errorMessage(error)}`,
-      next: "Refresh the dashboard and resubmit if this action is still needed."
-    });
+  } catch {
+    return "stale";
   }
 
   try {
@@ -880,12 +875,19 @@ function replyManagedMissingFilesCheck(home: string, session: UiSession, event: 
 
 function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
   const dashboard = buildDashboard(managedDashboardOptions(session, event));
-  const ledgersByPath = new Map<string, { name: string; path: string }>();
+  const ledgersByPath = new Map<string, { name: string; path: string; recordIds: Set<string> }>();
   for (const row of dashboard.buckets.cleanup) {
-    if (!ledgersByPath.has(row.ledgerPath)) ledgersByPath.set(row.ledgerPath, { name: row.ledgerName, path: row.ledgerPath });
+    let ledger = ledgersByPath.get(row.ledgerPath);
+    if (!ledger) {
+      ledger = { name: row.ledgerName, path: row.ledgerPath, recordIds: new Set<string>() };
+      ledgersByPath.set(row.ledgerPath, ledger);
+    }
+    ledger.recordIds.add(row.recordId);
   }
   const ledgers = [...ledgersByPath.values()];
-  const plans = ledgers.map((ledger) => ({ ledger, plan: createCleanupPlan(ledger.path) })).filter((entry) => entry.plan.entries.length > 0);
+  const plans = ledgers
+    .map((ledger) => ({ ledger, plan: createCleanupPlan(ledger.path, { recordIds: [...ledger.recordIds] }) }))
+    .filter((entry) => entry.plan.entries.length > 0);
   if (plans.length === 0) {
     return replyFailure(home, session.id, event, "stale", {
       reason: "There are no cleanup dry-run entries left to review.",

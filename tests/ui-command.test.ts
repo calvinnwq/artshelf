@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -522,10 +522,18 @@ test("artshelf ui review cleanup lane plans only validated dashboard cleanup row
   mkdirSync(join(repo, ".git"), { recursive: true });
   const ledger = join(repo, ".artshelf", "ledger.jsonl");
   const subject = join(repo, "shf_cleanup.tar");
+  const hiddenSubject = join(repo, "shf_hidden.tar");
   writeFileSync(subject, "payload");
+  writeFileSync(hiddenSubject, "payload");
   writeLedgerFile(ledger, [
     ledgerRecord("shf_cleanup", subject, {
       reason: "release archive is no longer needed",
+      retention: { mode: "ttl", ttl: "1d" },
+      retainUntil: "2026-01-02T00:00:00.000Z",
+      cleanup: "trash"
+    }),
+    ledgerRecord("shf_hidden", hiddenSubject, {
+      reason: "",
       retention: { mode: "ttl", ttl: "1d" },
       retainUntil: "2026-01-02T00:00:00.000Z",
       cleanup: "trash"
@@ -553,6 +561,9 @@ test("artshelf ui review cleanup lane plans only validated dashboard cleanup row
     assert.equal(payload.plans.length, 1);
     assert.equal(payload.plans[0].ledgerPath, ledger);
     assert.equal(payload.plans[0].count, 1);
+    const planId = String(payload.plans[0].planId);
+    const plan = JSON.parse(readFileSync(join(dirname(ledger), "plans", `${planId}.json`), "utf8"));
+    assert.deepEqual(plan.entries.map((planEntry: Record<string, unknown>) => planEntry.id), ["shf_cleanup"]);
   } finally {
     await managed.stop();
   }

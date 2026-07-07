@@ -60,6 +60,10 @@ type CleanupReceiptFile = {
   results: CleanupExecutionResult[];
 };
 
+type CleanupPlanOptions = {
+  recordIds?: string[];
+};
+
 export type PutInput = {
   path: string;
   reason: string;
@@ -343,8 +347,8 @@ export function validateLedger(ledgerPath: string): {
   return { ok: errors.length === 0, errors, warnings, entries: records.length };
 }
 
-export function createCleanupPlan(ledgerPath: string): CleanupPlan {
-  const plan = buildCleanupPlan(ledgerPath);
+export function createCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}): CleanupPlan {
+  const plan = buildCleanupPlan(ledgerPath, options);
   if (plan.entries.length === 0) return noCreatedPlan(plan);
   const existingPlan = matchingExistingCleanupPlan(ledgerPath, plan);
   if (existingPlan) {
@@ -640,10 +644,11 @@ function noCreatedTrashPurgePlan(plan: TrashPurgePlan): TrashPurgePlan {
   };
 }
 
-function buildCleanupPlan(ledgerPath: string): CleanupPlan {
+function buildCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}): CleanupPlan {
   const generatedAt = now();
   const records = readLedger(ledgerPath);
-  const due = dueEntries(records, generatedAt);
+  const recordIds = options.recordIds === undefined ? null : new Set(options.recordIds);
+  const due = dueEntries(records, generatedAt).filter((entry) => recordIds === null || recordIds.has(entry.id));
   const entries: CleanupPlanEntry[] = [];
   const skipped: CleanupPlan["skipped"] = [];
 
