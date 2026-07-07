@@ -500,6 +500,7 @@ export type DashboardSessionActivityRender = {
   activityHref?: string;
   scriptNonce?: string;
   includeScript?: boolean;
+  managedReview?: boolean;
   reviewablePreparedPlanEventIds?: Set<string>;
 };
 
@@ -537,7 +538,7 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
 <div class="guard">${ICON.shield}<span>${escapeHtml(REVIEW_SURFACE_NOTE)}</span></div>
 </div>
 </header>`;
-  const closeControl = token
+  const closeControl = token && activity.managedReview === true
     ? `<button class="ghost small" type="submit" form="managed-review-close-form">Close review</button>`
     : "";
   const agentRail = `<aside class="agent-rail" aria-label="Agent loop">
@@ -549,7 +550,7 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
     ? `<form class="review-form review-shell" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${dashboard}</form>`
     : `<div class="review-shell">${dashboard}</div>`;
 
-  const closeForm = token
+  const closeForm = token && activity.managedReview === true
     ? `<form id="managed-review-close-form" method="post" action="/close"><input type="hidden" name="token" value="${escapeHtml(token)}"></form>`
     : "";
   const body = `${reviewSurface}${closeForm}`;

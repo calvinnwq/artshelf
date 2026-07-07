@@ -5,6 +5,8 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
+import { groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../src/dashboard.js";
+import type { DashboardTrashRow } from "../src/dashboard.js";
 import { readLedger } from "../src/ledger.js";
 import { appendEvent, readApprovalSnapshot, readSession, readSessionHistory, replyToEvent, writeApprovalSnapshot } from "../src/session.js";
 import type { UiApprovalTarget } from "../src/types.js";
@@ -472,7 +474,7 @@ test("artshelf ui review prepares a purge approval workbench from a lane dry-run
     const snapshot = readApprovalSnapshot(home, sessionId, String(payload.bundleId));
     assert.equal(snapshot.actionType, "trash-purge");
     assert.equal(snapshot.targets.length, 1);
-    assert.deepEqual(snapshot.selectedTargetIds, [snapshot.targets[0]!.targetId]);
+    assert.deepEqual(snapshot.selectedTargetIds, []);
     assert.equal(existsSync(target), true);
   } finally {
     await managed.stop();
@@ -759,21 +761,14 @@ test("artshelf ui review tears down visibly when its session is ended out from u
 
 test("artshelf ui review reserves a trash-purge bundle for explicit ui execute", async () => {
   const home = freshHome();
-  const { ledger, subject } = repoWithReviewedTrashPlan("shf_purge");
+  const { ledger, targetPath } = repoWithPurgeCandidate("shf_purge");
   const registryPath = registryWithLedgers([ledger]);
   const managed = await managedReview(home, [], { ARTSHELF_REGISTRY: registryPath });
   try {
     const sessionId = managed.packet.session.id;
-    const target: UiApprovalTarget = {
-      targetId: "shf_purge",
-      ledgerPath: ledger,
-      registryPath: null,
-      recordPath: subject,
-      planId: null,
-      actionType: "trash-purge",
-      label: "purge shf_purge"
-    };
-    const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: "trash-purge", targets: [target], selectedTargetIds: ["shf_purge"], reviewed: {} });
+    const targets = purgeApprovalTargets(groupPurgeCandidates([purgeRow("shf_purge", ledger, targetPath)]));
+    const selectedTargetId = targets[0]!.targetId;
+    const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: PURGE_APPROVAL_ACTION, targets, selectedTargetIds: [selectedTargetId], reviewed: {} });
     appendEvent(home, sessionId, {
       type: "approval_bundle_submitted",
       target: { bundleId: snapshot.id },
@@ -798,9 +793,17 @@ test("artshelf ui review reserves a trash-purge bundle for explicit ui execute",
     assert.equal(entry.replies.at(-1)?.payload.fingerprint, snapshot.fingerprint);
     assert.match(String(entry.replies.at(-1)?.payload.next), /ui execute/i);
 
+    const close = await postClose(managed.packet.baseUrl, managed.packet.token);
+    assert.equal(close.status, 303);
+    const exit = await managed.waitForExit();
+    assert.equal(exit.code, 0, managed.stderr());
+    const reserved = readSessionHistory(home, sessionId).find((item) => item.event.target.bundleId === snapshot.id)!;
+    assert.equal(reserved.event.status, "in_progress");
+
     const execute = ui(home, ["ui", "execute", sessionId, snapshot.id, "--json"], { ARTSHELF_REGISTRY: registryPath });
+    assert.equal(execute.status, 0, execute.stderr);
     assert.doesNotMatch(execute.stderr, /requires a pending or in_progress event/i);
-    assert.equal(existsSync(subject), true);
+    assert.equal(existsSync(targetPath), false);
   } finally {
     await managed.stop();
   }
@@ -1175,6 +1178,19 @@ function bundleTarget(targetId: string, ledgerPath: string, recordPath: string, 
   };
 }
 
+function purgeRow(recordId: string, ledgerPath: string, targetPath: string): DashboardTrashRow {
+  return {
+    recordId,
+    ledgerName: "primary",
+    ledgerPath,
+    targetPath,
+    cleanedAt: "2026-02-01T00:00:00.000Z",
+    age: "30d",
+    cleanupPlanId: "plan_purge",
+    receiptPath: "/receipts/plan_purge.json"
+  };
+}
+
 // Persist an approval bundle plus the approval_bundle_submitted event the browser would have appended
 // for it, so the agent's execute path has a real event to reply receipts against.
 function seedApprovedBundle(home: string, sessionId: string, targets: UiApprovalTarget[], selectedTargetIds: string[], registryPath: string) {
@@ -1215,6 +1231,25 @@ function repoWithReviewedTrashPlan(recordId: string): { ledger: string; subject:
   writeLedgerFile(ledger, [ledgerRecord(recordId, subject)]);
   const plan = createDisposePlan(ledger, { id: recordId, action: "trash-resolve", reason: "reviewed" });
   return { ledger, subject, trashTarget: plan.entry?.targetPath as string, planId: plan.planId };
+}
+
+function repoWithPurgeCandidate(recordId: string): { ledger: string; targetPath: string } {
+  const repo = mkdtempSync(join(tmpdir(), "artshelf-ui-purge-repo-"));
+  mkdirSync(join(repo, ".git"), { recursive: true });
+  const ledger = join(repo, ".artshelf", "ledger.jsonl");
+  const targetPath = join(repo, ".artshelf", "trash", "plan_purge", recordId);
+  mkdirSync(dirname(targetPath), { recursive: true });
+  writeFileSync(targetPath, "payload");
+  writeLedgerFile(ledger, [
+    ledgerRecord(recordId, join(repo, `${recordId}.tar`), {
+      status: "trashed",
+      targetPath,
+      cleanedAt: "2026-02-01T00:00:00.000Z",
+      cleanupPlanId: "plan_purge",
+      receiptPath: "/receipts/plan_purge.json"
+    })
+  ]);
+  return { ledger, targetPath };
 }
 
 test("artshelf ui execute runs an approved bundle end-to-end through the real dispose path and verifies live state", () => {

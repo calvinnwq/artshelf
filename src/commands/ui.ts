@@ -436,6 +436,7 @@ async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number
   const sessionRegistryPath = ledgerPath === undefined ? normalizeRegistryPath(registryPath) : registryPath ?? null;
   const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, registryPath: sessionRegistryPath, cwd: process.cwd() });
   const options: StartUiServerOptions = { uiHome: home, sessionId: session.id };
+  options.managedReview = true;
   if (port !== undefined) options.port = port;
   if (session.registryPath !== null) options.registryPath = session.registryPath;
   if (ledgerPath !== undefined) options.ledgerPath = ledgerPath;
@@ -528,6 +529,7 @@ function cancelUnfinishedEvents(home: string, sessionId: string, events: UiEvent
   let cancelled = 0;
   for (const event of events) {
     if (event.status !== "pending" && event.status !== "in_progress") continue;
+    if (isReservedPurgeBundleEvent(home, sessionId, event)) continue;
     try {
       replyToEvent(home, sessionId, event.id, {
         status: "cancelled",
@@ -543,6 +545,17 @@ function cancelUnfinishedEvents(home: string, sessionId: string, events: UiEvent
     }
   }
   return cancelled;
+}
+
+function isReservedPurgeBundleEvent(home: string, sessionId: string, event: UiEvent): boolean {
+  if (event.type !== "approval_bundle_submitted" || event.status !== "in_progress") return false;
+  const bundleId = eventBundleId(event);
+  if (!bundleId) return false;
+  try {
+    return readApprovalSnapshot(home, sessionId, bundleId).actionType === PURGE_APPROVAL_ACTION;
+  } catch {
+    return false;
+  }
 }
 
 function waitForServerClose(handle: UiServerHandle): Promise<void> {
@@ -797,7 +810,8 @@ function replyManagedPurgeReview(home: string, session: UiSession, event: UiEven
   const source = writeApprovalSnapshot(home, session.id, {
     actionType: PURGE_APPROVAL_ACTION,
     targets,
-    selectedTargetIds: targets.map((target) => target.targetId),
+    selectedTargetIds: [],
+    allowEmptySelection: true,
     reviewed: {
       request: "review_delete_forever",
       count: targets.length,

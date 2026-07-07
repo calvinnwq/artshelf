@@ -381,6 +381,27 @@ test("GET / renders the eight buckets, ledger health, and a row that links to it
   });
 });
 
+test("plain ui serve omits managed close controls and rejects close posts", async () => {
+  const { registryPath } = singleLedger([baseRecord({ id: "shf_known" })]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request("/");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.doesNotMatch(html, /Close review/);
+    assert.doesNotMatch(html, /managed-review-close-form/);
+
+    const close = await server.requestRaw("/close", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: formBody({ token: server.token }),
+      redirect: "manual"
+    });
+    assert.equal(close.status, 405);
+    assert.equal(readSessionEvents(server.home, server.sessionId).some((event) => event.type === "session_done" && event.source === "browser"), false);
+  });
+});
+
 // Isolate the rendered purge-candidate lane: from its lane heading up to the next lane heading,
 // so assertions about purge grouping and warning copy never collide with the plain trash lane
 // (trashed records appear in both lanes).

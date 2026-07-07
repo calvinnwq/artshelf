@@ -72,9 +72,10 @@ export type ApprovalSnapshotInput = {
   actionType: string;
   // Full reviewed candidate pool (selected + unselected rows shown in the workbench).
   targets: UiApprovalTarget[];
-  // Deliberate human selection: a non-empty, duplicate-free subset of `targets` ids.
+  // Deliberate human selection: a duplicate-free subset of `targets` ids.
   selectedTargetIds: string[];
   reviewed?: Record<string, unknown>;
+  allowEmptySelection?: boolean;
 };
 
 type StoredEvent = UiEvent & { kind: "event" };
@@ -487,7 +488,7 @@ function resolveSelectedTargets(targets: UiApprovalTarget[], selectedTargetIds: 
 
 // Enforce the NGX-539 approval boundary at the storage seam: a bundle must carry a non-empty
 // reviewed candidate pool of well-formed exact targets, and the selection must be a deliberate,
-// duplicate-free, non-empty subset of that pool whose every member names an exact subject. This
+// duplicate-free subset of that pool whose every member names an exact subject. This
 // is where "no vague approve-all" and "exact target context for every selected item" become
 // impossible to express, before the snapshot is ever fingerprinted or persisted.
 function validateApprovalSnapshotInput(input: ApprovalSnapshotInput): void {
@@ -507,7 +508,7 @@ function validateApprovalSnapshotInput(input: ApprovalSnapshotInput): void {
     poolIds.add(target.targetId);
   }
 
-  if (!Array.isArray(input.selectedTargetIds) || input.selectedTargetIds.length === 0) {
+  if (!Array.isArray(input.selectedTargetIds) || (input.selectedTargetIds.length === 0 && input.allowEmptySelection !== true)) {
     throw new Error(
       "Invalid Artshelf UI approval selection; approval requires at least one deliberately selected target (no vague approve-all)"
     );
@@ -589,7 +590,8 @@ export function readApprovalSnapshot(home: string, sessionId: string, bundleId: 
     actionType: snapshot.actionType,
     targets: snapshot.targets,
     selectedTargetIds: snapshot.selectedTargetIds,
-    reviewed: snapshot.reviewed
+    reviewed: snapshot.reviewed,
+    allowEmptySelection: true
   });
   const fingerprint = approvalSnapshotFingerprint(resolveSelectedTargets(snapshot.targets, snapshot.selectedTargetIds), snapshot.reviewed ?? {});
   if (fingerprint !== snapshot.fingerprint) {

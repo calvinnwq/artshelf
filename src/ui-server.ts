@@ -38,8 +38,8 @@ import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./typ
 // snapshot as selected vs reviewed rows and the exact action. Submitting a revised subset creates a
 // new immutable approval snapshot for the agent to revalidate.
 // Completed dry-run replies can become prepared-plan approval rows on the dashboard, pending
-// browser events can be unqueued from the activity rail, and the managed review close control queues
-// a session_done event for the attached agent. The browser never ends the session directly.
+// browser events can be unqueued from the activity rail. In managed review mode, the close control
+// queues a session_done event for the attached agent. The browser never ends the session directly.
 //
 // The write paths are POST /intents for lightweight triage intents and POST /approve for immutable
 // approval snapshots. Both are guarded by the session capability token and append pending events for
@@ -53,6 +53,7 @@ export type UiServerOptions = {
   // Existing UI session that supplies the active browser capability token for read access.
   uiHome: string;
   sessionId: string;
+  managedReview?: boolean;
 };
 
 export type StartUiServerOptions = UiServerOptions & { port?: number };
@@ -164,7 +165,7 @@ function route(options: UiServerOptions, request: any, response: any): void {
     return;
   }
 
-  if (method === "POST" && pathname === CLOSE_PATH) {
+  if (method === "POST" && pathname === CLOSE_PATH && options.managedReview === true) {
     // Close is still an agent-mediated session event. The browser records intent; the managed
     // poller replies, runs ui end semantics, and stops the server.
     void routeCloseSubmission(options, request, response).catch((error) => {
@@ -237,6 +238,7 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
         history,
         submittedCount: queued,
         activityHref: activityHref(access.token),
+        managedReview: options.managedReview === true,
         scriptNonce,
         reviewablePreparedPlanEventIds: reviewablePreparedPlanEventIds(options, snapshot)
       }),
@@ -1065,6 +1067,9 @@ function buildApprovalInput(options: UiServerOptions, fields: Record<string, str
   }
   const source = readApprovalSnapshot(options.uiHome, options.sessionId, sourceBundleId);
   const selectedTargetIds = fields.targetId ?? [];
+  if (selectedTargetIds.length === 0) {
+    throw intentError(400, "Invalid Artshelf UI approval selection; approval requires at least one deliberately selected target");
+  }
   return {
     actionType: source.actionType,
     targets: source.targets,
