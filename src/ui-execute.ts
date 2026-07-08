@@ -931,7 +931,7 @@ export type UiBundleExecutionReply = {
 };
 
 // The agent's end-to-end handling of one approved bundle for a session (NGX-540): load the immutable
-// reviewed snapshot, re-read live state, run the revalidate -> execute -> verify loop, then write the
+// submitted approval snapshot, re-read live state, run the revalidate -> execute -> verify loop, then write the
 // per-target receipts and aggregate state back to the session. This is the session-scoped, I/O-bound
 // orchestration wrapper around the pure executeApprovalBundle core: it owns loading the bundle,
 // resolving the event to reply to, and persisting the receipts, while the safety gate and per-target

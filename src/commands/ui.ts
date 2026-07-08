@@ -170,11 +170,11 @@ function handleUiEnd(parsed: ParsedArgs, json: boolean): number {
 }
 
 // `artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]` - the agent's
-// read surface over persisted approval bundles (NGX-539). With a bundle id it loads one immutable
-// snapshot and resolves its deliberate selection to the exact per-target rows, emitting the
-// agent-facing JSON the agent uses to revalidate live state before execution. With no bundle id it
-// lists the session's approved bundles as a compact discovery summary. This never executes a bundle
-// and never mutates anything - an approval record is not an execution.
+// read surface over submitted approval bundles (NGX-539). With a bundle id it loads one immutable
+// event-backed snapshot and resolves its deliberate selection to the exact per-target rows. Without
+// a bundle id it lists only the session's approved bundles with matching approval_bundle_submitted
+// events. Browser-only source snapshots remain usable by GET /bundle, but this command never
+// exposes them, executes a bundle, or mutates anything - an approval record is not an execution.
 function handleUiBundle(parsed: ParsedArgs, json: boolean): number {
   const sessionId = requireSessionId(parsed);
   const home = resolveHome(parsed);
@@ -243,7 +243,7 @@ function submittedApprovalBundleIds(home: string, sessionId: string): Set<string
 }
 
 // Compact per-bundle row for the listing surface: identity, action, counts, and fingerprint so the
-// agent can discover and audit approved bundles, then `ui bundle <session> <id>` for the full snapshot.
+// agent can discover and audit submitted bundles, then `ui bundle <session> <id>` for the full snapshot.
 function bundleSummary(bundle: UiApprovalSnapshot): {
   id: string;
   actionType: string;
@@ -271,7 +271,7 @@ function targetSubject(target: UiApprovalTarget): string {
 
 // `artshelf ui execute <session-id> <bundle-id> [--scope user|repo] [--json]` - the agent's mutating
 // execution path for an approved bundle (NGX-540), and the one `ui` subcommand that changes live
-// state. It loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, runs the
+// state. It loads the immutable submitted approval snapshot, re-reads live ledger/registry/trash state, runs the
 // revalidate -> execute -> verify loop through the existing approval-gated dispose paths or the
 // exact-target one-way-door purge path, and replies per-target receipts plus aggregate state to the
 // session by advancing the bundle's

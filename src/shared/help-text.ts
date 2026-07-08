@@ -44,7 +44,7 @@ Available Commands:
   review      Run a managed live browser review lifecycle
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
-  bundle      Load or list persisted approval bundles for the agent
+  bundle      Load or list submitted approval bundles for the agent
   execute     Execute an approved bundle and reply per-target receipts
   end         End the session and revoke browser writes
 
@@ -551,8 +551,8 @@ control. The detail drawer captures
 record-level triage intents (inspect, comment, keep/trash/resolve/defer, dry-run
 request), and the bundle workbench captures revised approval selections through
 token-bound POSTs, but never mutates ledgers, files, trash, or plans directly.
-Approval posts carry only the source bundle id and selected target ids;
-the server rehydrates target context from the stored bundle instead of trusting
+Approval posts carry only the source snapshot id and selected target ids;
+the server rehydrates target context from the stored snapshot instead of trusting
 hidden browser target JSON. The process runs in the foreground; press Ctrl-C to
 stop it.
 `;
@@ -633,11 +633,14 @@ Options:
   --scope <scope>          Locate the session in user (default) or repo scope
   --json                   Emit a compact single-line agent packet
 
-Bundle is the agent's read surface over persisted approval bundles. With a
-bundle id it loads one immutable reviewed snapshot and its deliberate selected
-targets - the agent-facing JSON used to revalidate live state before execution.
-With no bundle id it lists the session's approved bundles. It only reads approval
-records; it never executes a bundle or mutates ledgers, files, trash, or plans.
+Bundle is the agent's read surface over submitted approval bundles. With a
+bundle id it loads one immutable event-backed reviewed snapshot and its
+deliberate selected targets - the agent-facing JSON used to revalidate live
+state before execution. With no bundle id it lists only the session's approved
+bundles with matching approval_bundle_submitted events. Browser-only workbench
+source snapshots remain available to the token-protected browser workbench, but
+this CLI surface does not list or load them. It only reads approval records; it
+never executes a bundle or mutates ledgers, files, trash, or plans.
 `;
   }
 
@@ -650,7 +653,7 @@ Options:
   --json                   Emit a compact single-line agent receipt packet
 
 Execute is the agent's mutating path for an approved bundle, and the one ui
-subcommand that changes live state. It loads the immutable reviewed snapshot,
+subcommand that changes live state. It loads the immutable submitted approval snapshot,
 re-reads live ledger/registry/trash state, then runs the revalidate -> execute ->
 verify loop through the existing approval-gated dispose paths or the exact-target
 one-way-door purge path, and replies the per-target receipts and aggregate result

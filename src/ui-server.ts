@@ -36,9 +36,10 @@ import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./typ
 // approval-bundle workbench). It binds to 127.0.0.1 only and answers safe GET/HEAD reads by
 // recomputing live state from the read-only domain cores and rendering it as HTML. The read pages
 // embed no file contents. The dashboard has a nonce-bound activity poller; the detail and bundle
-// pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable approval
-// snapshot as selected vs reviewed rows and the exact action. Submitting a revised subset creates a
-// new immutable approval snapshot for the agent to revalidate.
+// pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable
+// workbench/approval snapshot as selected vs reviewed rows and the exact action. Submitting a
+// revised subset creates a new immutable submitted approval snapshot plus event for the agent to
+// revalidate.
 // Completed dry-run replies can become prepared-plan approval rows on the dashboard, pending
 // browser events can be unqueued from the activity rail. In managed review mode, the close control
 // queues a session_done event for the attached agent. The browser never ends the session directly.
@@ -381,10 +382,10 @@ function cancelQueuedBrowserEvents(options: UiServerOptions, eventIds: string[])
   }
 }
 
-// Record one reviewed approval bundle (NGX-539). The form carries the source immutable bundle id plus
-// the human's checked target ids. The server rehydrates the reviewed candidate rows, action, and
-// reviewed facts from the stored source bundle before persistence; hidden browser target JSON is not
-// trusted as approval evidence. The follow-up event tells the agent a new bundle is ready for
+// Record one reviewed approval bundle (NGX-539). The form carries the source immutable snapshot id
+// plus the human's checked target ids. The server rehydrates the reviewed candidate rows, action, and
+// reviewed facts from the stored source snapshot before persistence; hidden browser target JSON is
+// not trusted as approval evidence. The follow-up event tells the agent a new bundle is ready for
 // live-state revalidation; no execution happens in the browser server.
 async function routeApprovalSubmission(options: UiServerOptions, request: any, response: any): Promise<void> {
   let fields: Record<string, string[]>;
@@ -1562,8 +1563,8 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
   }
 }
 
-// Render one persisted approval bundle as the browser workbench (NGX-539 AC4). An approval snapshot
-// is immutable, so submitting a revised selection creates a new bundle instead of changing this one.
+// Render one persisted workbench/approval snapshot as the browser workbench (NGX-539 AC4). The
+// snapshot is immutable, so submitting a revised selection creates a new bundle instead of changing this one.
 // The surface executes nothing and mutates no ledger, file, trash, or plan. The capability token
 // already gated this read. A malformed or absent bundle id is an expected, non-crashing not-found
 // state; anything else is a real server error.

@@ -162,12 +162,12 @@
               forms for inspect, comment, keep/trash/resolve/defer, and dry-run requests. The
               served bundle workbench at
               <code>GET /bundle/&lt;bundle-id&gt;</code> shows the selected exact targets, reviewed-only
-              rows, and exact action from an immutable approval snapshot. With the active token, its
+              rows, and exact action from an immutable workbench source or submitted approval snapshot. With the active token, its
               scriptless form can submit a revised non-empty subset through <code>POST /approve</code>,
-              creating a new immutable approval snapshot and pending approval event without editing
-              the original bundle or executing a workflow. That submit carries only the source
-              bundle id and selected target ids; the server rehydrates the action, reviewed facts,
-              and exact target rows from the stored source bundle instead of trusting hidden browser
+              creating a new immutable submitted approval snapshot and pending approval event without editing
+              the source snapshot or executing a workflow. That submit carries only the source
+              snapshot id and selected target ids; the server rehydrates the action, reviewed facts,
+              and exact target rows from the stored source snapshot instead of trusting hidden browser
               target JSON. The
               session command defaults to user-level multi-ledger review and stores session
               state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> or
@@ -183,12 +183,12 @@
               <code>artshelf ui poll &lt;session-id&gt; --json</code>, uses <code>artshelf ui execute</code>
               for approved bundles or runs existing approval-gated commands only after exact human approval,
               replies with <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
-              The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly. <code>artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles. It never executes a bundle.
+              The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly. <code>artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read surface over submitted approval bundles: with a bundle id it loads one immutable event-backed snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists only the session's approved bundles with matching <code>approval_bundle_submitted</code> events. Browser-only workbench source snapshots remain openable from the token-protected workbench route, but the agent-facing CLI does not list or load them. It never executes a bundle.
             </p>
             <p>
               <code>artshelf ui execute &lt;session-id&gt; &lt;bundle-id&gt; --json</code> is the
               agent's mutating path and the one <code>ui</code> subcommand that changes live
-              state: it loads the immutable reviewed snapshot, re-reads live
+              state: it loads the immutable submitted approval snapshot, re-reads live
               ledger/registry/trash state, then runs a revalidate -&gt; execute -&gt; verify loop
               through the existing approval-gated dispose or one-way-door purge paths and replies per-target receipts
               plus the aggregate result to the session. Execution is exact-target only - a stale,

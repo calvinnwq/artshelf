@@ -154,7 +154,7 @@ Current root ownership:
 - `dashboard.ts`: read-only multi-ledger UI dashboard aggregation (NGX-535/NGX-537) over
   registered ledgers, trash, purge candidates, registry/reconcile problems, recent receipts, and
   needs-context classification, plus the read-only approval-workbench view projection (NGX-539) that
-  groups a persisted approval bundle's candidate rows by owning ledger, and the one-way-door purge
+  groups a persisted workbench/approval snapshot's candidate rows by owning ledger, and the one-way-door purge
   projection (NGX-541) that groups purge candidates by source/ledger, fingerprints the exact live trash
   facts each purge approval is bound to (`purgeCandidateDigest`), and builds the exact digest-bound
   `trash-purge` approval targets. It must not mutate ledgers, registries, plans, or artifacts, and it
@@ -165,7 +165,7 @@ Current root ownership:
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
   browser capability token, the append-only event log (events plus agent replies), immutable
-  fingerprinted approval snapshots, and legacy active-session backfill for registry/repo scope
+  fingerprinted workbench source and submitted approval snapshots, and legacy active-session backfill for registry/repo scope
   metadata. This is the v1 handoff layer where the browser
   captures exact-target triage intents and approval bundles while the agent executes existing approval-gated paths, so
   it never runs a mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped
@@ -182,7 +182,7 @@ Current root ownership:
   conflicting card/bulk/row choices, refuses every other mutating method, and never embeds file
   contents or external assets
 - `ui-execute.ts`: agent-side approved-bundle execution (NGX-540/NGX-541) - the one mutating UI path. It
-  loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
+  loads the immutable submitted approval snapshot, re-reads live ledger/registry/trash state, revalidates the
   bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
   exact valid targets through the existing approval-gated paths - dispose triage targets through the
   `dispose.ts` plan-id paths, one-way-door purge targets through the exact-target `executeApprovedTrashPurge`
