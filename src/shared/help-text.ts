@@ -41,9 +41,10 @@ Available Commands:
   dashboard   Show the read-only multi-ledger review dashboard
   detail      Show the read-only artifact detail drawer for one record
   serve       Serve dashboard and drawers in a local browser
+  review      Run a managed live browser review lifecycle
   poll        Return pending actionable events for the agent
   reply       Append an agent receipt/result/note and advance one event
-  bundle      Load or list persisted approval bundles for the agent
+  bundle      Load or list submitted approval bundles for the agent
   execute     Execute an approved bundle and reply per-target receipts
   end         End the session and revoke browser writes
 
@@ -51,8 +52,9 @@ Flags:
   -h, --help   help for ui
 
 The browser records exact-target triage intents and approval bundle submissions;
-the agent polls them, uses ui execute for approved bundles, and replies with
-receipts. The dashboard, detail, and bundle surfaces never read file contents.
+ui review or a host poller processes them, uses ui execute for approved
+non-purge bundles, reserves purge bundles for explicit one-way-door execution,
+and replies with receipts. The dashboard, detail, and bundle surfaces never read file contents.
 The browser captures handoff events only; it never executes or mutates ledgers,
 files, trash, or plans directly.
 Defaults to user-level, multi-ledger review.
@@ -111,7 +113,7 @@ const COMMAND_GROUPS: ReadonlyArray<{
 const NESTED_HELP = new Map<string, Set<string>>([
   ["trash", new Set(["list", "purge"])],
   ["ledgers", new Set(["list", "add", "prune"])],
-  ["ui", new Set(["dashboard", "detail", "serve", "poll", "reply", "bundle", "execute", "end"])]
+  ["ui", new Set(["dashboard", "detail", "serve", "review", "poll", "reply", "bundle", "execute", "end"])]
 ]);
 
 export function resolveHelpKey(parsed: ParsedArgs): string {
@@ -534,11 +536,11 @@ require the active UI session capability token printed in the serve URL; ending
 that session revokes browser access. The pages embed no file contents and load no
 external assets. The dashboard includes a nonce-bound session-activity poller for
 the token-scoped /activity fragment; detail and bundle pages remain scriptless.
-The dashboard lets reviewers queue recommended lane approvals and then
-submit the selected work as pending session events. Bulk lane approvals are bound
-to the reviewed row set and stale or conflicting card/bulk/row selections are
-rejected before they enter the agent queue. Dashboard dry-run lane requests map
-to prepare_cleanup_plan, check_missing_files, review_delete_forever, or
+The dashboard lets reviewers queue recommended lane approvals, reviewed cleanup
+plan preparation, and row choices as pending session events. Bulk lane approvals
+are bound to the reviewed row set and stale or conflicting card/bulk/row/request
+selections are rejected before they enter the agent queue. Dashboard dry-run lane
+requests map to prepare_cleanup_plan, check_missing_files, review_delete_forever, or
 check_source_problems. After dashboard submit, session activity shows bounded
 queued counts, pending agent work, prepared plans, stale/rejected states,
 execution receipts, and unqueue controls for pending browser work without
@@ -549,10 +551,44 @@ control. The detail drawer captures
 record-level triage intents (inspect, comment, keep/trash/resolve/defer, dry-run
 request), and the bundle workbench captures revised approval selections through
 token-bound POSTs, but never mutates ledgers, files, trash, or plans directly.
-Approval posts carry only the source bundle id and selected target ids;
-the server rehydrates target context from the stored bundle instead of trusting
+Approval posts carry only the source snapshot id and selected target ids;
+the server rehydrates target context from the stored snapshot instead of trusting
 hidden browser target JSON. The process runs in the foreground; press Ctrl-C to
 stop it.
+`;
+  }
+
+  if (command === "ui review") {
+    return `Usage:
+  artshelf ui review [--scope user|repo] [--port <port>] [--poll-interval-ms <ms>] [--registry <path>] [--ledger <path>] [--json]
+
+Options:
+  --scope <scope>          Locate or create the guarding UI session in user (default) or repo scope
+  --port <port>            Loopback port to bind (default: an ephemeral free port)
+  --poll-interval-ms <ms>  Agent poll interval, 10..60000 ms (default: 250)
+  --registry <path>        Registry whose ledgers the dashboard aggregates
+  --ledger <path>          Fallback ledger for detail drawers opened without a target
+  --json                   Emit newline-delimited compact lifecycle packets
+
+Review is the managed agent-attached browser workflow: it starts or resumes the
+UI session, serves the token-protected loopback dashboard, keeps a poll loop
+attached, immediately marks browser work in_progress, replies results into the
+session, and keeps listening for follow-up submissions. Browser close queues a
+session_done event; the attached agent loop replies, cancels still-pending work
+with visible cancelled replies, runs ui end semantics, stops the server, and
+prints a final summary packet. Interrupts (Ctrl-C/SIGTERM) tear down the same
+way instead of stranding queued events.
+
+The manager is conservative. Comments, notes, and bare dry-run requests are
+acknowledged without mutating ledgers, files, trash, or plans. Exact
+keep/trash/resolve/defer decisions become reviewed dispose dry-run plans,
+replied with the plan id and exact approval text (defer/snooze plans use a
+default 7d horizon) so the dashboard can surface a prepared-plan approval row;
+execution still requires approving that exact plan. Approved non-purge bundles run only
+through the existing exact-target ui execute core, while purge bundles are reserved
+for separate explicit one-way-door execution. Broad or execution-shaped
+browser requests are rejected visibly; there is no ui review --all,
+browser-direct execution, or fresh-plan-then-execute path.
 `;
   }
 
@@ -597,11 +633,13 @@ Options:
   --scope <scope>          Locate the session in user (default) or repo scope
   --json                   Emit a compact single-line agent packet
 
-Bundle is the agent's read surface over persisted approval bundles. With a
-bundle id it loads one immutable reviewed snapshot and its deliberate selected
-targets - the agent-facing JSON used to revalidate live state before execution.
-With no bundle id it lists the session's approved bundles. It only reads approval
-records; it never executes a bundle or mutates ledgers, files, trash, or plans.
+Bundle is the agent's read surface over submitted approval bundles. With a
+bundle id it loads one immutable event-backed reviewed snapshot and its
+deliberate selected targets - the agent-facing JSON used to revalidate live state before execution. With no bundle id it lists only the session's approved
+bundles with matching approval_bundle_submitted events. Browser-only workbench
+source snapshots remain available to the token-protected browser workbench, but
+this CLI surface does not list or load them. It only reads approval records; it
+never executes a bundle or mutates ledgers, files, trash, or plans.
 `;
   }
 
@@ -614,7 +652,7 @@ Options:
   --json                   Emit a compact single-line agent receipt packet
 
 Execute is the agent's mutating path for an approved bundle, and the one ui
-subcommand that changes live state. It loads the immutable reviewed snapshot,
+subcommand that changes live state. It loads the immutable submitted approval snapshot,
 re-reads live ledger/registry/trash state, then runs the revalidate -> execute ->
 verify loop through the existing approval-gated dispose paths or the exact-target
 one-way-door purge path, and replies the per-target receipts and aggregate result

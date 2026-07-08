@@ -1,10 +1,12 @@
 import { createServer } from "node:http";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type { BuildArtifactDetailOptions } from "./artifact-detail.js";
 import { buildArtifactDetail } from "./artifact-detail.js";
 import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardSnapshot } from "./dashboard.js";
 import { buildApprovalWorkbenchView, buildDashboard } from "./dashboard.js";
 import { disposePlanEntryDigest, disposePlanEntrySubjectStaleForExecute, readDisposePlanEntry } from "./dispose.js";
+import type { ArtifactIdentityFacts } from "./file-identity.js";
+import { artifactIdentityFacts, sameArtifactIdentityFacts } from "./file-identity.js";
 import { normalizeLedgerPath } from "./ledger.js";
 import {
   renderApprovalWorkbenchPage,
@@ -34,11 +36,13 @@ import type { UiApprovalTarget, UiEventType, UiSessionHistoryEntry } from "./typ
 // approval-bundle workbench). It binds to 127.0.0.1 only and answers safe GET/HEAD reads by
 // recomputing live state from the read-only domain cores and rendering it as HTML. The read pages
 // embed no file contents. The dashboard has a nonce-bound activity poller; the detail and bundle
-// pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable approval
-// snapshot as selected vs reviewed rows and the exact action. Submitting a revised subset creates a
-// new immutable approval snapshot for the agent to revalidate.
-// Completed dry-run replies can become prepared-plan approval rows on the dashboard, and pending
-// browser events can be unqueued from the activity rail.
+// pages remain scriptless. The NGX-539 GET /bundle/<id> page renders one persisted immutable
+// workbench/approval snapshot as selected vs reviewed rows and the exact action. Submitting a
+// revised subset creates a new immutable submitted approval snapshot plus event for the agent to
+// revalidate.
+// Completed dry-run replies can become prepared-plan approval rows on the dashboard, pending
+// browser events can be unqueued from the activity rail. In managed review mode, the close control
+// queues a session_done event for the attached agent. The browser never ends the session directly.
 //
 // The write paths are POST /intents for lightweight triage intents and POST /approve for immutable
 // approval snapshots. Both are guarded by the session capability token and append pending events for
@@ -52,6 +56,7 @@ export type UiServerOptions = {
   // Existing UI session that supplies the active browser capability token for read access.
   uiHome: string;
   sessionId: string;
+  managedReview?: boolean;
 };
 
 export type StartUiServerOptions = UiServerOptions & { port?: number };
@@ -84,6 +89,7 @@ const BUNDLE_PREFIX = "/bundle/";
 const INTENTS_PATH = "/intents";
 const APPROVE_PATH = "/approve";
 const ACTIVITY_PATH = "/activity";
+const CLOSE_PATH = "/close";
 
 // Detail-drawer intents are tiny, but the dashboard required-actions form also carries reviewed row
 // targets so bulk approvals can be rejected if a lane changed since render. Keep the cap bounded but
@@ -120,7 +126,13 @@ export function startUiServer(options: StartUiServerOptions): Promise<UiServerHa
         url: `http://${LOOPBACK_HOST}:${port}`,
         host: LOOPBACK_HOST,
         port,
-        close: () => new Promise<void>((done) => server.close(() => done()))
+        // Force keep-alive sockets closed so teardown does not block on the browser's idle
+        // connections (they otherwise linger until keepAliveTimeout, stalling the final summary).
+        close: () =>
+          new Promise<void>((done) => {
+            server.close(() => done());
+            server.closeAllConnections();
+          })
       });
     });
   });
@@ -156,6 +168,15 @@ function route(options: UiServerOptions, request: any, response: any): void {
     return;
   }
 
+  if (method === "POST" && pathname === CLOSE_PATH && options.managedReview === true) {
+    // Close is still an agent-mediated session event. The browser records intent; the managed
+    // poller replies, runs ui end semantics, and stops the server.
+    void routeCloseSubmission(options, request, response).catch((error) => {
+      tryServerError(response, error);
+    });
+    return;
+  }
+
   // The dashboard and detail drawer answer reads only. Writes are refused on every read path; the
   // mutating routes are the explicit, token-guarded /intents and /approve endpoints handled above.
   sendHtml(response, 405, renderErrorPage({
@@ -163,6 +184,33 @@ function route(options: UiServerOptions, request: any, response: any): void {
     title: "Method not allowed",
     message: "This review surface answers reads; human triage intents and approval bundles are recorded only through capability-token-guarded forms, and the browser executes nothing."
   }));
+}
+
+async function routeCloseSubmission(options: UiServerOptions, request: any, response: any): Promise<void> {
+  let fields: Record<string, string>;
+  try {
+    fields = flattenFormFields(parseFormUrlEncodedMulti(await readRequestBody(request, MAX_INTENT_BODY_BYTES)));
+  } catch (error) {
+    sendIntentError(response, error);
+    return;
+  }
+
+  const token = fields.token ?? "";
+  if (!authorizeBrowserWrite(options, token)) {
+    sendHtml(response, 401, renderErrorPage({
+      status: 401,
+      title: "Capability token required",
+      message: "Closing a managed review requires the active UI session token; reopen the review surface from the artshelf ui serve link."
+    }));
+    return;
+  }
+
+  appendEvent(options.uiHome, options.sessionId, {
+    type: "session_done",
+    target: { action: "close_review" },
+    payload: { reason: fields.reason ?? "browser close requested" }
+  });
+  sendRedirect(response, 303, dashboardActivityRedirect(token));
 }
 
 function routeRead(options: UiServerOptions, pathname: string, query: string, request: any, response: any): void {
@@ -193,7 +241,9 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
         history,
         submittedCount: queued,
         activityHref: activityHref(access.token),
+        managedReview: options.managedReview === true,
         scriptNonce,
+        reviewedCleanupRows: signedReviewedCleanupRowFields(options, snapshot),
         reviewablePreparedPlanEventIds: reviewablePreparedPlanEventIds(options, snapshot)
       }),
       { "Content-Security-Policy": dashboardContentSecurityPolicy(scriptNonce) }
@@ -202,7 +252,7 @@ function routeRead(options: UiServerOptions, pathname: string, query: string, re
   }
 
   if (pathname === ACTIVITY_PATH) {
-    sendHtml(response, 200, renderDashboardActivityFragment(dashboardSessionHistory(options), { activityHref: activityHref(access.token), includeScript: false }));
+    sendHtml(response, 200, renderDashboardActivityFragment(dashboardSessionHistory(options), { activityHref: activityHref(access.token), includeScript: false, token: access.token }));
     return;
   }
 
@@ -332,10 +382,10 @@ function cancelQueuedBrowserEvents(options: UiServerOptions, eventIds: string[])
   }
 }
 
-// Record one reviewed approval bundle (NGX-539). The form carries the source immutable bundle id plus
-// the human's checked target ids. The server rehydrates the reviewed candidate rows, action, and
-// reviewed facts from the stored source bundle before persistence; hidden browser target JSON is not
-// trusted as approval evidence. The follow-up event tells the agent a new bundle is ready for
+// Record one reviewed approval bundle (NGX-539). The form carries the source immutable snapshot id
+// plus the human's checked target ids. The server rehydrates the reviewed candidate rows, action, and
+// reviewed facts from the stored source snapshot before persistence; hidden browser target JSON is
+// not trusted as approval evidence. The follow-up event tells the agent a new bundle is ready for
 // live-state revalidation; no execution happens in the browser server.
 async function routeApprovalSubmission(options: UiServerOptions, request: any, response: any): Promise<void> {
   let fields: Record<string, string[]>;
@@ -453,6 +503,7 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
   const approvalBundles: BuiltApprovalBundleSubmission[] = [];
   const rowDecisions = new Map<string, RowDecisionApproval>();
   const bulkDecisions = new Map<RowDecisionApproval["lane"], string>();
+  const laneRequests = new Set<string>();
   for (const approval of approvals) {
     const [kind, lane, action, extra] = approval.split(":");
     if (kind === "approve-plan") {
@@ -488,12 +539,19 @@ function buildRequiredActionsSubmission(options: UiServerOptions, fields: Record
         throw intentError(400, `Invalid Artshelf UI required action request "${action}" for lane ${lane}`);
       }
       rejectQueuedLaneRequest(pendingActions, lane, action);
-      intents.push({ type: "dry_run_requested", target: { lane }, payload: { request: action, label: requiredActionRequestLabel(lane) } });
+      const payload: Record<string, unknown> = { request: action, label: requiredActionRequestLabel(lane) };
+      if (lane === "cleanup") {
+        const rows = visibleRowsForLane(visibleRows, "cleanup");
+        validateReviewedBulkLaneRows(rows, fields, "cleanup");
+        payload.reviewedRows = reviewedCleanupRowsFromSignedFields(options, fields, rows);
+      }
+      laneRequests.add(lane);
+      intents.push({ type: "dry_run_requested", target: { lane }, payload });
     } else {
       throw intentError(400, `Invalid Artshelf UI required action approval "${approval}"`);
     }
   }
-  rejectConflictingRequiredActionSelections(bulkDecisions, rowDecisions);
+  rejectConflictingRequiredActionSelections(bulkDecisions, rowDecisions, laneRequests);
   const seenPreparedApprovals = new Set<string>();
   const uniqueApprovalBundles = approvalBundles.filter((bundle) => {
     if (seenPreparedApprovals.has(bundle.preparedEventId)) return false;
@@ -602,7 +660,11 @@ function buildPreparedPlanApprovalSubmission(options: UiServerOptions, encodedEv
   }
 
   const entry = readSessionHistory(options.uiHome, options.sessionId).find((candidate) => candidate.event.id === eventId);
-  if (entry === undefined || entry.event.type !== "decision_submitted" || entry.event.status !== "completed") {
+  if (
+    entry === undefined ||
+    (entry.event.type !== "decision_submitted" && entry.event.type !== "dry_run_requested") ||
+    entry.event.status !== "completed"
+  ) {
     throw intentError(400, `Prepared plan event ${eventId} is not ready for approval`);
   }
 
@@ -746,7 +808,8 @@ function addRowDecisionApproval(decisions: Map<string, RowDecisionApproval>, dec
 
 function rejectConflictingRequiredActionSelections(
   bulkDecisions: Map<RowDecisionApproval["lane"], string>,
-  rowDecisions: Map<string, RowDecisionApproval>
+  rowDecisions: Map<string, RowDecisionApproval>,
+  laneRequests: Set<string> = new Set()
 ): void {
   const bulkLanes = new Set(bulkDecisions.keys());
   const conflictingLanes = [...new Set([...rowDecisions.values()].map((decision) => decision.lane).filter((lane) => bulkLanes.has(lane)))];
@@ -754,6 +817,14 @@ function rejectConflictingRequiredActionSelections(
     throw intentError(
       400,
       `Conflicting Artshelf UI selections for ${conflictingLanes.join(", ")}: choose either the card/bulk approval or individual row choices, not both`
+    );
+  }
+  const decisionLanes = new Set([...bulkLanes, ...[...rowDecisions.values()].map((decision) => decision.lane)]);
+  const conflictingRequestLanes = [...laneRequests].filter((lane) => decisionLanes.has(lane as RowDecisionApproval["lane"]));
+  if (conflictingRequestLanes.length > 0) {
+    throw intentError(
+      400,
+      `Conflicting Artshelf UI selections for ${conflictingRequestLanes.join(", ")}: choose either the dashboard request or row decisions, not both`
     );
   }
 }
@@ -788,6 +859,129 @@ function reviewedBulkLaneRows(fields: Record<string, string[]>, lane: "needs-rev
     }
   }
   return rows;
+}
+
+function reviewedLaneRowValue(row: Pick<DashboardArtifactRow, "recordId" | "ledgerPath">): string {
+  return `${encodeURIComponent(row.recordId)}:${encodeURIComponent(row.ledgerPath ?? "")}`;
+}
+
+type ReviewedCleanupRowPayload = {
+  recordId: string;
+  ledgerPath: string;
+  ledgerName: string;
+  path: string;
+  cleanup: string;
+  dueState: string;
+  fileFacts: ArtifactIdentityFacts;
+};
+
+function signedReviewedCleanupRowFields(options: UiServerOptions, snapshot: DashboardSnapshot): Map<string, string> {
+  const session = readSession(options.uiHome, options.sessionId);
+  const rows = visibleRequiredActionRows(options, snapshot).cleanup;
+  const fields = new Map<string, string>();
+  for (const row of rows) {
+    if (row.dueState === null) throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+    fields.set(reviewedLaneRowValue(row), signReviewedCleanupRowPayload(session, {
+      recordId: row.recordId,
+      ledgerPath: row.ledgerPath,
+      ledgerName: row.ledgerName,
+      path: row.path,
+      cleanup: row.cleanup,
+      dueState: row.dueState,
+      fileFacts: artifactIdentityFacts(row.path)
+    }));
+  }
+  return fields;
+}
+
+function reviewedCleanupRowsFromSignedFields(
+  options: UiServerOptions,
+  fields: Record<string, string[]>,
+  rows: DashboardArtifactRow[]
+): ReviewedCleanupRowPayload[] {
+  const values = fields["reviewed:cleanup:facts"] ?? [];
+  if (values.length === 0) {
+    throw intentError(400, "Dashboard cleanup lane requests require signed reviewed cleanup row facts");
+  }
+  const session = readSession(options.uiHome, options.sessionId);
+  return validateReviewedCleanupRowsPayload(values.map((value) => parseReviewedCleanupRowPayload(session, value)), rows);
+}
+
+function signReviewedCleanupRowPayload(session: ReturnType<typeof readSession>, payload: ReviewedCleanupRowPayload): string {
+  const body = hexEncode(encodeURIComponent(JSON.stringify({ version: 1, ...payload })));
+  return `${body}:${cleanupRowPayloadSignature(session, body)}`;
+}
+
+function parseReviewedCleanupRowPayload(session: ReturnType<typeof readSession>, value: string): ReviewedCleanupRowPayload {
+  const [body, signature, extra] = value.split(":");
+  if (extra !== undefined || !isNonBlank(body) || !isNonBlank(signature)) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  if (signature !== cleanupRowPayloadSignature(session, body)) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(decodeURIComponent(hexDecode(body)));
+  } catch {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  const record = parsed as Record<string, unknown>;
+  if (record.version !== 1) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  const recordId = typeof record.recordId === "string" ? record.recordId : "";
+  const ledgerPath = typeof record.ledgerPath === "string" ? record.ledgerPath : "";
+  const ledgerName = typeof record.ledgerName === "string" && record.ledgerName.trim().length > 0 ? record.ledgerName : "ledger";
+  const path = typeof record.path === "string" ? record.path : "";
+  const cleanup = typeof record.cleanup === "string" ? record.cleanup : "";
+  const dueState = typeof record.dueState === "string" ? record.dueState : "";
+  const fileFacts = artifactIdentityFactsFrom(record.fileFacts);
+  if (!isNonBlank(recordId) || !isNonBlank(ledgerPath) || !isNonBlank(path) || !isNonBlank(cleanup) || !isNonBlank(dueState) || fileFacts === null) {
+    throw intentError(400, "Invalid signed reviewed cleanup row facts");
+  }
+  return { recordId, ledgerPath, ledgerName, path, cleanup, dueState, fileFacts };
+}
+
+function cleanupRowPayloadSignature(session: ReturnType<typeof readSession>, body: string): string {
+  return createHash("sha256").update(`${session.id}\0${session.createdAt}\0${session.token}\0${body}`).digest("hex");
+}
+
+function hexEncode(value: string): string {
+  let encoded = "";
+  for (const char of value) encoded += char.charCodeAt(0).toString(16).padStart(2, "0");
+  return encoded;
+}
+
+function hexDecode(value: string): string {
+  if (value.length % 2 !== 0 || /[^0-9a-f]/i.test(value)) throw new Error("invalid hex");
+  let decoded = "";
+  for (let i = 0; i < value.length; i += 2) decoded += String.fromCharCode(Number.parseInt(value.slice(i, i + 2), 16));
+  return decoded;
+}
+
+function artifactIdentityFactsFrom(value: unknown): ArtifactIdentityFacts | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.exists === false && record.nodeKind === "missing") return { exists: false, nodeKind: "missing" };
+  if (record.exists !== true) return null;
+  const nodeKind = record.nodeKind;
+  if (nodeKind !== "file" && nodeKind !== "directory" && nodeKind !== "symlink" && nodeKind !== "other") return null;
+  const dev = finiteNumberFrom(record.dev);
+  const ino = finiteNumberFrom(record.ino);
+  const mode = finiteNumberFrom(record.mode);
+  const size = finiteNumberFrom(record.size);
+  const mtimeMs = finiteNumberFrom(record.mtimeMs);
+  const ctimeMs = finiteNumberFrom(record.ctimeMs);
+  if (dev === null || ino === null || mode === null || size === null || mtimeMs === null || ctimeMs === null) return null;
+  return { exists: true, nodeKind, dev, ino, mode, size, mtimeMs, ctimeMs };
+}
+
+function finiteNumberFrom(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function requiredActionRequestLabel(lane: DashboardBucketKey): string {
@@ -981,7 +1175,10 @@ function livePreparedPlanEventIndex(options: UiServerOptions, snapshot: Dashboar
 }
 
 function reviewablePreparedPlanEventId(options: UiServerOptions, entry: UiSessionHistoryEntry): string | null {
-  if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") return null;
+  if (
+    entry.event.status !== "completed" ||
+    (entry.event.type !== "decision_submitted" && entry.event.type !== "dry_run_requested")
+  ) return null;
   const recordId = stringRecordValue(entry.event.target, "recordId");
   const requestedLedgerPath = stringRecordValue(entry.event.target, "ledgerPath");
   if (!recordId || !requestedLedgerPath) return null;
@@ -1014,6 +1211,9 @@ function buildApprovalInput(options: UiServerOptions, fields: Record<string, str
   }
   const source = readApprovalSnapshot(options.uiHome, options.sessionId, sourceBundleId);
   const selectedTargetIds = fields.targetId ?? [];
+  if (selectedTargetIds.length === 0) {
+    throw intentError(400, "Invalid Artshelf UI approval selection; approval requires at least one deliberately selected target");
+  }
   return {
     actionType: source.actionType,
     targets: source.targets,
@@ -1088,10 +1288,12 @@ function validateDashboardLaneTarget(
   rejectQueuedLaneRequest(pendingActionIndex(readSessionHistory(options.uiHome, options.sessionId)), lane, expectedRequest);
 
   const snapshot = buildDashboard(dashboardOptions(options));
-  const count = dashboardLaneCount(snapshot, lane);
+  const visibleRows = visibleRequiredActionRows(options, snapshot);
+  const count = lane === "cleanup" ? visibleRows.cleanup.length : dashboardLaneCount(snapshot, lane);
   if (count <= 0) {
     throw intentError(400, `Dashboard lane ${lane} has no work to request`);
   }
+  const reviewedRows = lane === "cleanup" ? validateReviewedCleanupRowsPayload(payload.reviewedRows, visibleRows.cleanup) : undefined;
 
   const validatedTarget: Record<string, unknown> = { lane, registryPath: normalizeRegistryPath(options.registryPath) };
   if (options.ledgerPath !== undefined) validatedTarget.ledgerPath = normalizeLedgerPath(options.ledgerPath);
@@ -1100,9 +1302,61 @@ function validateDashboardLaneTarget(
     payload: {
       request: expectedRequest,
       ...(typeof payload.label === "string" && payload.label.trim().length > 0 ? { label: payload.label } : {}),
-      count
+      count,
+      ...(reviewedRows !== undefined ? { reviewedRows } : {})
     }
   };
+}
+
+function validateReviewedCleanupRowsPayload(value: unknown, rows: DashboardArtifactRow[]): ReviewedCleanupRowPayload[] {
+  if (!Array.isArray(value)) {
+    throw intentError(400, "Dashboard cleanup lane requests require reviewed cleanup row targets");
+  }
+  const expected = new Map(rows.map((row) => [rowDecisionKey({ lane: "cleanup", recordId: row.recordId, ledgerPath: row.ledgerPath ?? "" }), row]));
+  const reviewed: ReviewedCleanupRowPayload[] = [];
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw intentError(400, "Invalid reviewed cleanup row target");
+    }
+    const record = entry as Record<string, unknown>;
+    const recordId = typeof record.recordId === "string" ? record.recordId : "";
+    const ledgerPath = typeof record.ledgerPath === "string" ? record.ledgerPath : "";
+    const ledgerName = typeof record.ledgerName === "string" && record.ledgerName.trim().length > 0 ? record.ledgerName : "ledger";
+    const path = typeof record.path === "string" ? record.path : "";
+    const cleanup = typeof record.cleanup === "string" ? record.cleanup : "";
+    const dueState = typeof record.dueState === "string" ? record.dueState : "";
+    if (!isNonBlank(recordId) || !isNonBlank(ledgerPath)) {
+      throw intentError(400, "Invalid reviewed cleanup row target");
+    }
+    const key = rowDecisionKey({ lane: "cleanup", recordId, ledgerPath });
+    const expectedRow = expected.get(key);
+    if (!expectedRow || expectedRow.dueState === null) {
+      throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+    }
+    const fileFacts = artifactIdentityFactsFrom(record.fileFacts);
+    if (!fileFacts) {
+      throw intentError(400, "Invalid reviewed cleanup row target");
+    }
+    if (
+      path !== expectedRow.path ||
+      cleanup !== expectedRow.cleanup ||
+      dueState !== expectedRow.dueState ||
+      ledgerName !== expectedRow.ledgerName ||
+      !sameArtifactIdentityFacts(artifactIdentityFacts(path), fileFacts)
+    ) {
+      throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+    }
+    if (seen.has(key)) {
+      throw intentError(400, "Duplicate reviewed cleanup row target");
+    }
+    seen.add(key);
+    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState, fileFacts });
+  }
+  if (seen.size !== expected.size) {
+    throw intentError(409, "Dashboard cleanup lane changed since this page loaded; reload the dashboard before submitting bulk approvals");
+  }
+  return reviewed;
 }
 
 function isDashboardRequestLane(value: unknown): value is DashboardBucketKey {
@@ -1309,8 +1563,8 @@ function routeDetail(options: UiServerOptions, recordId: string, query: string, 
   }
 }
 
-// Render one persisted approval bundle as the browser workbench (NGX-539 AC4). An approval snapshot
-// is immutable, so submitting a revised selection creates a new bundle instead of changing this one.
+// Render one persisted workbench/approval snapshot as the browser workbench (NGX-539 AC4). The
+// snapshot is immutable, so submitting a revised selection creates a new bundle instead of changing this one.
 // The surface executes nothing and mutates no ledger, file, trash, or plan. The capability token
 // already gated this read. A malformed or absent bundle id is an expected, non-crashing not-found
 // state; anything else is a real server error.

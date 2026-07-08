@@ -60,6 +60,11 @@ type CleanupReceiptFile = {
   results: CleanupExecutionResult[];
 };
 
+type CleanupPlanOptions = {
+  recordIds?: string[];
+  expectedEntries?: CleanupPlanEntry[];
+};
+
 export type PutInput = {
   path: string;
   reason: string;
@@ -343,10 +348,14 @@ export function validateLedger(ledgerPath: string): {
   return { ok: errors.length === 0, errors, warnings, entries: records.length };
 }
 
-export function createCleanupPlan(ledgerPath: string): CleanupPlan {
-  const plan = buildCleanupPlan(ledgerPath);
+export function createCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}): CleanupPlan {
+  const plan = buildCleanupPlan(ledgerPath, options);
+  return writeCleanupPlan(plan);
+}
+
+export function writeCleanupPlan(plan: CleanupPlan): CleanupPlan {
   if (plan.entries.length === 0) return noCreatedPlan(plan);
-  const existingPlan = matchingExistingCleanupPlan(ledgerPath, plan);
+  const existingPlan = matchingExistingCleanupPlan(plan.ledgerPath, plan);
   if (existingPlan) {
     const refreshedPlan = {
       ...plan,
@@ -355,7 +364,7 @@ export function createCleanupPlan(ledgerPath: string): CleanupPlan {
     };
     if (!refreshedPlan.planPath) throw new Error("cleanup plan path was not created");
     writeJson(refreshedPlan.planPath, refreshedPlan);
-    registerArtshelfArtifact(ledgerPath, refreshedPlan.planPath, {
+    registerArtshelfArtifact(plan.ledgerPath, refreshedPlan.planPath, {
       reason: `Artshelf cleanup dry-run plan ${refreshedPlan.planId}`,
       ttl: "14d",
       kind: "run-artifact",
@@ -366,7 +375,7 @@ export function createCleanupPlan(ledgerPath: string): CleanupPlan {
   }
   if (!plan.planPath) throw new Error("cleanup plan path was not created");
   writeJson(plan.planPath, plan);
-  registerArtshelfArtifact(ledgerPath, plan.planPath, {
+  registerArtshelfArtifact(plan.ledgerPath, plan.planPath, {
     reason: `Artshelf cleanup dry-run plan ${plan.planId}`,
     ttl: "14d",
     kind: "run-artifact",
@@ -376,8 +385,8 @@ export function createCleanupPlan(ledgerPath: string): CleanupPlan {
   return plan;
 }
 
-export function previewCleanupPlan(ledgerPath: string): CleanupPlan {
-  const plan = buildCleanupPlan(ledgerPath);
+export function previewCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}): CleanupPlan {
+  const plan = buildCleanupPlan(ledgerPath, options);
   return plan.entries.length === 0 ? noCreatedPlan(plan) : plan;
 }
 
@@ -640,10 +649,11 @@ function noCreatedTrashPurgePlan(plan: TrashPurgePlan): TrashPurgePlan {
   };
 }
 
-function buildCleanupPlan(ledgerPath: string): CleanupPlan {
+function buildCleanupPlan(ledgerPath: string, options: CleanupPlanOptions = {}): CleanupPlan {
   const generatedAt = now();
   const records = readLedger(ledgerPath);
-  const due = dueEntries(records, generatedAt);
+  const recordIds = options.recordIds === undefined ? null : new Set(options.recordIds);
+  const due = dueEntries(records, generatedAt).filter((entry) => recordIds === null || recordIds.has(entry.id));
   const entries: CleanupPlanEntry[] = [];
   const skipped: CleanupPlan["skipped"] = [];
 
@@ -658,6 +668,9 @@ function buildCleanupPlan(ledgerPath: string): CleanupPlan {
     }
     entries.push({ id: item.id, path: item.path, action: item.cleanup, dueStatus: item.dueStatus });
   }
+  if (options.expectedEntries !== undefined && !sameCleanupPlanEntries(entries, options.expectedEntries)) {
+    throw new Error("cleanup reviewed rows no longer match live cleanup plan entries");
+  }
 
   const planId = makePlanId(generatedAt);
   const planPath = cleanupPlanPath(ledgerPath, planId);
@@ -670,6 +683,27 @@ function buildCleanupPlan(ledgerPath: string): CleanupPlan {
     planPath
   };
   return plan;
+}
+
+function sameCleanupPlanEntries(left: CleanupPlanEntry[], right: CleanupPlanEntry[]): boolean {
+  if (left.length !== right.length) return false;
+  const unmatched = new Map<string, number>();
+  for (const entry of left) {
+    const key = cleanupPlanEntryKey(entry);
+    unmatched.set(key, (unmatched.get(key) ?? 0) + 1);
+  }
+  for (const entry of right) {
+    const key = cleanupPlanEntryKey(entry);
+    const count = unmatched.get(key) ?? 0;
+    if (count === 0) return false;
+    if (count === 1) unmatched.delete(key);
+    else unmatched.set(key, count - 1);
+  }
+  return unmatched.size === 0;
+}
+
+function cleanupPlanEntryKey(entry: CleanupPlanEntry): string {
+  return `${entry.id}\0${entry.path}\0${entry.action}\0${entry.dueStatus}`;
 }
 
 function buildTrashPurgePlan(ledgerPath: string, olderThan: string): TrashPurgePlan {

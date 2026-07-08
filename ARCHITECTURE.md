@@ -45,6 +45,7 @@ src/
   ledger.ts           ledger domain rules, cleanup planning/execution, validation
   registry.ts         ledger registry domain and persistence helpers
   registry-prune.ts   registry-prune classification plus approval-gated prune plan and execute layers
+  file-identity.ts    filesystem identity facts for reviewed browser row binding
   dashboard.ts        read-only multi-ledger UI dashboard aggregation
   artifact-detail.ts  read-only single-record UI detail drawer
   provenance.ts       reconcile-safe path provenance capture for new records
@@ -63,7 +64,7 @@ src/
 ```
 
 There is no `src/core/` folder in the current Artshelf tree. The root domain files
-(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `dashboard.ts`, `artifact-detail.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
+(`ledger.ts`, `registry.ts`, `provenance.ts`, `reconcile.ts`, `dispose.ts`, `file-identity.ts`, `dashboard.ts`, `artifact-detail.ts`, `session.ts`, `locks.ts`, `time.ts`, and `types.ts`) are
 the existing core/domain modules for this closeout. `ui-server.ts` is a root support module for the
 browser review surface and token-bound intent/approval capture. A future issue may move these under `src/core/`,
 but NGX-410 should not perform that broad domain reshuffle.
@@ -103,11 +104,11 @@ Each public command has a discoverable module named after the CLI surface:
 these files must contain real command-family implementation code.
 
 The `ui` command family (`artshelf ui`, `ui dashboard`, `ui detail`, `ui serve`,
-`ui poll`, `ui reply`, `ui bundle`, `ui execute`, `ui end`) is the agent-mediated AXI surface over
+`ui review`, `ui poll`, `ui reply`, `ui bundle`, `ui execute`, `ui end`) is the agent-mediated AXI surface over
 `session.ts` plus the read-only review data surface over `dashboard.ts`,
 `artifact-detail.ts`, and `ui-server.ts`: it starts or resumes durable review
 sessions, serves token-protected loopback dashboard/detail/bundle pages, returns
-compact `--json` review and bundle snapshots, and runs the poll/reply/execute/end agent
+compact `--json` review and bundle snapshots, and runs the managed or manual poll/reply/execute/end agent
 loop. The served dashboard lets reviewers queue recommended card approvals,
 lane-level choices, individual row choices, and dashboard dry-run requests for one
 final submit to the agent; reviewed bulk rows are bound to the page snapshot and
@@ -122,6 +123,7 @@ approved bundle through `ui execute` (the one mutating `ui` subcommand), which
 revalidates live state, requires exact target and reviewed dispose-plan entry
 matches, runs the existing approval-gated paths for exact targets only, verifies
 live state after, and replies per-target receipts.
+`ui review` owns the intended managed foreground lifecycle: it starts the same server, keeps a session poller attached, marks browser events `in_progress`, turns exact record decisions and exact record dry-run requests into reviewed dispose plans, turns supported lane dry-run requests into reviewed cleanup plans, source/missing-file checks, or purge workbench handoffs, executes non-purge approved bundles through the `ui execute` core, reserves purge bundles for an explicit one-way-door execute, and closes by cancelling unfinished work before ending the session.
 
 ### Domain files
 
@@ -147,10 +149,12 @@ Current root ownership:
   approval-gated dry-run plan layer that writes a reviewed dispose plan and the plan-id-bound
   execute layer that re-snapshots the live subject, refuses drift/target conflicts, moves the
   subject to plan-scoped trash for trash-resolve, and writes a receipt with verification (NGX-483)
+- `file-identity.ts`: minimal `lstat`-based identity facts for reviewed browser rows, used by
+  managed cleanup-plan preparation to reject stale row snapshots before writing a reviewed plan
 - `dashboard.ts`: read-only multi-ledger UI dashboard aggregation (NGX-535/NGX-537) over
   registered ledgers, trash, purge candidates, registry/reconcile problems, recent receipts, and
   needs-context classification, plus the read-only approval-workbench view projection (NGX-539) that
-  groups a persisted approval bundle's candidate rows by owning ledger, and the one-way-door purge
+  groups a persisted workbench/approval snapshot's candidate rows by owning ledger, and the one-way-door purge
   projection (NGX-541) that groups purge candidates by source/ledger, fingerprints the exact live trash
   facts each purge approval is bound to (`purgeCandidateDigest`), and builds the exact digest-bound
   `trash-purge` approval targets. It must not mutate ledgers, registries, plans, or artifacts, and it
@@ -161,23 +165,24 @@ Current root ownership:
 - `inspect.ts`: deterministic inspect report builder for `get --inspect` (NGX-482)
 - `session.ts`: durable Artshelf UI review session storage (NGX-531) - session metadata, the
   browser capability token, the append-only event log (events plus agent replies), immutable
-  fingerprinted approval snapshots, and legacy active-session backfill for registry/repo scope
+  fingerprinted workbench source and submitted approval snapshots, and legacy active-session backfill for registry/repo scope
   metadata. This is the v1 handoff layer where the browser
   captures exact-target triage intents and approval bundles while the agent executes existing approval-gated paths, so
   it never runs a mutating workflow itself. User-level by default (`~/.artshelf/ui`); repo-scoped
   optionally
 - `ui-server.ts`: token-protected loopback HTTP server for dashboard/detail browser pages, the
   approval-bundle workbench page (NGX-539 `GET /bundle/<id>`), human triage intent
-  capture, dashboard required-action submission, and approval-bundle submission. It accepts safe
+  capture, dashboard required-action submission, managed-review close submission, and approval-bundle submission. It accepts safe
   browser reads, recomputes live state per request, serves a token-gated `/activity`
   fragment for the dashboard's nonce-bound session-activity poller, appends exact-target record intents plus
   reviewed-row-bound dashboard choices through the token-bound `/intents` endpoint, records revised
   approval selections through token-bound `/approve`, lets reviewers cancel pending browser events
-  through the same token-bound `/intents` boundary without touching ledgers or files, rejects stale dashboard lane submissions and
+  through the same token-bound `/intents` boundary without touching ledgers or files, queues token-bound
+  `/close` requests as `session_done` events only in managed review mode, rejects stale dashboard lane submissions and
   conflicting card/bulk/row choices, refuses every other mutating method, and never embeds file
   contents or external assets
 - `ui-execute.ts`: agent-side approved-bundle execution (NGX-540/NGX-541) - the one mutating UI path. It
-  loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, revalidates the
+  loads the immutable submitted approval snapshot, re-reads live ledger/registry/trash state, revalidates the
   bundle (refusing whole-bundle drift, skipping per-target drift as `skipped_stale`), executes only
   exact valid targets through the existing approval-gated paths - dispose triage targets through the
   `dispose.ts` plan-id paths, one-way-door purge targets through the exact-target `executeApprovedTrashPurge`

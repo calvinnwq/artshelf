@@ -460,11 +460,12 @@ export type UiApprovalTarget = {
   label: string;
 };
 
-// Immutable reviewed approval snapshot persisted at
+// Immutable reviewed workbench/approval snapshot persisted at
 // `<ui-home>/sessions/<id>/bundles/<bundle-id>.json` (NGX-539). `targets` is the full
 // reviewed candidate pool (the grouped rows shown in the approval workbench, selected and
-// unselected alike); `selectedTargetIds` is the deliberate human selection - a non-empty
-// subset of those target ids. Persisting both lets the workbench and the agent distinguish
+// unselected alike); `selectedTargetIds` is the deliberate human selection, which can be empty while
+// a browser-only source snapshot is being prepared but must be non-empty on a submitted approval
+// bundle. Persisting both lets the workbench and the agent distinguish
 // what was offered from what was approved. The `fingerprint` is a deterministic digest over
 // the *selected* targets and key reviewed facts, so deselecting a row or any drift in the
 // reviewed facts changes the bundle identity and a later agent can refuse a stale or tampered
@@ -476,7 +477,7 @@ export type UiApprovalSnapshot = {
   actionType: string;
   // Full reviewed candidate pool (selected + unselected rows), persisted intact.
   targets: UiApprovalTarget[];
-  // Deliberate human selection: a non-empty, duplicate-free subset of `targets` ids.
+  // Deliberate human selection: a duplicate-free subset of `targets` ids.
   selectedTargetIds: string[];
   // Reviewed snapshot of the key plan facts captured at approval time.
   reviewed: Record<string, unknown>;
@@ -487,7 +488,7 @@ export type UiApprovalSnapshot = {
 // Live facts an agent re-reads from current ledger/registry/record/plan state before executing
 // an approved bundle (NGX-539): the still-present exact targets (matched to the bundle by
 // `targetId`) and the reviewed facts re-derived from live state. revalidateApprovalSnapshot()
-// compares these against the immutable reviewed snapshot, so a drifted or tampered bundle is
+// compares these against the immutable submitted approval snapshot, so a drifted or tampered bundle is
 // caught before any exact target is executed - the agent never trusts a stale approval.
 export type UiApprovalLiveFacts = {
   targets: UiApprovalTarget[];

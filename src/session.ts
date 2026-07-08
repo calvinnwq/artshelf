@@ -32,7 +32,7 @@ import type {
 //
 //   <ui-home>/sessions/<session-id>/session.json      session metadata + capability token
 //   <ui-home>/sessions/<session-id>/events.jsonl       append-only events + agent replies
-//   <ui-home>/sessions/<session-id>/bundles/<id>.json  immutable approval snapshots
+//   <ui-home>/sessions/<session-id>/bundles/<id>.json  immutable workbench/approval snapshots
 //
 // The UI home defaults to the user-level ~/.artshelf/ui tree so review works regardless of
 // the current working directory; repo scope and an explicit ARTSHELF_UI_HOME override anchor
@@ -72,9 +72,10 @@ export type ApprovalSnapshotInput = {
   actionType: string;
   // Full reviewed candidate pool (selected + unselected rows shown in the workbench).
   targets: UiApprovalTarget[];
-  // Deliberate human selection: a non-empty, duplicate-free subset of `targets` ids.
+  // Deliberate human selection: a duplicate-free subset of `targets` ids.
   selectedTargetIds: string[];
   reviewed?: Record<string, unknown>;
+  allowEmptySelection?: boolean;
 };
 
 type StoredEvent = UiEvent & { kind: "event" };
@@ -126,6 +127,8 @@ export const UI_DASHBOARD_LANE_REQUESTS: Record<string, string> = {
   "purge-candidates": "review_delete_forever",
   "registry-reconcile": "check_source_problems"
 };
+const UI_CLEANUP_ACTIONS = new Set(["trash", "review", "delete"]);
+const UI_DUE_STATUSES = new Set(["due", "manual-review", "missing-path", "kept"]);
 
 export const UI_EVENT_STATUSES = Object.keys(UI_EVENT_STATUS_SET) as UiEventStatus[];
 export const UI_REPLY_STATUSES = UI_EVENT_STATUSES.filter((entry) => entry !== "pending") as UiReplyStatus[];
@@ -433,11 +436,12 @@ export function readReplies(home: string, sessionId: string): UiReply[] {
     .map(({ kind: _kind, ...reply }) => reply);
 }
 
-// Persist an immutable, fingerprinted approval snapshot for the session (NGX-539). The
+// Persist an immutable, fingerprinted workbench/approval snapshot for the session (NGX-539). The
 // reviewed candidate pool and the deliberate selection are both validated and persisted, and
-// the fingerprint is taken over the *selected* targets + reviewed facts so the bundle identity
-// reflects exactly what the human approved. Approval is an approval record, never an execution:
-// this only writes the snapshot.
+// the fingerprint is taken over the *selected* targets + reviewed facts so submitted approvals
+// reflect exactly what the human approved. Browser-only source snapshots can allow an empty
+// selection while the workbench is being prepared; only snapshots with a matching
+// approval_bundle_submitted event are exposed to the agent-facing ui bundle/execute paths.
 export function writeApprovalSnapshot(home: string, sessionId: string, input: ApprovalSnapshotInput): UiApprovalSnapshot {
   const session = readSession(home, sessionId);
   validateApprovalSnapshotInput(input);
@@ -487,7 +491,7 @@ function resolveSelectedTargets(targets: UiApprovalTarget[], selectedTargetIds: 
 
 // Enforce the NGX-539 approval boundary at the storage seam: a bundle must carry a non-empty
 // reviewed candidate pool of well-formed exact targets, and the selection must be a deliberate,
-// duplicate-free, non-empty subset of that pool whose every member names an exact subject. This
+// duplicate-free subset of that pool whose every member names an exact subject. This
 // is where "no vague approve-all" and "exact target context for every selected item" become
 // impossible to express, before the snapshot is ever fingerprinted or persisted.
 function validateApprovalSnapshotInput(input: ApprovalSnapshotInput): void {
@@ -507,7 +511,7 @@ function validateApprovalSnapshotInput(input: ApprovalSnapshotInput): void {
     poolIds.add(target.targetId);
   }
 
-  if (!Array.isArray(input.selectedTargetIds) || input.selectedTargetIds.length === 0) {
+  if (!Array.isArray(input.selectedTargetIds) || (input.selectedTargetIds.length === 0 && input.allowEmptySelection !== true)) {
     throw new Error(
       "Invalid Artshelf UI approval selection; approval requires at least one deliberately selected target (no vague approve-all)"
     );
@@ -589,7 +593,8 @@ export function readApprovalSnapshot(home: string, sessionId: string, bundleId: 
     actionType: snapshot.actionType,
     targets: snapshot.targets,
     selectedTargetIds: snapshot.selectedTargetIds,
-    reviewed: snapshot.reviewed
+    reviewed: snapshot.reviewed,
+    allowEmptySelection: true
   });
   const fingerprint = approvalSnapshotFingerprint(resolveSelectedTargets(snapshot.targets, snapshot.selectedTargetIds), snapshot.reviewed ?? {});
   if (fingerprint !== snapshot.fingerprint) {
@@ -598,11 +603,11 @@ export function readApprovalSnapshot(home: string, sessionId: string, bundleId: 
   return snapshot;
 }
 
-// List every persisted approval bundle for a session (NGX-539): a read-only audit/discovery
-// surface for the agent. It resolves each immutable snapshot from `<ui-home>/sessions/<id>/bundles/`,
-// skipping any file whose name is not a well-formed bundle id, and returns them sorted by creation
-// time (then id) so the listing is stable across calls. Returns an empty list when the session has
-// approved nothing yet - the bundles directory need not exist.
+// List every persisted workbench/approval snapshot for a session (NGX-539). Command-level agent
+// surfaces filter this lower-level storage list down to snapshots with a matching
+// approval_bundle_submitted event, so browser-only source snapshots remain usable by GET /bundle
+// without appearing in ui bundle list/detail. Skips files whose name is not a well-formed bundle id
+// and returns stable creation-time/id ordering.
 export function listApprovalSnapshots(home: string, sessionId: string): UiApprovalSnapshot[] {
   const dir = join(sessionDir(home, sessionId), "bundles");
   if (!existsSync(dir)) return [];
@@ -637,7 +642,7 @@ export function approvalSnapshotFingerprint(targets: UiApprovalTarget[], reviewe
 }
 
 // Revalidate an approved bundle against the live facts an agent re-read from current
-// ledger/registry/record/plan state (NGX-539). The reviewed snapshot is immutable, so this never
+// ledger/registry/record/plan state (NGX-539). The submitted approval snapshot is immutable, so this never
 // mutates it - it only reports whether the live world still matches what the human approved. A
 // bundle is "fresh" (safe for the agent to execute) only when every *selected* target is still
 // present and unchanged and no reviewed fact drifted; any divergence is "stale", and the granular
@@ -776,9 +781,48 @@ function validateDryRunRequest(target: Record<string, unknown>, payload: Record<
     if (typeof payload.count !== "number" || !Number.isFinite(payload.count) || payload.count < 1) {
       throw new Error("Invalid Artshelf UI dry-run request payload.count; expected a positive number");
     }
+    if (target.lane === "cleanup") {
+      validateReviewedCleanupRows(payload.reviewedRows, payload.count);
+    }
     return;
   }
   requireRecordTarget(target);
+}
+
+function validateReviewedCleanupRows(value: unknown, count: number): void {
+  if (!Array.isArray(value) || value.length !== count) {
+    throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows; expected one reviewed row per cleanup target");
+  }
+  const seen = new Set<string>();
+  for (const entry of value) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected an object");
+    }
+    const record = entry as Record<string, unknown>;
+    const recordId = record.recordId;
+    const ledgerPath = record.ledgerPath;
+    const ledgerName = record.ledgerName;
+    const path = record.path;
+    const cleanup = record.cleanup;
+    const dueState = record.dueState;
+    if (!isNonEmptyString(recordId) || !isNonEmptyString(ledgerPath)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected recordId and ledgerPath");
+    }
+    if (ledgerName !== undefined && !isNonEmptyString(ledgerName)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected ledgerName to be non-empty");
+    }
+    if (!isNonEmptyString(path) || !isNonEmptyString(cleanup) || !UI_CLEANUP_ACTIONS.has(cleanup)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected path and cleanup action");
+    }
+    if (!isNonEmptyString(dueState) || !UI_DUE_STATUSES.has(dueState)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows entry; expected dueState");
+    }
+    const key = `${recordId}\0${ledgerPath}`;
+    if (seen.has(key)) {
+      throw new Error("Invalid Artshelf UI cleanup dry-run request payload.reviewedRows; duplicate row target");
+    }
+    seen.add(key);
+  }
 }
 
 // A comment intent annotates one exact record and must carry the human's note: the record + ledger it

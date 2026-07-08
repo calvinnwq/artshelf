@@ -931,7 +931,7 @@ export type UiBundleExecutionReply = {
 };
 
 // The agent's end-to-end handling of one approved bundle for a session (NGX-540): load the immutable
-// reviewed snapshot, re-read live state, run the revalidate -> execute -> verify loop, then write the
+// submitted approval snapshot, re-read live state, run the revalidate -> execute -> verify loop, then write the
 // per-target receipts and aggregate state back to the session. This is the session-scoped, I/O-bound
 // orchestration wrapper around the pure executeApprovalBundle core: it owns loading the bundle,
 // resolving the event to reply to, and persisting the receipts, while the safety gate and per-target
@@ -947,15 +947,15 @@ export function executeApprovedBundle(
   // Validate the session exists and load the immutable reviewed bundle. readSession throws on a
   // missing session; readApprovalSnapshot throws on a missing or malformed bundle id.
   const session = readSession(home, sessionId);
-  if (session.status !== "active") {
-    throw new Error(`Artshelf UI session ${session.id} has ended; ui execute requires an active session`);
-  }
   const snapshot = readApprovalSnapshot(home, session.id, bundleId);
 
   // Resolve the bundle's own approval_bundle_submitted event BEFORE executing anything: the agent
   // must reply receipts to it, so if it is missing we refuse the whole operation rather than mutate
   // live state and then have nowhere to record the result.
   const claim = findApprovalBundleEvent(home, session.id, bundleId);
+  if (session.status !== "active" && !(snapshot.actionType === PURGE_APPROVAL_ACTION && claim.status === "in_progress")) {
+    throw new Error(`Artshelf UI session ${session.id} has ended; ui execute requires an active session or a reserved trash-purge bundle`);
+  }
   validateApprovalEventWitness(claim.event, snapshot);
   validateApprovalEventClaim(claim, snapshot);
   validateApprovalSnapshotScope(home, session, claim.event, snapshot);

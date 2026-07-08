@@ -422,31 +422,40 @@ next action, and a verify command); `--agent` takes precedence over `--json`.
 ### `artshelf ui`
 
 Starts or resumes a durable agent-mediated review session, and exposes read-only dashboard/detail views plus approval-bundle workbench views for live review state.
-The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, the agent polls those events, `ui execute` runs approved dispose or purge bundles through existing approval-gated paths, and the agent replies with receipts.
+The command family is the AXI-style shell for the human review UI contract: the browser records exact-target triage intents and approval bundles in the session log, `ui review` or a host poller processes those events, approved non-purge bundles run through existing exact-target approval-gated paths, purge bundles are reserved for separate explicit one-way-door execution, and the agent replies with receipts.
 The read-only dashboard/detail subcommands are data surfaces over existing ledger, registry, trash, and inspect state.
 The browser captures human triage intents and approval bundle submissions as session events but never mutates ledgers, files, trash, or plans directly.
 
 The intended product experience is a managed agent-attached review workflow, not
-just disconnected CLI primitives. When a user asks to review Artshelf actions
-through the UI, the acting agent or host should start or resume the UI session
-from the original conversation, start `ui serve` as a managed foreground child,
-share the capability URL, and stay attached to the same session with a polling
-loop until the workflow ends. Every pending browser event should be immediately
-acknowledged or marked `in_progress` with `ui reply`, processed inside the
-read-only, dry-run, or exact-approval boundary, then completed with a reply
-payload that names the result, safety boundary, and any exact approval target.
-The served UI should refresh activity and live dashboard state so the user can
-continue submitting actions without restarting. An explicit end/close submission
-should terminate the loop, call `ui end`, stop the served UI process, and return
-a concise summary to the original conversation. If the agent or host cannot keep
-the server and poller attached, it should not present the session as a live
-review workflow.
+just disconnected CLI primitives. `artshelf ui review` starts or resumes the UI
+session from the original conversation, starts the loopback server as a managed
+foreground child, shares the capability URL, and stays attached to the same
+session with a polling loop until the workflow ends. Every pending browser event
+is immediately marked `in_progress`, processed inside the read-only, dry-run, or
+exact-approval boundary, then completed with a reply payload that names the
+result, safety boundary, and any exact approval target. Exact keep/trash/resolve/defer
+decisions and exact dispose dry-run requests become reviewed dispose dry-run
+plans whose plan id and exact approval text ride in the reply, so the dashboard's
+prepared-plan approval row can carry the workflow into the approve-then-execute
+half. Dashboard lane dry-run requests can prepare reviewed cleanup plans, check
+missing files, check source problems, or prepare purge review workbench handoffs.
+Approved non-purge bundles submitted through the workbench run through the
+existing exact-target `ui execute` core, while purge bundles are reserved for a
+separate explicit one-way-door execute.
+The served UI refreshes activity and live dashboard state so the user can continue
+submitting actions without restarting. A browser close submission queues
+`session_done`; the attached loop replies, cancels still-pending work with
+visible cancelled replies, runs `ui end` semantics, stops the served UI process,
+and returns a concise summary. Interrupts tear down the same way. If another
+agent or host cannot keep the server and poller attached, it should not present
+the session as a live review workflow.
 
 ```bash
 artshelf ui [--scope user|repo] [--ledger <path>] [--json]
 artshelf ui dashboard [--registry <path>] [--json]
 artshelf ui detail <record-id> [--ledger <path>] [--registry <path>] [--json]
 artshelf ui serve [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>] [--json]
+artshelf ui review [--scope user|repo] [--port <port>] [--poll-interval-ms <ms>] [--registry <path>] [--ledger <path>] [--json]
 artshelf ui poll <session-id> [--scope user|repo] [--json]
 artshelf ui reply <session-id> --event <event-id> --status <status> [--payload <json>] [--scope user|repo] [--json]
 artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]
@@ -465,8 +474,9 @@ The purge-candidate lane groups rows by source/ledger, shows per-group totals an
 - `ui detail <record-id>` composes the path label, inspect decision card, provenance, audit trail, existence facts, needs-context badge, and last action for one record without reading or previewing file contents.
 - Records with missing or vague reasons, or present-but-uninformative provenance, surface through the needs-context badge instead of normal review lanes.
 - `ui serve` hosts the `ui dashboard`, `ui detail`, and approval-bundle workbench surfaces as a local browser page so a human can open and click through them; it binds to loopback (`127.0.0.1`) only - never a wildcard interface - recomputes live state on every request, requires the active UI session capability token printed in the serve URL, supports `--json` for a compact launch packet, and runs in the foreground until interrupted with Ctrl-C.
+- `ui review` is the managed foreground lifecycle. It starts the same token-protected server, keeps a poll loop attached to the session, marks browser work `in_progress`, replies completed/rejected/stale/failed/cancelled outcomes into activity, translates exact keep/trash/resolve/defer decisions and exact dispose dry-run requests into reviewed dispose dry-run plans (replying the plan id and exact approval text; defer/snooze uses a default `7d` horizon), handles dashboard lane dry-run requests by preparing reviewed cleanup plans, source/missing-file checks, or purge review workbench handoffs, runs approved non-purge bundles through the exact-target `ui execute` core, reserves purge bundles for a separate explicit one-way-door execute, rejects broad or execution-shaped browser requests, and closes by cancelling still-pending events, ending the session, and stopping the server. Its `--json` output is newline-delimited lifecycle packets.
 - The served pages embed no file contents and load no external assets: the dashboard alone carries a nonce-bound session-activity poller for token-scoped `GET /activity`, while detail and bundle pages remain scriptless.
-The server accepts safe GET/HEAD reads for pages, health checks, and the read-only activity fragment, a token-bound `POST /intents` that records dashboard decisions and the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request), and a token-bound `POST /approve` that records approval-bundle submissions as pending session events.
+The server accepts safe GET/HEAD reads for pages, health checks, and the read-only activity fragment, a token-bound `POST /intents` that records dashboard decisions and the detail drawer's human triage intents (inspect, comment, keep/trash/resolve/defer, dry-run request), a token-bound `POST /approve` that records approval-bundle submissions as pending session events, and a token-bound `POST /close` that records a `session_done` close request for the attached agent.
 It refuses any other mutating method and renders bad or missing ledgers, records, and bundles as explicit non-crashing problem states rather than blank panels.
 The captured intents and approval bundles never mutate ledgers, files, trash, or plans directly; the agent executes approved bundles through `ui execute` or handles other approval-gated commands through the agent-mediated `ui` session loop.
 - After a dashboard submit, the redirect includes a bounded queued count and lands on the session-activity panel.
@@ -475,18 +485,19 @@ Completed dry-run replies that include a reviewed dispose plan id become ready-f
 Prepared plans can be approved one by one or with the prepared-plan approve-all control, which queues one exact approval bundle per live plan.
 Submitted approvals remain visibly queued and disabled until the agent handles them or the reviewer unqueues pending browser events from the activity rail; grouped pending work renders one grouped unqueue action, and unqueue records cancellation in the session without mutating ledgers, files, trash, or plans.
 Completed `ui execute` receipts refresh required actions so handled rows and stale ready-for-approval rows disappear from the approval surface.
-- `GET /bundle/<bundle-id>` renders one persisted approval bundle as a browser workbench: grouped candidate rows that clearly distinguish the deliberately selected exact targets from the merely reviewed ones, the exact action being approved, and the human row labels captured at approval time.
+- `GET /bundle/<bundle-id>` renders one persisted workbench source snapshot or submitted approval bundle as a browser workbench: grouped candidate rows that clearly distinguish the deliberately selected exact targets from the merely reviewed ones, the exact action being approved, and the human row labels captured at approval time.
 The page requires the active session token, renders the immutable source snapshot, and provides scriptless selection inputs that can submit a revised non-empty subset through `POST /approve`.
-That submit carries only the source bundle id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source bundle before creating a new immutable approval snapshot and queuing an `approval_bundle_submitted` event.
+That submit carries only the source snapshot id and selected target ids; the server rehydrates the action, reviewed facts, and exact target rows from the stored source snapshot before creating a new immutable submitted approval snapshot and queuing an `approval_bundle_submitted` event.
 For a `trash-purge` bundle, the workbench repeats the one-way-door/no-recovery warning before approval.
 It never trusts hidden browser target JSON as approval evidence, never edits the original bundle, and never executes a workflow.
 Absent or malformed bundle ids render as non-crashing not-found states.
-- `ui bundle <session-id> [<bundle-id>]` is the agent's read surface over persisted approval bundles, scoped to `user` or `repo` (default `user`).
-With a bundle id it loads one immutable reviewed snapshot and resolves its deliberate selection to the exact per-target rows, emitting the agent-facing JSON the executor revalidates against live ledger, registry, record, plan, and trash-fact state before any exact-target execution.
-With no bundle id it lists the session's approved bundles as a compact discovery summary.
+- `ui bundle <session-id> [<bundle-id>]` is the agent's read surface over submitted approval bundles, scoped to `user` or `repo` (default `user`).
+With a bundle id it loads one immutable event-backed reviewed snapshot and resolves its deliberate selection to the exact per-target rows, emitting the agent-facing JSON the executor revalidates against live ledger, registry, record, plan, and trash-fact state before any exact-target execution.
+With no bundle id it lists only the session's approved bundles with matching `approval_bundle_submitted` events as a compact discovery summary.
+Browser-only workbench source snapshots can still be opened by the token-protected `GET /bundle/<bundle-id>` route, but `ui bundle` does not list or load them.
 It only reads approval records - it never executes a bundle or mutates ledgers, files, trash, or plans - and a bundle revalidation is fresh only when every selected target is still present and unchanged and no reviewed fact drifted; otherwise `ui execute` refuses whole-bundle drift or skips per-target drift with visible receipts for human re-review.
 - `ui execute <session-id> <bundle-id>` is the agent's mutating path for an approved bundle and the one `ui` subcommand that changes live state, scoped to `user` or `repo` (default `user`).
-It loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths or the exact-target one-way-door purge path, and replies the per-target receipts and aggregate result to the session by advancing the bundle's `approval_bundle_submitted` event.
+It loads the immutable submitted approval snapshot, re-reads live ledger/registry/trash state, then runs a revalidate -> execute -> verify loop through the existing approval-gated dispose paths or the exact-target one-way-door purge path, and replies the per-target receipts and aggregate result to the session by advancing the bundle's `approval_bundle_submitted` event.
 Execution is exact-target only: a stale, missing, mismatched, or unapproved target is refused or skipped, never force-applied, and the agent verifies live state after each command rather than trusting the command exit.
 There is no `ui execute --all` and no browser-direct execution.
 Dispose-backed targets bind approval to the reviewed dispose-plan entry digest, so missing or unreadable reviewed plans, subject content drift, or changed same-id plan entry contents such as reason, subject snapshot, target path, or retention make the bundle stale/refused before any dispose receipt is written instead of changing execution semantics.
@@ -496,7 +507,7 @@ Each selected target receives one of four visible outcomes - `executed`, `skippe
 - `ui poll` is read-only and returns only pending actionable browser events in compact single-line JSON when `--json` is set.
 - `ui reply` appends an agent reply for one event with status `acknowledged`, `in_progress`, `completed`, `rejected`, `stale`, `failed`, or `cancelled`, plus an optional JSON-object payload for receipts, results, validation failures, questions, or notes.
 - `ui end` marks the session ended, records a `session_done` event, and revokes future browser writes plus served dashboard/detail/bundle access while keeping the session readable for audit.
-- A managed UI review loop must use those lower-level commands as one lifecycle:
+- A managed UI review loop must use `ui review` or an equivalent host-owned lifecycle:
   serve, poll, acknowledge, process, reply, refresh, repeat, then end and tear
   down. Silent server exit, orphaned polling, or browser submissions that remain
   pending without an agent-visible processing state are product failures.
@@ -846,7 +857,9 @@ sessions/<session-id>/bundles/<bundle-id>.json
 When an older active session has the same scope and target but lacks registry or repo metadata, starting or serving it backfills those fields so the session stays resumable while later approval execution can still enforce scope.
 The token authorizes browser reads plus intent and approval writes only while the session is active; ending the session revokes browser access without deleting audit history.
 `events.jsonl` is append-only and stores exact-target browser triage intents plus agent replies as separate log lines, with read-side projections folding replies into the current event status and preserving reply payloads for record history.
-Approval snapshots under `bundles/` are immutable JSON documents that persist the full reviewed candidate pool, the deliberate selection (a non-empty, duplicate-free subset of those targets, never a vague approve-all), exact per-target ledger or registry context for every selected target, optional reviewed dispose-plan entry or trash-fact digests, and a deterministic fingerprint over the selected targets and reviewed facts.
+Snapshots under `bundles/` are immutable JSON documents that persist the full reviewed candidate pool, the deliberate selection, exact per-target ledger or registry context for every selected target, optional reviewed dispose-plan entry or trash-fact digests, and a deterministic fingerprint over the selected targets and reviewed facts.
+Browser workbench source snapshots may have an empty selection while they are being prepared and have no `approval_bundle_submitted` event.
+Submitted approval snapshots must have a non-empty, duplicate-free deliberate selection, never a vague approve-all, plus a matching `approval_bundle_submitted` event before the agent-facing `ui bundle` and `ui execute` paths will expose or act on them.
 Before running any approval-gated command, an executor revalidates the bundle against live ledger, registry, record, plan, and trash facts, comparing the persisted fingerprint and the selected per-target context with what live state now reports.
 Session scope is also rechecked: ledger-scoped sessions accept only that ledger, repo-scoped sessions accept only ledgers in that repo, and registry-scoped browser approvals must still point at ledgers registered in the served registry.
 The bundle is fresh only when every selected target is still present and unchanged, every reviewed dispose plan remains readable with the same entry digest and subject snapshot, every reviewed purge target still matches its trash-fact digest, and no reviewed fact drifted; drift in a shared reviewed fact or unexplained fingerprint refuses the whole bundle, while missing or changed selected targets are skipped as stale per-target receipts and still require human re-review.
@@ -1246,7 +1259,7 @@ dry-run and report plans for later human review.
   ledger scoping.
 - CLI can run the AXI-style `artshelf ui` command family: start/resume a session,
   show the read-only multi-ledger dashboard and artifact detail drawer, poll
-  pending browser events, reply with agent receipts or notes, list or load
+  pending browser events manually or through `ui review`, reply with agent receipts or notes, list or load
   approval bundles for agent revalidation, execute an approved bundle through
   exact-target revalidation plus post-execute verification, and end the session;
   dispose-backed approval targets bind to reviewed plan entry contents, not only
@@ -1254,11 +1267,11 @@ dry-run and report plans for later human review.
   trash facts with no recovery path.
   The browser captures human triage intents and approval bundle submissions but
   never mutates ledgers, files, trash, or plans directly.
-- A host or agent can wrap the `artshelf ui` primitives into the intended live
-  review workflow: start the browser UI, stay attached to polling, acknowledge
-  submitted actions, process them within the approval boundary, reply into the
-  session, refresh live state, and end the session plus served process from an
-  explicit close signal.
+- A host or agent can run `artshelf ui review` or wrap the lower-level `artshelf ui`
+  primitives into the intended live review workflow: start the browser UI, stay
+  attached to polling, acknowledge submitted actions, process them within the
+  approval boundary, reply into the session, refresh live state, and end the
+  session plus served process from an explicit close signal.
 - Cleanup dry-run creates a plan id only when there are executable cleanup
   entries; no-op dry-runs do not write plan files.
 - Cleanup dry-run and execute register the plan/receipt artifacts that Artshelf

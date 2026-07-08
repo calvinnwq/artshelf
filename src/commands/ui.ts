@@ -1,27 +1,35 @@
 import type { ArtifactProvenanceView, BuildArtifactDetailOptions } from "../artifact-detail.js";
 import { buildArtifactDetail } from "../artifact-detail.js";
 import { uiLinkBaseUrl } from "../config/env.js";
-import type { BuildDashboardOptions, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
-import { buildDashboard } from "../dashboard.js";
+import type { BuildDashboardOptions, DashboardArtifactRow, DashboardBucketKey, DashboardLastAction } from "../dashboard.js";
+import { buildDashboard, groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } from "../dashboard.js";
+import type { DisposeRequest } from "../dispose.js";
+import { createDisposePlan } from "../dispose.js";
+import type { ArtifactIdentityFacts } from "../file-identity.js";
+import { artifactIdentityFacts, sameArtifactIdentityFacts } from "../file-identity.js";
+import { previewCleanupPlan, writeCleanupPlan } from "../ledger.js";
 import { normalizeRegistryPath } from "../registry.js";
 import { printCompactJson } from "../renderers/json.js";
 import {
   endSession,
+  isUiDecisionIntent,
   isUiReplyStatus,
   listApprovalSnapshots,
   pollPendingEvents,
   readApprovalSnapshot,
   readSession,
+  readSessionEvents,
   replyToEvent,
   resolveUiHome,
   selectedApprovalTargets,
   startOrResumeSession,
-  UI_REPLY_STATUSES
+  UI_REPLY_STATUSES,
+  writeApprovalSnapshot
 } from "../session.js";
 import type { ParsedArgs } from "../shared/cli-types.js";
 import { boolFlag, requiredStringFlag, stringFlag } from "../shared/flags.js";
 import { UI_HELP } from "../shared/help-text.js";
-import type { UiApprovalSnapshot, UiApprovalTarget, UiEvent, UiSession, UiSessionScope } from "../types.js";
+import type { CleanupAction, CleanupPlanEntry, DisposeAction, DueStatus, UiApprovalSnapshot, UiApprovalTarget, UiDecisionIntent, UiEvent, UiSession, UiSessionScope } from "../types.js";
 import { executeApprovedBundle } from "../ui-execute.js";
 import type { StartUiServerOptions, UiServerHandle } from "../ui-server.js";
 import { startUiServer } from "../ui-server.js";
@@ -46,13 +54,14 @@ export async function handleUi(parsed: ParsedArgs, json: boolean): Promise<numbe
   if (sub === "dashboard") return handleUiDashboard(parsed, json);
   if (sub === "detail") return handleUiDetail(parsed, json);
   if (sub === "serve") return handleUiServe(parsed, json);
+  if (sub === "review") return handleUiReview(parsed, json);
   if (sub === "poll") return handleUiPoll(parsed, json);
   if (sub === "reply") return handleUiReply(parsed, json);
   if (sub === "bundle") return handleUiBundle(parsed, json);
   if (sub === "execute") return handleUiExecute(parsed, json);
   if (sub === "end") return handleUiEnd(parsed, json);
   if (sub === undefined) return handleUiStart(parsed, json);
-  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, poll, reply, bundle, execute, or end)`);
+  throw new Error(`Unknown ui subcommand: ${sub} (expected dashboard, detail, serve, review, poll, reply, bundle, execute, or end)`);
 }
 
 // `artshelf ui [--scope user|repo] [--ledger <path>] [--json]` - start or resume the session for
@@ -161,11 +170,11 @@ function handleUiEnd(parsed: ParsedArgs, json: boolean): number {
 }
 
 // `artshelf ui bundle <session-id> [<bundle-id>] [--scope user|repo] [--json]` - the agent's
-// read surface over persisted approval bundles (NGX-539). With a bundle id it loads one immutable
-// snapshot and resolves its deliberate selection to the exact per-target rows, emitting the
-// agent-facing JSON the agent uses to revalidate live state before execution. With no bundle id it
-// lists the session's approved bundles as a compact discovery summary. This never executes a bundle
-// and never mutates anything - an approval record is not an execution.
+// read surface over submitted approval bundles (NGX-539). With a bundle id it loads one immutable
+// event-backed snapshot and resolves its deliberate selection to the exact per-target rows. Without
+// a bundle id it lists only the session's approved bundles with matching approval_bundle_submitted
+// events. Browser-only source snapshots remain usable by GET /bundle, but this command never
+// exposes them, executes a bundle, or mutates anything - an approval record is not an execution.
 function handleUiBundle(parsed: ParsedArgs, json: boolean): number {
   const sessionId = requireSessionId(parsed);
   const home = resolveHome(parsed);
@@ -177,6 +186,9 @@ function handleUiBundle(parsed: ParsedArgs, json: boolean): number {
 }
 
 function printBundleDetail(home: string, session: UiSession, bundleId: string, json: boolean): number {
+  if (!submittedApprovalBundleIds(home, session.id).has(bundleId)) {
+    throw new Error(`Artshelf UI bundle ${bundleId} is not a submitted approval bundle for session ${session.id}`);
+  }
   const bundle = readApprovalSnapshot(home, session.id, bundleId);
   const selected = selectedApprovalTargets(bundle);
 
@@ -198,7 +210,10 @@ function printBundleDetail(home: string, session: UiSession, bundleId: string, j
 }
 
 function printBundleList(home: string, session: UiSession, json: boolean): number {
-  const rows = listApprovalSnapshots(home, session.id).map(bundleSummary);
+  const submittedIds = submittedApprovalBundleIds(home, session.id);
+  const rows = listApprovalSnapshots(home, session.id)
+    .filter((bundle) => submittedIds.has(bundle.id))
+    .map(bundleSummary);
 
   if (json) {
     return printCompactJson({ ok: true, command: "ui-bundle-list", sessionId: session.id, count: rows.length, bundles: rows });
@@ -217,8 +232,18 @@ function printBundleList(home: string, session: UiSession, json: boolean): numbe
   return 0;
 }
 
+function submittedApprovalBundleIds(home: string, sessionId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const event of readSessionEvents(home, sessionId)) {
+    if (event.type !== "approval_bundle_submitted") continue;
+    const bundleId = eventBundleId(event);
+    if (bundleId) ids.add(bundleId);
+  }
+  return ids;
+}
+
 // Compact per-bundle row for the listing surface: identity, action, counts, and fingerprint so the
-// agent can discover and audit approved bundles, then `ui bundle <session> <id>` for the full snapshot.
+// agent can discover and audit submitted bundles, then `ui bundle <session> <id>` for the full snapshot.
 function bundleSummary(bundle: UiApprovalSnapshot): {
   id: string;
   actionType: string;
@@ -246,7 +271,7 @@ function targetSubject(target: UiApprovalTarget): string {
 
 // `artshelf ui execute <session-id> <bundle-id> [--scope user|repo] [--json]` - the agent's mutating
 // execution path for an approved bundle (NGX-540), and the one `ui` subcommand that changes live
-// state. It loads the immutable reviewed snapshot, re-reads live ledger/registry/trash state, runs the
+// state. It loads the immutable submitted approval snapshot, re-reads live ledger/registry/trash state, runs the
 // revalidate -> execute -> verify loop through the existing approval-gated dispose paths or the
 // exact-target one-way-door purge path, and replies per-target receipts plus aggregate state to the
 // session by advancing the bundle's
@@ -410,10 +435,819 @@ async function handleUiServe(parsed: ParsedArgs, json: boolean): Promise<number>
   return 0;
 }
 
+// `artshelf ui review [--scope user|repo] [--port <port>] [--registry <path>] [--ledger <path>]`
+// - managed foreground lifecycle that owns the loopback server plus the agent poll/reply loop.
+// It is deliberately conservative: the browser queues events, this agent-side loop immediately
+// claims them as in_progress, then either handles read-only work, executes already-approved exact
+// non-purge bundles through ui-execute's core, reserves purge bundles for explicit execution, or
+// rejects unsupported/broad requests with visible reasons.
+async function handleUiReview(parsed: ParsedArgs, json: boolean): Promise<number> {
+  if (boolFlag(parsed, "all")) {
+    throw new Error("ui review --all is not supported; managed review handles only token-bound session events and exact approved bundles");
+  }
+  const port = parsePort(stringFlag(parsed, "port"));
+  const pollIntervalMs = parsePollInterval(stringFlag(parsed, "poll-interval-ms"));
+  const registryPath = stringFlag(parsed, "registry");
+  const ledgerPath = stringFlag(parsed, "ledger");
+  const scope = resolveScope(stringFlag(parsed, "scope"));
+  const home = resolveUiHome({ scope, cwd: process.cwd() });
+  const sessionRegistryPath = ledgerPath === undefined ? normalizeRegistryPath(registryPath) : registryPath ?? null;
+  const session = startOrResumeSession({ home, scope, ledgerPath: ledgerPath ?? null, registryPath: sessionRegistryPath, cwd: process.cwd() });
+  const options: StartUiServerOptions = { uiHome: home, sessionId: session.id };
+  options.managedReview = true;
+  if (port !== undefined) options.port = port;
+  if (session.registryPath !== null) options.registryPath = session.registryPath;
+  if (ledgerPath !== undefined) options.ledgerPath = ledgerPath;
+
+  const handle = await startUiServer(options);
+  const accessUrl = `${handle.url}/?token=${encodeURIComponent(session.token)}`;
+  const processed: ManagedReviewCounts = emptyManagedCounts();
+  let stopReason: string | null = null;
+  let wakeSleep: (() => void) | null = null;
+
+  const signalHandler = (signal: string): void => {
+    stopReason = `signal:${signal}`;
+    wakeSleep?.();
+  };
+  signalProcess().once("SIGINT", signalHandler);
+  signalProcess().once("SIGTERM", signalHandler);
+
+  printManagedStart({ json, home, session, handle, accessUrl, pollIntervalMs });
+  let failure: unknown = null;
+  try {
+    while (stopReason === null) {
+      // If the session was ended out from under this manager (e.g. another process ran `ui end`),
+      // stop presenting the browser as live and tear down cleanly. A read that throws instead
+      // (session file missing/corrupt) is an abnormal condition surfaced by the catch below as an
+      // error exit, not this clean session-ended path.
+      if (readSession(home, session.id).status !== "active") {
+        stopReason = "session-ended";
+        break;
+      }
+      const pending = pollPendingEvents(home, session.id);
+      for (const event of pending) {
+        const result = processManagedUiEvent(home, session, event);
+        processed[result] += 1;
+        if (result === "closed") {
+          stopReason = "browser-close";
+          break;
+        }
+        if (stopReason !== null) break;
+      }
+      if (stopReason !== null) break;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(() => resolve(), pollIntervalMs);
+        wakeSleep = () => {
+          clearTimeout(timer);
+          resolve();
+        };
+      });
+      wakeSleep = null;
+    }
+  } catch (error) {
+    // Never leave the browser presented as live after an unexpected loop failure: record it, tear
+    // down below, and surface it in the final summary with a non-zero exit.
+    failure = error;
+    if (stopReason === null) stopReason = `error:${errorMessage(error)}`;
+  } finally {
+    signalProcess().removeListener("SIGINT", signalHandler);
+    signalProcess().removeListener("SIGTERM", signalHandler);
+    try {
+      processed.cancelled += shutdownManagedSession(home, session.id, stopReason ?? "stopped");
+    } catch (error) {
+      if (failure === null) failure = error;
+    }
+    await handle.close();
+  }
+
+  // The summary always prints, even on error, so the caller gets accurate counts and a reason
+  // instead of a bare stack trace with the server already gone.
+  printManagedEnd({ json, sessionId: session.id, reason: stopReason ?? "stopped", processed, failure });
+  return failure === null ? 0 : 1;
+}
+
+// Close/end teardown. No browser work is stranded in a non-terminal state: everything still pending
+// is cancelled with a visible reply while the session can still say why, then the session ends
+// (revoking the browser token), then one post-end sweep cancels anything left non-terminal - a
+// pending event a browser write raced in, or an in_progress event orphaned by a crashed prior run
+// that would otherwise sit in_progress forever with no path to a terminal reply.
+function shutdownManagedSession(home: string, sessionId: string, reason: string): number {
+  let cancelled = 0;
+  if (readSession(home, sessionId).status === "active") {
+    cancelled += cancelUnfinishedEvents(home, sessionId, pollPendingEvents(home, sessionId), reason);
+    endSession(home, sessionId);
+  }
+  const stragglers = readSessionEvents(home, sessionId).filter(
+    (event) => event.status === "pending" || event.status === "in_progress"
+  );
+  return cancelled + cancelUnfinishedEvents(home, sessionId, stragglers, reason);
+}
+
+function cancelUnfinishedEvents(home: string, sessionId: string, events: UiEvent[], reason: string): number {
+  let cancelled = 0;
+  for (const event of events) {
+    if (event.status !== "pending" && event.status !== "in_progress") continue;
+    if (isReservedPurgeBundleEvent(home, sessionId, event)) continue;
+    try {
+      replyToEvent(home, sessionId, event.id, {
+        status: "cancelled",
+        expectedStatus: event.status,
+        payload: {
+          reason: `Managed review is closing (${reason}) before this event reached a terminal state.`,
+          next: "Start or resume a review session and resubmit if this work is still needed."
+        }
+      });
+      cancelled += 1;
+    } catch {
+      // Another attached agent advanced it concurrently; leave that state alone.
+    }
+  }
+  return cancelled;
+}
+
+function isReservedPurgeBundleEvent(home: string, sessionId: string, event: UiEvent): boolean {
+  if (event.type !== "approval_bundle_submitted" || event.status !== "in_progress") return false;
+  const bundleId = eventBundleId(event);
+  if (!bundleId) return false;
+  try {
+    return readApprovalSnapshot(home, sessionId, bundleId).actionType === PURGE_APPROVAL_ACTION;
+  } catch {
+    return false;
+  }
+}
+
 function waitForServerClose(handle: UiServerHandle): Promise<void> {
   return new Promise<void>((resolve) => {
     handle.server.once("close", () => resolve());
   });
+}
+
+type ManagedReviewOutcome = "completed" | "rejected" | "stale" | "failed" | "cancelled" | "closed";
+type ManagedReviewCounts = Record<ManagedReviewOutcome, number>;
+
+function emptyManagedCounts(): ManagedReviewCounts {
+  return { completed: 0, rejected: 0, stale: 0, failed: 0, cancelled: 0, closed: 0 };
+}
+
+function processManagedUiEvent(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  // Approved bundles use their own bundle id + fingerprint claim protocol before execution receipts.
+  if (event.type === "approval_bundle_submitted") return processManagedBundleEvent(home, session, event);
+
+  try {
+    replyToEvent(home, session.id, event.id, {
+      status: "in_progress",
+      expectedStatus: "pending",
+      payload: { note: "Managed review picked up this browser event." }
+    });
+  } catch {
+    return "stale";
+  }
+
+  try {
+    if (event.type === "session_done") {
+      replyToEvent(home, session.id, event.id, {
+        status: "completed",
+        expectedStatus: "in_progress",
+        payload: { note: "Managed review close requested; cancelling queued work, ending the UI session, and stopping the attached server." }
+      });
+      return "closed";
+    }
+
+    const refused = broadExecutionRequest(event);
+    if (refused) {
+      return replyFailure(home, session.id, event, "rejected", {
+        reason: "Managed review refuses broad or execution-shaped browser requests; mutations require exact approval bundles and existing approval-gated paths.",
+        refused,
+        next: "Run a reviewed dry-run first, then approve one exact target or bundle."
+      });
+    }
+
+    if (event.type === "inspect_requested") {
+      const recordId = stringFrom(event.target.recordId);
+      if (!recordId) {
+        return replyFailure(home, session.id, event, "rejected", {
+          reason: "Inspect requests require an exact record id.",
+          next: "Open a dashboard/detail row and resubmit the inspect request."
+        });
+      }
+      const detailOptions: BuildArtifactDetailOptions = { recordId };
+      const ledgerPath = stringFrom(event.target.ledgerPath);
+      if (ledgerPath !== null) detailOptions.ledgerPath = ledgerPath;
+      if (session.registryPath !== null) detailOptions.registryPath = session.registryPath;
+      const detail = buildArtifactDetail(detailOptions);
+      replyToEvent(home, session.id, event.id, {
+        status: "completed",
+        expectedStatus: "in_progress",
+        payload: {
+          recordId,
+          status: detail.inspect.status,
+          recommendation: detail.inspect.recommendation,
+          nextAction: detail.inspect.nextAction
+        }
+      });
+      return "completed";
+    }
+
+    if (event.type === "decision_submitted") {
+      const recordId = stringFrom(event.target.recordId);
+      const ledgerPath = stringFrom(event.target.ledgerPath);
+      const decision = event.payload.decision;
+      if (!recordId || !ledgerPath || !isUiDecisionIntent(decision)) {
+        return replyFailure(home, session.id, event, "rejected", {
+          reason: "Decision intents require an exact record id, ledger path, and a keep/trash/resolve/defer decision.",
+          next: "Reopen the record's detail drawer and resubmit the decision."
+        });
+      }
+      const action = DECISION_DISPOSE_ACTIONS[decision];
+      return replyManagedDryRunPlan(home, session.id, event, {
+        recordId,
+        ledgerPath,
+        action,
+        reason: managedDisposeReason(action, stringFrom(event.payload.reason)),
+        note: `Prepared a reviewed ${action} dry-run plan from the ${decision} decision (a plan artifact, registered for retention); no disposition was executed. Approve the plan to run it through the exact-target execute path.`
+      });
+    }
+
+    if (event.type === "dry_run_requested") {
+      const recordId = stringFrom(event.target.recordId);
+      const ledgerPath = stringFrom(event.target.ledgerPath);
+      if (recordId && ledgerPath) {
+        const action = managedDryRunDisposeAction(event, recordId, ledgerPath);
+        if (!action) {
+          return replyFailure(home, session.id, event, "rejected", {
+            reason: "The requested record dry-run does not map to an approval-gated dispose action.",
+            next: "Choose keep, trash, resolve, or defer from the record detail drawer."
+          });
+        }
+        return replyManagedDryRunPlan(home, session.id, event, {
+          recordId,
+          ledgerPath,
+          action,
+          reason: managedDisposeReason(action, stringFrom(event.payload.reason)),
+          note: `Prepared a reviewed ${action} dry-run plan from the browser dry-run request (a plan artifact, registered for retention); no disposition was executed. Approve the plan to run it through the exact-target execute path.`
+        });
+      }
+      return replyManagedLaneDryRun(home, session, event);
+    }
+
+    if (event.type === "comment_added" || event.type === "question_answered" || event.type === "filter_saved" || event.type === "session_note_added") {
+      replyToEvent(home, session.id, event.id, {
+        status: "completed",
+        expectedStatus: "in_progress",
+        payload: {
+          note: "Browser intent recorded for audit; no ledger, file, trash, or plan mutation was executed.",
+          target: event.target
+        }
+      });
+      return "completed";
+    }
+
+    return replyFailure(home, session.id, event, "rejected", {
+      reason: `Managed review does not handle browser event type ${event.type}.`,
+      next: "Refresh the dashboard and use an explicit approval-gated CLI path if this work is still needed."
+    });
+  } catch (error) {
+    return replyFailure(home, session.id, event, "failed", {
+      reason: errorMessage(error),
+      next: "Refresh the dashboard and retry after checking the attached agent output."
+    });
+  }
+}
+
+// The 1:1 decision-intent translation documented on UiDecisionIntent: the managed loop prepares the
+// matching reviewed dispose dry-run plan; execution still requires the human to approve that exact
+// plan through the bundle workbench.
+const DECISION_DISPOSE_ACTIONS: Record<UiDecisionIntent, DisposeAction> = {
+  keep: "keep",
+  trash: "trash-resolve",
+  resolve: "resolve-only",
+  defer: "snooze"
+};
+
+const MANAGED_RESOLVE_REASON = "Resolved from Artshelf UI review";
+
+// The browser cannot name a snooze horizon, so managed defer/snooze plans use one default review
+// horizon. The exact retainUntil lands in the reviewed plan the human approves before execution.
+const MANAGED_SNOOZE_TTL = "7d";
+
+function managedDisposeReason(action: DisposeAction, reason: string | null): string | undefined {
+  if (reason !== null && reason.trim().length > 0) return reason;
+  if (action === "resolve-only") return MANAGED_RESOLVE_REASON;
+  return undefined;
+}
+
+function managedDryRunDisposeAction(event: UiEvent, recordId: string, ledgerPath: string): DisposeAction | null {
+  const requested = stringFrom(event.payload.action) ?? stringFrom(event.payload.request);
+  if (requested === "trash-resolve" || requested === "resolve-only" || requested === "snooze" || requested === "keep") {
+    return requested;
+  }
+  const detail = buildArtifactDetail({ recordId, ledgerPath });
+  if (detail.inspect.recommendation === "trash-safe") return "trash-resolve";
+  if (detail.inspect.recommendation === "resolve-only") return "resolve-only";
+  if (detail.inspect.recommendation === "snooze") return "snooze";
+  if (detail.inspect.recommendation === "keep") return "keep";
+  return null;
+}
+
+// Create (or reuse) the reviewed dispose dry-run plan for one exact record and reply its identity -
+// planId, records, and the exact approval target phrase - so the dashboard's prepared-plan approval
+// row can carry the workflow to the approve -> execute half. Blocked classifications reply rejected
+// with the safety engine's detail; nothing is mutated either way.
+function replyManagedDryRunPlan(
+  home: string,
+  sessionId: string,
+  event: UiEvent,
+  input: { recordId: string; ledgerPath: string; action: DisposeAction; reason?: string | undefined; note: string }
+): ManagedReviewOutcome {
+  const request: DisposeRequest = { id: input.recordId, action: input.action };
+  if (input.reason !== undefined) request.reason = input.reason;
+  if (input.action === "snooze") request.ttl = MANAGED_SNOOZE_TTL;
+  const plan = createDisposePlan(input.ledgerPath, request);
+  if (!plan.entry) {
+    return replyFailure(home, sessionId, event, "rejected", {
+      reason: `Dispose safety engine blocked this ${input.action} dry-run: ${plan.blocked?.detail ?? "no actionable plan entry"}`,
+      next: "Resolve the block (or pick another decision) in the record's detail drawer, then resubmit."
+    });
+  }
+  replyToEvent(home, sessionId, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "dispose_dry_run",
+      title: "Dispose dry-run prepared",
+      note: input.note,
+      planId: plan.planId,
+      action: plan.entry.action,
+      count: 1,
+      records: [input.recordId],
+      approvalTarget: `approve artshelf dispose ledger ${input.ledgerPath} plan ${plan.planId}`
+    }
+  });
+  return "completed";
+}
+
+function replyManagedLaneDryRun(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const lane = stringFrom(event.target.lane);
+  const request = stringFrom(event.payload.request);
+  if (!lane) {
+    return replyFailure(home, session.id, event, "rejected", {
+      reason: "Dry-run requests require either an exact record target or a dashboard lane.",
+      next: "Refresh the dashboard/detail view and resubmit the exact dry-run request."
+    });
+  }
+  if (lane === "purge-candidates" && request === "review_delete_forever") {
+    return replyManagedPurgeReview(home, session, event);
+  }
+  if (lane === "registry-reconcile" && request === "check_source_problems") {
+    return replyManagedSourceCheck(home, session, event);
+  }
+  if (lane === "resolve" && request === "check_missing_files") {
+    return replyManagedMissingFilesCheck(home, session, event);
+  }
+  if (lane === "cleanup" && (request === null || request === "prepare_cleanup_plan")) {
+    return replyManagedCleanupDryRun(home, session, event);
+  }
+  return replyFailure(home, session.id, event, "rejected", {
+    reason: `Managed review does not know how to handle ${lane} dry-run request ${request ?? "(none)"}.`,
+    next: "Refresh the dashboard and choose an available lane action."
+  });
+}
+
+function replyManagedPurgeReview(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const targets = purgeApprovalTargets(groupPurgeCandidates(dashboard.buckets.purgeCandidates));
+  if (targets.length === 0) {
+    return replyFailure(home, session.id, event, "stale", {
+      reason: "There are no purge candidates left to review.",
+      next: "Refresh the dashboard before requesting another delete review."
+    });
+  }
+  const source = writeApprovalSnapshot(home, session.id, {
+    actionType: PURGE_APPROVAL_ACTION,
+    targets,
+    selectedTargetIds: [],
+    allowEmptySelection: true,
+    reviewed: {}
+  });
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "purge_review_prepared",
+      title: "Purge review prepared",
+      note: "Prepared an approval workbench for exact trash-purge targets; no deletion was executed.",
+      bundleId: source.id,
+      count: targets.length,
+      actionType: PURGE_APPROVAL_ACTION,
+      next: "Open the approval workbench from the browser activity link, choose exact targets, then submit the approval bundle."
+    }
+  });
+  return "completed";
+}
+
+function replyManagedSourceCheck(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const invalidLedgers = dashboard.ledgers.filter((ledger) => !ledger.ok);
+  const problems = dashboard.buckets.registryReconcile;
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "source_check",
+      title: "Source check completed",
+      note: "Checked registered sources and path-drift rows; no registry, ledger, file, trash, or plan was mutated.",
+      count: invalidLedgers.length + problems.length,
+      invalidLedgers: invalidLedgers.map((ledger) => ({ name: ledger.name, path: ledger.path, errors: ledger.errors })),
+      problems: problems.map((row) => ({ source: row.source, category: row.category, target: row.recordId ?? row.ledgerPath, ledgerPath: row.ledgerPath })),
+      next: problems.length + invalidLedgers.length === 0 ? "Refresh the dashboard; the source lane is clear." : "Review the listed source problems, then run the matching approval-gated reconcile or registry-prune dry-run."
+    }
+  });
+  return "completed";
+}
+
+function replyManagedMissingFilesCheck(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const rows = dashboard.buckets.resolve;
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "missing_file_check",
+      title: "Missing-file check completed",
+      note: "Checked missing-file rows; no ledger, file, trash, or plan was mutated.",
+      count: rows.length,
+      records: rows.map((row) => ({
+        recordId: row.recordId,
+        ledgerName: row.ledgerName,
+        ledgerPath: row.ledgerPath,
+        path: row.path,
+        existence: row.existence,
+        recommendation: row.recommendation
+      })),
+      next: rows.length === 0 ? "Refresh the dashboard; the missing-file lane is clear." : "Review the listed records, then approve exact resolve decisions or prepare reviewed dispose plans."
+    }
+  });
+  return "completed";
+}
+
+function replyManagedCleanupDryRun(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const dashboard = buildDashboard(managedDashboardOptions(session, event));
+  const reviewedRows = reviewedCleanupRowsFromEvent(event);
+  if (reviewedRows.length === 0) {
+    return replyFailure(home, session.id, event, "rejected", {
+      reason: "Cleanup dry-run requests require reviewed cleanup row targets from the submitted dashboard snapshot.",
+      next: "Refresh the dashboard and submit Prepare cleanup plan again."
+    });
+  }
+  const scopedLedgers = new Set(dashboard.ledgers.filter((ledger) => ledger.ok).map((ledger) => ledger.path));
+  const liveRows = new Map(dashboard.buckets.cleanup.map((row) => [cleanupReviewedRowKey(row), row]));
+  const ledgersByPath = new Map<string, { name: string; path: string; recordIds: Set<string>; expectedEntries: CleanupPlanEntry[] }>();
+  for (const row of reviewedRows) {
+    if (!scopedLedgers.has(row.ledgerPath)) {
+      return replyFailure(home, session.id, event, "rejected", {
+        reason: `Reviewed cleanup row ${row.recordId} belongs to a ledger outside this review scope.`,
+        next: "Refresh the dashboard and submit Prepare cleanup plan again."
+      });
+    }
+    const liveRow = liveRows.get(cleanupReviewedRowKey(row));
+    if (!liveRow || cleanupReviewedRowChanged(row, liveRow)) {
+      return replyFailure(home, session.id, event, "stale", {
+        reason: `Reviewed cleanup row ${row.recordId} changed since the dashboard request was submitted.`,
+        next: "Refresh the dashboard and submit Prepare cleanup plan again."
+      });
+    }
+    let ledger = ledgersByPath.get(row.ledgerPath);
+    if (!ledger) {
+      ledger = { name: row.ledgerName, path: row.ledgerPath, recordIds: new Set<string>(), expectedEntries: [] };
+      ledgersByPath.set(row.ledgerPath, ledger);
+    }
+    ledger.recordIds.add(row.recordId);
+    ledger.expectedEntries.push({ id: row.recordId, path: row.path, action: row.cleanup, dueStatus: row.dueState });
+  }
+  const ledgers = [...ledgersByPath.values()];
+  const previews = [];
+  for (const ledger of ledgers) {
+    try {
+      const plan = previewCleanupPlan(ledger.path, { recordIds: [...ledger.recordIds], expectedEntries: ledger.expectedEntries });
+      if (plan.entries.length > 0) previews.push({ ledger, plan });
+    } catch (error) {
+      return replyFailure(home, session.id, event, "stale", {
+        reason: `Reviewed cleanup rows for ${ledger.name} changed before a plan could be prepared: ${errorMessage(error)}`,
+        next: "Refresh the dashboard and submit Prepare cleanup plan again."
+      });
+    }
+  }
+  if (previews.length === 0) {
+    return replyFailure(home, session.id, event, "stale", {
+      reason: "There are no cleanup dry-run entries left to review.",
+      next: "Refresh the dashboard before requesting another cleanup plan."
+    });
+  }
+  const plans = previews.map((entry) => ({ ledger: entry.ledger, plan: writeCleanupPlan(entry.plan) }));
+  replyToEvent(home, session.id, event.id, {
+    status: "completed",
+    expectedStatus: "in_progress",
+    payload: {
+      kind: "cleanup_dry_run",
+      title: "Cleanup dry-run prepared",
+      note: "Prepared reviewed cleanup plan artifacts through the existing dry-run path; no cleanup was executed.",
+      count: plans.reduce((total, entry) => total + entry.plan.entries.length, 0),
+      plans: plans.map((entry) => ({
+        ledgerPath: entry.ledger.path,
+        ledgerName: entry.ledger.name,
+        planId: entry.plan.planId,
+        count: entry.plan.entries.length,
+        approvalTarget: `approve artshelf cleanup ledger ${entry.ledger.path} plan ${entry.plan.planId}`
+      }))
+    }
+  });
+  return "completed";
+}
+
+type ReviewedCleanupRow = Pick<DashboardArtifactRow, "recordId" | "ledgerPath" | "ledgerName" | "path" | "cleanup"> & {
+  dueState: DueStatus;
+  fileFacts: ArtifactIdentityFacts;
+};
+
+function reviewedCleanupRowsFromEvent(event: UiEvent): ReviewedCleanupRow[] {
+  const rows = event.payload.reviewedRows;
+  if (!Array.isArray(rows)) return [];
+  const reviewed: ReviewedCleanupRow[] = [];
+  const seen = new Set<string>();
+  for (const entry of rows) {
+    if (typeof entry !== "object" || entry === null || Array.isArray(entry)) return [];
+    const record = entry as Record<string, unknown>;
+    const recordId = stringFrom(record.recordId);
+    const ledgerPath = stringFrom(record.ledgerPath);
+    const ledgerName = stringFrom(record.ledgerName) ?? "ledger";
+    const path = stringFrom(record.path);
+    const cleanup = cleanupActionFrom(record.cleanup);
+    const dueState = dueStatusFrom(record.dueState);
+    const fileFacts = artifactIdentityFactsFrom(record.fileFacts);
+    if (!recordId || !ledgerPath || !path || !cleanup || !dueState || !fileFacts) return [];
+    const key = `${recordId}\0${ledgerPath}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
+    reviewed.push({ recordId, ledgerPath, ledgerName, path, cleanup, dueState, fileFacts });
+  }
+  return reviewed;
+}
+
+function cleanupReviewedRowChanged(reviewed: ReviewedCleanupRow, live: DashboardArtifactRow): boolean {
+  return (
+    live.ledgerName !== reviewed.ledgerName ||
+    live.path !== reviewed.path ||
+    live.cleanup !== reviewed.cleanup ||
+    live.dueState !== reviewed.dueState ||
+    live.recommendation !== "trash-safe" ||
+    live.status !== "active" ||
+    !sameArtifactIdentityFacts(artifactIdentityFacts(reviewed.path), reviewed.fileFacts)
+  );
+}
+
+function cleanupReviewedRowKey(row: Pick<DashboardArtifactRow, "recordId" | "ledgerPath">): string {
+  return `${row.recordId}\0${row.ledgerPath}`;
+}
+
+function cleanupActionFrom(value: unknown): CleanupAction | null {
+  return value === "trash" || value === "review" || value === "delete" ? value : null;
+}
+
+function dueStatusFrom(value: unknown): DueStatus | null {
+  return value === "due" || value === "manual-review" || value === "missing-path" || value === "kept" ? value : null;
+}
+
+function artifactIdentityFactsFrom(value: unknown): ArtifactIdentityFacts | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (record.exists === false && record.nodeKind === "missing") return { exists: false, nodeKind: "missing" };
+  if (record.exists !== true) return null;
+  const nodeKind = record.nodeKind;
+  if (nodeKind !== "file" && nodeKind !== "directory" && nodeKind !== "symlink" && nodeKind !== "other") return null;
+  const dev = finiteNumberFrom(record.dev);
+  const ino = finiteNumberFrom(record.ino);
+  const mode = finiteNumberFrom(record.mode);
+  const size = finiteNumberFrom(record.size);
+  const mtimeMs = finiteNumberFrom(record.mtimeMs);
+  const ctimeMs = finiteNumberFrom(record.ctimeMs);
+  if (dev === null || ino === null || mode === null || size === null || mtimeMs === null || ctimeMs === null) return null;
+  return { exists: true, nodeKind, dev, ino, mode, size, mtimeMs, ctimeMs };
+}
+
+function finiteNumberFrom(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function managedDashboardOptions(session: UiSession, event: UiEvent): BuildDashboardOptions {
+  const options: BuildDashboardOptions = {};
+  const registryPath = stringFrom(event.target.registryPath) ?? session.registryPath;
+  const ledgerPath = stringFrom(event.target.ledgerPath) ?? session.ledgerPath;
+  if (registryPath !== null) options.registryPath = registryPath;
+  if (ledgerPath !== null) options.ledgerPath = ledgerPath;
+  return options;
+}
+
+// Managed execution of one browser-approved bundle. executeApprovedBundle owns the claim and the
+// per-target receipts reply; the returned aggregate maps onto the same reply status it wrote:
+// executed -> completed, refused -> stale (re-review), anything partial -> failed (never silently
+// presented as done). Failures before the core could reply are made visible here instead, without
+// clobbering a state another attached agent already advanced.
+function processManagedBundleEvent(home: string, session: UiSession, event: UiEvent): ManagedReviewOutcome {
+  const bundleId = eventBundleId(event);
+  if (!bundleId) {
+    return replyManagedBundleFailure(home, session.id, event, "rejected", {
+      reason: "Approval bundle event did not name an exact bundle id.",
+      next: "Reopen the approval workbench and submit the exact reviewed bundle again."
+    });
+  }
+  try {
+    const snapshot = readApprovalSnapshot(home, session.id, bundleId);
+    if (snapshot.actionType === PURGE_APPROVAL_ACTION) {
+      try {
+        replyToEvent(home, session.id, event.id, {
+          status: "in_progress",
+          expectedStatus: "pending",
+          payload: {
+            bundleId: snapshot.id,
+            fingerprint: snapshot.fingerprint,
+            reason: "Managed review does not auto-execute trash-purge bundles; permanent deletion is a separate one-way-door path.",
+            next: "Delete permanently only by deliberately running `artshelf ui execute <session> <bundle>` or `artshelf trash purge` against the exact reviewed purge plan."
+          }
+        });
+      } catch {
+        let current: UiEvent | undefined;
+        try {
+          current = readSessionEvents(home, session.id).find((entry) => entry.id === event.id);
+        } catch {
+          return "stale";
+        }
+        if (!current || current.status !== "pending") return "stale";
+        return replyManagedBundleFailure(home, session.id, event, "failed", {
+          reason: "Could not reserve the purge bundle for explicit execution.",
+          next: "Refresh the approval workbench and resubmit if this deletion is still wanted.",
+          bundleId
+        });
+      }
+      return "completed";
+    }
+    try {
+      replyToEvent(home, session.id, event.id, {
+        status: "in_progress",
+        expectedStatus: "pending",
+        payload: { bundleId: snapshot.id, fingerprint: snapshot.fingerprint }
+      });
+    } catch {
+      return "stale";
+    }
+  } catch (error) {
+    return replyManagedBundleFailure(home, session.id, event, "failed", {
+      reason: `Could not load the approval bundle to check its action: ${errorMessage(error)}`,
+      next: "Re-review and resubmit the exact bundle."
+    });
+  }
+  try {
+    const { execution } = executeApprovedBundle(home, session.id, bundleId);
+    if (execution.status === "executed") return "completed";
+    if (execution.status === "refused") return "stale";
+    return "failed";
+  } catch (error) {
+    return replyManagedBundleFailure(home, session.id, event, "failed", {
+      reason: errorMessage(error),
+      next: "Check the attached agent output, then re-review and resubmit the bundle if it is still wanted."
+    });
+  }
+}
+
+function replyManagedBundleFailure(
+  home: string,
+  sessionId: string,
+  event: UiEvent,
+  status: Exclude<ManagedReviewOutcome, "completed" | "closed">,
+  payload: Record<string, unknown>
+): ManagedReviewOutcome {
+  try {
+    const current = readSessionEvents(home, sessionId).find((entry) => entry.id === event.id);
+    if (current && (current.status === "pending" || current.status === "in_progress")) {
+      replyToEvent(home, sessionId, event.id, { status, expectedStatus: current.status, payload });
+    }
+  } catch {
+    // Another attached agent advanced it concurrently; avoid inventing another state.
+  }
+  return status;
+}
+
+function replyFailure(
+  home: string,
+  sessionId: string,
+  event: UiEvent,
+  status: Exclude<ManagedReviewOutcome, "completed" | "closed">,
+  payload: Record<string, unknown>
+): ManagedReviewOutcome {
+  try {
+    replyToEvent(home, sessionId, event.id, { status, expectedStatus: "in_progress", payload });
+  } catch {
+    // If a competing agent already advanced the event, avoid inventing another state.
+  }
+  return status;
+}
+
+function eventBundleId(event: UiEvent): string | null {
+  return stringFrom(event.target.bundleId) ?? stringFrom(event.payload.bundleId);
+}
+
+function broadExecutionRequest(event: UiEvent): string | null {
+  const raw = [event.payload.request, event.payload.action, event.payload.command, event.target.action]
+    .map((value) => stringFrom(value))
+    .filter((value): value is string => value !== null)
+    .join(" ");
+  if (!raw) return null;
+  return /\b--all\b|\b--execute\b|\bexecute\b/i.test(raw) ? raw : null;
+}
+
+function stringFrom(value: unknown): string | null {
+  return typeof value === "string" && value.trim().length > 0 ? value : null;
+}
+
+function printManagedStart(input: {
+  json: boolean;
+  home: string;
+  session: UiSession;
+  handle: UiServerHandle;
+  accessUrl: string;
+  pollIntervalMs: number;
+}): void {
+  if (input.json) {
+    printCompactJson({
+      ok: true,
+      command: "ui-review-start",
+      home: input.home,
+      url: input.accessUrl,
+      baseUrl: input.handle.url,
+      host: input.handle.host,
+      port: input.handle.port,
+      session: publicSession(input.session),
+      token: input.session.token,
+      pollIntervalMs: input.pollIntervalMs
+    });
+    return;
+  }
+  process.stdout.write(`artshelf ui review: live review on ${input.accessUrl}\n`);
+  process.stdout.write(`session: ${input.session.id}\n`);
+  process.stdout.write("managed server and poller are attached; close the review from the browser to end.\n");
+}
+
+function printManagedEnd(input: {
+  json: boolean;
+  sessionId: string;
+  reason: string;
+  processed: ManagedReviewCounts;
+  failure?: unknown;
+}): void {
+  const ok = input.failure == null;
+  if (input.json) {
+    const packet: Record<string, unknown> = { ok, command: "ui-review-end", sessionId: input.sessionId, reason: input.reason, processed: input.processed };
+    if (!ok) packet.error = errorMessage(input.failure);
+    printCompactJson(packet);
+    return;
+  }
+  const stream = ok ? process.stdout : process.stderr;
+  stream.write(`artshelf ui review: session ${input.sessionId} ended (${input.reason})\n`);
+  stream.write(
+    `processed: ${input.processed.completed} completed, ${input.processed.rejected} rejected, ${input.processed.stale} stale, ${input.processed.failed} failed, ${input.processed.cancelled} cancelled, ${input.processed.closed} closed\n`
+  );
+  if (!ok) stream.write(`error: ${errorMessage(input.failure)}\n`);
+}
+
+function parsePort(raw: string | undefined): number | undefined {
+  if (raw === undefined) return undefined;
+  const port = Number(raw);
+  if (!Number.isInteger(port) || port < 0 || port > 65535) {
+    throw new Error(`Invalid --port "${raw}"; expected an integer between 0 and 65535`);
+  }
+  return port;
+}
+
+function parsePollInterval(raw: string | undefined): number {
+  if (raw === undefined) return 250;
+  const interval = Number(raw);
+  if (!Number.isInteger(interval) || interval < 10 || interval > 60_000) {
+    throw new Error(`Invalid --poll-interval-ms "${raw}"; expected an integer between 10 and 60000`);
+  }
+  return interval;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function signalProcess(): {
+  once(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+  removeListener(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+} {
+  return process as unknown as {
+    once(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+    removeListener(event: "SIGINT" | "SIGTERM", listener: (signal: string) => void): void;
+  };
 }
 
 // Display order for the eight dashboard lanes, matching the UI v1 contract bucket order.

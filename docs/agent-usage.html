@@ -132,16 +132,24 @@
               binds to loopback (127.0.0.1) only, recomputes live state per request, requires
               the active UI session capability token printed in the serve URL, embeds no file
               contents, loads no external assets, and supports <code>--json</code> for a compact launch packet.
+              <code>artshelf ui review [--scope user|repo] [--port &lt;port&gt;] [--poll-interval-ms &lt;ms&gt;] [--json]</code>
+              is the managed live workflow: it starts or resumes the session, serves the token-protected browser UI,
+              keeps the poll loop attached, marks browser submissions <code>in_progress</code>, replies outcomes into activity,
+              turns exact keep/trash/resolve/defer decisions and exact dispose dry-run requests into reviewed dispose dry-run plans,
+              handles dashboard lane dry-runs by preparing cleanup plans, source/missing-file checks, or purge review workbench handoffs,
+              executes approved non-purge bundles through the existing exact-target <code>ui execute</code> core,
+              reserves purge bundles for a separate explicit one-way-door execute, and ends the session plus server after browser close,
+              cancelling still-pending events visibly.
               The dashboard includes a nonce-bound session-activity poller for the token-scoped
               <code>/activity</code> fragment; detail and bundle pages remain scriptless.
               The dashboard presents compact required-action cards before the status summary and
-              collapsed source details. Reviewers can queue recommended card approvals, lane-level
+              collapsed source details. Reviewers can queue recommended card approvals, reviewed cleanup-plan preparation, lane-level
               keep/trash/resolve choices, individual row choices, and dashboard dry-run requests
-              into one <code>Queued for agent</code> submit bar, while conflicting card/bulk/row
+              into one <code>Queued for agent</code> submit bar, while conflicting card/bulk/row/request
               selections are refused. Bulk lane approvals carry the reviewed row set from the
               loaded dashboard and are rejected if the lane changed before submit. Dashboard
-              dry-run requests enter the agent queue as lane events: cleanup prepares a cleanup
-              plan, resolve checks missing files, purge-candidates requests delete review, and
+              dry-run requests enter the agent queue as lane events: cleanup prepares reviewed cleanup
+              plan artifacts from the rendered cleanup row snapshot, resolve checks missing files, purge-candidates prepares a delete-review workbench handoff, and
               registry/reconcile checks source problems. After a dashboard submit, the page lands on
               session activity with a bounded queued count, marks affected rows as sent to the agent,
               and refreshes pending decisions, prepared plans, stale/rejected states, and execution receipts
@@ -154,29 +162,33 @@
               forms for inspect, comment, keep/trash/resolve/defer, and dry-run requests. The
               served bundle workbench at
               <code>GET /bundle/&lt;bundle-id&gt;</code> shows the selected exact targets, reviewed-only
-              rows, and exact action from an immutable approval snapshot. With the active token, its
+              rows, and exact action from an immutable workbench source or submitted approval snapshot. With the active token, its
               scriptless form can submit a revised non-empty subset through <code>POST /approve</code>,
-              creating a new immutable approval snapshot and pending approval event without editing
-              the original bundle or executing a workflow. That submit carries only the source
-              bundle id and selected target ids; the server rehydrates the action, reviewed facts,
-              and exact target rows from the stored source bundle instead of trusting hidden browser
+              creating a new immutable submitted approval snapshot and pending approval event without editing
+              the source snapshot or executing a workflow. That submit carries only the source
+              snapshot id and selected target ids; the server rehydrates the action, reviewed facts,
+              and exact target rows from the stored source snapshot instead of trusting hidden browser
               target JSON. The
               session command defaults to user-level multi-ledger review and stores session
               state under <code>~/.artshelf/ui</code>; use <code>--scope repo</code> or
               <code>--ledger &lt;path&gt;</code> when the review needs a narrower target.
             </p>
             <p>
-              The browser records exact-target triage intents, the agent polls with
-              <code>artshelf ui poll &lt;session-id&gt; --json</code>, uses
-              <code>artshelf ui execute</code> for approved bundles or runs existing
-              approval-gated commands only after exact human approval, replies with
-              <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
-              The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly. <code>artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read surface over persisted approval bundles: with a bundle id it loads one immutable snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists the session's approved bundles. It never executes a bundle.
+              The browser records exact-target triage intents and approval bundle submissions.
+              In the managed workflow, <code>artshelf ui review</code> owns polling, replies,
+              reviewed dry-run plan preparation for exact decision/dry-run intents, reviewed cleanup plan and purge workbench preparation for supported lane dry-runs,
+              exact approved non-purge bundle execution through the existing <code>ui execute</code> core,
+              purge-bundle reservation for a separate explicit one-way-door execute, and close teardown that cancels still-pending events.
+              In manual/hosted workflows, the agent polls with
+              <code>artshelf ui poll &lt;session-id&gt; --json</code>, uses <code>artshelf ui execute</code>
+              for approved bundles or runs existing approval-gated commands only after exact human approval,
+              replies with <code>artshelf ui reply</code>, and closes with <code>artshelf ui end</code>.
+              The browser captures triage intents and approval bundles only and never mutates ledgers, files, trash, or plans directly. <code>artshelf ui bundle &lt;session-id&gt; [&lt;bundle-id&gt;] --json</code> is the agent's read surface over submitted approval bundles: with a bundle id it loads one immutable event-backed snapshot plus its resolved deliberate selection so the agent can revalidate live state before execution; with no bundle id it lists only the session's approved bundles with matching <code>approval_bundle_submitted</code> events. Browser-only workbench source snapshots remain openable from the token-protected workbench route, but the agent-facing CLI does not list or load them. It never executes a bundle.
             </p>
             <p>
               <code>artshelf ui execute &lt;session-id&gt; &lt;bundle-id&gt; --json</code> is the
               agent's mutating path and the one <code>ui</code> subcommand that changes live
-              state: it loads the immutable reviewed snapshot, re-reads live
+              state: it loads the immutable submitted approval snapshot, re-reads live
               ledger/registry/trash state, then runs a revalidate -&gt; execute -&gt; verify loop
               through the existing approval-gated dispose or one-way-door purge paths and replies per-target receipts
               plus the aggregate result to the session. Execution is exact-target only - a stale,
@@ -203,8 +215,8 @@
               receipt still recorded.
             </p>
             <p>
-              Treat the session token printed by <code>artshelf ui</code> and
-              <code>artshelf ui serve</code> as a secret same-machine browser capability;
+              Treat the session token printed by <code>artshelf ui</code>,
+              <code>artshelf ui serve</code>, and <code>artshelf ui review</code> as a secret same-machine browser capability;
               ending the session revokes future browser writes and served dashboard/detail/bundle access
               while keeping the audit trail readable.
             </p>

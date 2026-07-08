@@ -160,6 +160,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .approve-choice:has(input:focus-visible){ outline:2px solid var(--accent); outline-offset:2px; }
 .approve-choice.submitted,.bulk-choice.submitted,.row-choice.submitted{ opacity:1!important; pointer-events:none; cursor:not-allowed; filter:none!important; }
 .approve-choice.disabled,.bulk-choice.disabled{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
+.act > summary:has(.approve-choice input:checked) .approve-choice:not(:has(input:checked)){ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(.row-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(> summary .approve-choice input:checked) .row-actions .row-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
 .act:has(.bulk-choice input:checked) > summary .approve-choice{ opacity:.45; pointer-events:none; cursor:not-allowed; filter:saturate(.35); }
@@ -243,6 +244,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .review-form:has(input[name="approval:purge-candidates"][value="request:purge-candidates:review_delete_forever"]:checked) .approve-choice[data-approval-value="request:purge-candidates:review_delete_forever"],
 .review-form:has(input[name="approval:needs-review"][value="decision:needs-review:trash"]:checked) .approve-choice[data-approval-value="decision:needs-review:trash"],
 .review-form:has(input[name="approval:needs-context"][value="decision:needs-context:trash"]:checked) .approve-choice[data-approval-value="decision:needs-context:trash"],
+.review-form:has(input[name="approval:cleanup"][value="request:cleanup:prepare_cleanup_plan"]:checked) .approve-choice[data-approval-value="request:cleanup:prepare_cleanup_plan"],
 .review-form:has(input[name="approval:cleanup"][value="decision:cleanup:trash"]:checked) .approve-choice[data-approval-value="decision:cleanup:trash"],
 .review-form:has(input[name="approval:resolve"][value="decision:resolve:resolve"]:checked) .approve-choice[data-approval-value="decision:resolve:resolve"],
 .review-form:has(input[name="approval:registry-reconcile"][value="request:registry-reconcile:check_source_problems"]:checked) .approve-choice[data-approval-value="request:registry-reconcile:check_source_problems"],
@@ -263,6 +265,7 @@ header.top h1{ font:500 31px/1.06 var(--serif); letter-spacing:-.01em; margin:0 
 .review-form:has(input[name="approval:needs-review"][value="decision:needs-review:trash"]:checked) .queued-list li[data-approval-value="decision:needs-review:trash"],
 .review-form:has(input[name="approval:needs-context"][value="decision:needs-context:keep"]:checked) .queued-list li[data-approval-value="decision:needs-context:keep"],
 .review-form:has(input[name="approval:needs-context"][value="decision:needs-context:trash"]:checked) .queued-list li[data-approval-value="decision:needs-context:trash"],
+.review-form:has(input[name="approval:cleanup"][value="request:cleanup:prepare_cleanup_plan"]:checked) .queued-list li[data-approval-value="request:cleanup:prepare_cleanup_plan"],
 .review-form:has(input[name="approval:cleanup"][value="decision:cleanup:keep"]:checked) .queued-list li[data-approval-value="decision:cleanup:keep"],
 .review-form:has(input[name="approval:cleanup"][value="decision:cleanup:trash"]:checked) .queued-list li[data-approval-value="decision:cleanup:trash"],
 .review-form:has(input[name="approval:resolve"][value="decision:resolve:keep"]:checked) .queued-list li[data-approval-value="decision:resolve:keep"],
@@ -500,7 +503,10 @@ export type DashboardSessionActivityRender = {
   activityHref?: string;
   scriptNonce?: string;
   includeScript?: boolean;
+  managedReview?: boolean;
   reviewablePreparedPlanEventIds?: Set<string>;
+  reviewedCleanupRows?: Map<string, string>;
+  token?: string;
 };
 
 export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string, activity: DashboardSessionActivityRender = {}): string {
@@ -521,11 +527,12 @@ export function renderDashboardPage(snapshot: DashboardSnapshot, token?: string,
   const queuedItems = queuedApprovalItems(snapshot, badLedgers, visibleRows, preparedPlans, pendingActions);
   const hasCancelableItems = hasCancelableQueuedItems(history);
   const submittedConfirmation = dashboardSubmittedConfirmation(activity.submittedCount ?? null);
-  const activityOptions: { activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {};
+  const activityOptions: { activityHref?: string; scriptNonce?: string; includeScript?: boolean; token?: string } = {};
   if (activity.activityHref !== undefined) activityOptions.activityHref = activity.activityHref;
   if (activity.scriptNonce !== undefined) activityOptions.scriptNonce = activity.scriptNonce;
   if (activity.includeScript !== undefined) activityOptions.includeScript = activity.includeScript;
-  const mainSurface = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity, pendingActions, preparedPlans, visibleRows)}
+  if (token !== undefined) activityOptions.token = token;
+  const mainSurface = `${requiredActionsSection(snapshot, badLedgers, token, ledgerIndex, rowActivity, pendingActions, preparedPlans, visibleRows, activity.reviewedCleanupRows ?? new Map())}
 ${statusSummarySection({ actionCount, trash: counts.trash, purge: counts["purge-candidates"], problems: problemsCount, done: doneCount, ledgers: okLedgers, ledgerTotal: ledgers.length })}
 ${ledgerHealthSection(ledgers)}
 ${activitySection(snapshot, token, ledgerIndex)}`;
@@ -537,8 +544,11 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
 <div class="guard">${ICON.shield}<span>${escapeHtml(REVIEW_SURFACE_NOTE)}</span></div>
 </div>
 </header>`;
+  const closeControl = token && activity.managedReview === true
+    ? `<button class="ghost small" type="submit" form="managed-review-close-form">Close review</button>`
+    : "";
   const agentRail = `<aside class="agent-rail" aria-label="Agent loop">
-<div class="agent-rail-inner"><div class="agent-rail-title"><span>Agent loop</span><span>poll, queue, reply</span></div>${token && queuedItems.length > 0 ? globalSubmitBar(queuedItems) : ""}${submittedConfirmation}${renderDashboardActivityFragment(history, activityOptions)}</div>
+<div class="agent-rail-inner"><div class="agent-rail-title"><span>Agent loop</span><span>poll, queue, reply</span></div>${closeControl}${token && queuedItems.length > 0 ? globalSubmitBar(queuedItems) : ""}${submittedConfirmation}${renderDashboardActivityFragment(history, activityOptions)}</div>
 </aside>`;
   const dashboard = `<main class="review-main">${masthead}<div class="wrap">${mainSurface}</div></main>${agentRail}`;
 
@@ -546,7 +556,10 @@ ${activitySection(snapshot, token, ledgerIndex)}`;
     ? `<form class="review-form review-shell" method="post" action="/intents"><input type="hidden" name="type" value="required_actions_submitted"><input type="hidden" name="token" value="${escapeHtml(token)}">${dashboard}</form>`
     : `<div class="review-shell">${dashboard}</div>`;
 
-  const body = reviewSurface;
+  const closeForm = token && activity.managedReview === true
+    ? `<form id="managed-review-close-form" method="post" action="/close"><input type="hidden" name="token" value="${escapeHtml(token)}"></form>`
+    : "";
+  const body = `${reviewSurface}${closeForm}`;
   return page("Artshelf review dashboard", body);
 }
 
@@ -566,7 +579,8 @@ function requiredActionsSection(
   rowActivity: Map<string, UiSessionHistoryEntry>,
   pendingActions: PendingActionIndex,
   preparedPlans: Map<string, PreparedPlanApproval>,
-  visibleRows: RequiredActionRows
+  visibleRows: RequiredActionRows,
+  reviewedCleanupRows: Map<string, string>
 ): string {
   const counts = snapshot.counts;
   const cards: string[] = [];
@@ -618,7 +632,10 @@ function requiredActionsSection(
     );
   }
   if (visibleRows.cleanup.length > 0) {
+    const requestQueued = isLaneRequestQueued(pendingActions, "cleanup", "prepare_cleanup_plan");
     const trashState = laneDecisionChoiceState(pendingActions, "cleanup", visibleRows.cleanup, "trash");
+    const requestDisabled = !requestQueued && hasQueuedRowDecision(pendingActions, "cleanup", visibleRows.cleanup);
+    const decisionDisabled = trashState.disabled || (requestQueued && !trashState.submitted);
     cards.push(
       actionCard(
         "calm",
@@ -627,7 +644,9 @@ function requiredActionsSection(
         "Ready to clean up",
         "Move to trash",
         "because they are due and appear unused.",
-        token ? approvalChoice("decision", "cleanup", "trash", "Approve", trashState.submitted, trashState.disabled) : "",
+        token
+          ? `${approvalChoice("request", "cleanup", "prepare_cleanup_plan", "Prepare", requestQueued, requestDisabled)}${approvalChoice("decision", "cleanup", "trash", "Approve", trashState.submitted, decisionDisabled)}`
+          : "",
         artifactActionBody("cleanup", visibleRows.cleanup, token, ledgerIndex, rowActivity, pendingActions)
       )
     );
@@ -667,7 +686,7 @@ function requiredActionsSection(
     cards.length === 0
       ? `<div class="allclear">${ICON.check}<span>You're all caught up - nothing needs review right now.</span></div>`
       : `<div class="acts">${cards.join("")}</div>`;
-  return `<section class="block" id="required-actions">${reviewedLaneInputs(visibleRows)}<p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
+  return `<section class="block" id="required-actions">${reviewedLaneInputs(visibleRows, reviewedCleanupRows)}<p class="eyebrow">Required actions &middot; in priority order</p>${inner}</section>`;
 }
 
 function actionCard(
@@ -792,6 +811,13 @@ function queuedApprovalItems(
   addRowDecisionQueuedItems(items, "needs-review", rows.needsReview, "needs a decision", pendingActions);
   addDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details", pendingActions);
   addRowDecisionQueuedItems(items, "needs-context", rows.needsContext, "needs details", pendingActions);
+  if (rows.cleanup.length > 0) {
+    items.push({
+      value: "request:cleanup:prepare_cleanup_plan",
+      label: `Prepare cleanup plan for ${rows.cleanup.length} row(s)`,
+      submittable: !isLaneRequestQueued(pendingActions, "cleanup", "prepare_cleanup_plan") && areBulkChoicesSubmittable(pendingActions, "cleanup", rows.cleanup)
+    });
+  }
   addDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up", pendingActions);
   addRowDecisionQueuedItems(items, "cleanup", rows.cleanup, "ready to clean up", pendingActions);
   if (rows.resolve.length > 0) {
@@ -873,24 +899,29 @@ function approvalFieldName(lane: DashboardBucketKey): string {
   return `approval:${lane}`;
 }
 
-function reviewedLaneInputs(rows: RequiredActionRows): string {
+function reviewedLaneInputs(rows: RequiredActionRows, reviewedCleanupRows: Map<string, string>): string {
   return [
     reviewedArtifactLaneInputs("needs-review", rows.needsReview),
     reviewedArtifactLaneInputs("needs-context", rows.needsContext),
-    reviewedArtifactLaneInputs("cleanup", rows.cleanup),
+    reviewedArtifactLaneInputs("cleanup", rows.cleanup, reviewedCleanupRows),
     reviewedArtifactLaneInputs("resolve", rows.resolve)
   ].join("");
 }
 
 function reviewedArtifactLaneInputs(
   lane: "needs-review" | "needs-context" | "cleanup" | "resolve",
-  rows: DashboardArtifactRow[]
+  rows: DashboardArtifactRow[],
+  reviewedCleanupRows: Map<string, string> = new Map()
 ): string {
   return rows
-    .map(
-      (row) =>
-        `<input type="hidden" name="${escapeHtml(reviewedLaneFieldName(lane))}" value="${escapeHtml(reviewedLaneRowValue(row))}">`
-    )
+    .map((row) => {
+      const reviewedRow = `<input type="hidden" name="${escapeHtml(reviewedLaneFieldName(lane))}" value="${escapeHtml(reviewedLaneRowValue(row))}">`;
+      if (lane !== "cleanup") return reviewedRow;
+      const facts = reviewedCleanupRows.get(reviewedLaneRowValue(row));
+      return facts === undefined
+        ? reviewedRow
+        : `${reviewedRow}<input type="hidden" name="reviewed:cleanup:facts" value="${escapeHtml(facts)}">`;
+    })
     .join("");
 }
 
@@ -942,16 +973,16 @@ function ledgerHealthSection(ledgers: DashboardLedgerStatus[]): string {
 
 export function renderDashboardActivityFragment(
   history: UiSessionHistoryEntry[],
-  options: { activityHref?: string; scriptNonce?: string; includeScript?: boolean } = {}
+  options: { activityHref?: string; scriptNonce?: string; includeScript?: boolean; token?: string } = {}
 ): string {
   const queued = history.filter((entry) => isQueuedForAgentStatus(entry.event.status));
   const handled = history.filter((entry) => entry.event.status === "completed" || entry.event.status === "cancelled");
   const problem = history.filter((entry) => ["stale", "rejected", "failed"].includes(entry.event.status));
   const executionRan = history.some((entry) => entry.replies.some((reply) => isExecutionReply(reply)));
   const activityRows = [
-    ...activityGroupCards(queued, "Queued", "warn"),
-    ...activityGroupCards(handled, "Handled by agent", "good"),
-    ...activityGroupCards(problem, "Needs re-review", "bad")
+    ...activityGroupCards(queued, "Queued", "warn", options),
+    ...activityGroupCards(handled, "Handled by agent", "good", options),
+    ...activityGroupCards(problem, "Needs re-review", "bad", options)
   ];
   const activityBody = activityRows.length > 0 ? `<div class="activity-list">${activityRows.join("")}</div>` : `<p class="empty">No queued work yet.</p>`;
   const activityHref = options.activityHref ? ` data-activity-href="${escapeHtml(options.activityHref)}"` : "";
@@ -974,7 +1005,12 @@ function activityPollScript(nonce?: string): string {
   return `<script${nonceAttribute}>(function(){function activityHref(){var current=document.getElementById("session-activity");return current&&current.dataset?current.dataset.activityHref:"";}function hasQueuedSelections(){var form=document.querySelector(".review-form");return !!(form&&form.querySelector('input[name^="approval:"]:checked:not(:disabled)'));}async function refreshReviewShell(){var current=document.querySelector(".review-shell");if(!current||hasQueuedSelections())return;try{var response=await fetch(window.location.pathname+window.location.search,{cache:"no-store",credentials:"omit"});if(!response.ok)return;var html=await response.text();var doc=new DOMParser().parseFromString(html,"text/html");var next=doc.querySelector(".review-shell");if(next)current.replaceWith(next);}catch(_error){}}async function refresh(){var href=activityHref();var current=document.getElementById("session-activity");if(!href||!current)return;try{var response=await fetch(href,{cache:"no-store",credentials:"omit"});if(!response.ok)return;var next=await response.text();var changed=current.outerHTML!==next;current.outerHTML=next;if(changed)await refreshReviewShell();}catch(_error){}}setInterval(refresh,2500);refresh();})();</script>`;
 }
 
-function activityGroupCards(entries: UiSessionHistoryEntry[], badge: string, tone: "good" | "warn" | "bad"): string[] {
+function activityGroupCards(
+  entries: UiSessionHistoryEntry[],
+  badge: string,
+  tone: "good" | "warn" | "bad",
+  options: { token?: string } = {}
+): string[] {
   const groups = new Map<string, { label: string; entries: UiSessionHistoryEntry[] }>();
   for (const entry of entries) {
     const label = activityGroupLabel(entry.event);
@@ -985,7 +1021,8 @@ function activityGroupCards(entries: UiSessionHistoryEntry[], badge: string, ton
   return [...groups.values()].map((group) => {
     const targets = group.entries.map((entry) => eventTargetLabel(entry.event)).filter((value) => value.length > 0).join(", ");
     const actions = tone === "warn" ? unqueueButtons(group.entries) : "";
-    return `<article class="activity-card ${tone}"><div class="topline"><span class="badge">${escapeHtml(badge)}</span><span class="badge">${escapeHtml(compactStatusLabel(group.entries))}</span><span class="name">${group.entries.length} ${group.entries.length === 1 ? "item" : "items"}: ${escapeHtml(group.label)}</span></div>${targets ? `<p class="detail">${escapeHtml(targets)}</p>` : ""}${actions}</article>`;
+    const replies = group.entries.flatMap((entry) => entry.replies).map((reply) => activityReplyCard(reply, options)).join("");
+    return `<article class="activity-card ${tone}"><div class="topline"><span class="badge">${escapeHtml(badge)}</span><span class="badge">${escapeHtml(compactStatusLabel(group.entries))}</span><span class="name">${group.entries.length} ${group.entries.length === 1 ? "item" : "items"}: ${escapeHtml(group.label)}</span></div>${targets ? `<p class="detail">${escapeHtml(targets)}</p>` : ""}${actions}${replies}</article>`;
   });
 }
 
@@ -1007,12 +1044,14 @@ function compactStatusLabel(entries: UiSessionHistoryEntry[]): string {
   return statuses.length === 1 ? statuses[0] ?? "unknown" : statuses.join(" / ");
 }
 
-function replyCard(reply: UiReply): string {
+function replyCard(reply: UiReply, options: { token?: string } = {}): string {
   const title = replyTitle(reply);
   const planId = stringPayload(reply.payload, "planId");
+  const bundleId = stringPayload(reply.payload, "bundleId");
   const approvalTarget = stringPayload(reply.payload, "approvalTarget") ?? stringPayload(reply.payload, "approvalPhrase");
   const count = numberPayload(reply.payload, "count");
   const records = stringArrayPayload(reply.payload, "records");
+  const plans = replyPlansPayload(reply.payload);
   const execution = isExecutionReply(reply);
   const executionStatus = stringPayload(reply.payload, "executionStatus");
   const executionCounts = executionCountsPayload(reply.payload);
@@ -1022,12 +1061,16 @@ function replyCard(reply: UiReply): string {
   const kind = execution ? "Final execution receipt" : dryRun ? "Dry-run reply" : "Agent reply";
   const fields = [
     planId ? `<dt>plan</dt><dd class="mono">${escapeHtml(planId)}</dd>` : "",
+    bundleId ? `<dt>bundle</dt><dd class="mono">${escapeHtml(bundleId)}</dd>` : "",
     executionStatus ? `<dt>status</dt><dd>${escapeHtml(executionStatus)}</dd>` : "",
     executionCounts ? `<dt>counts</dt><dd class="mono">${executionCounts.map(([key, value]) => `${escapeHtml(key)} ${value}`).join(" &middot; ")}</dd>` : "",
     count !== null ? `<dt>count</dt><dd>${count}</dd>` : "",
     records.length > 0 ? `<dt>records</dt><dd class="mono">${escapeHtml(records.join(", "))}</dd>` : "",
     approvalTarget ? `<dt>approval</dt><dd class="mono">${escapeHtml(approvalTarget)}</dd>` : ""
   ].join("");
+  const bundleLink = bundleId && options.token
+    ? `<p class="activity-actions"><a class="unqueue-btn" href="/bundle/${encodeURIComponent(bundleId)}?token=${encodeURIComponent(options.token)}">Open approval workbench</a></p>`
+    : "";
   const continuity = dryRun ? `<p class="detail">completed dry-run &middot; awaiting approval &middot; No execution ran</p>` : "";
   const note = replyNote(reply.payload);
   return `<div class="reply-card${execution ? " final" : ""}${bad ? " bad" : ""}">
@@ -1036,8 +1079,26 @@ function replyCard(reply: UiReply): string {
 ${continuity}
 ${note ? `<p class="detail">${escapeHtml(note)}</p>` : ""}
 ${fields ? `<dl>${fields}</dl>` : ""}
+${bundleLink}
+${plans.length > 0 ? replyPlanRows(plans) : ""}
 ${executionReceipts.length > 0 ? executionReceiptRows(executionReceipts) : ""}
 </div>`;
+}
+
+function activityReplyCard(reply: UiReply, options: { token?: string }): string {
+  if (isExecutionReply(reply)) return "";
+  if (!isActionableReplyPayload(reply.payload)) return "";
+  return replyCard(reply, options);
+}
+
+function isActionableReplyPayload(payload: Record<string, unknown>): boolean {
+  return (
+    stringPayload(payload, "planId") !== null ||
+    stringPayload(payload, "bundleId") !== null ||
+    stringPayload(payload, "approvalTarget") !== null ||
+    stringPayload(payload, "approvalPhrase") !== null ||
+    replyPlansPayload(payload).length > 0
+  );
 }
 
 function replyTitle(reply: UiReply): string {
@@ -1066,6 +1127,47 @@ type ExecutionReceiptPayload = {
   detail: string;
   evidence: Record<string, unknown> | null;
 };
+
+type ReplyPlanPayload = {
+  ledgerName: string;
+  ledgerPath: string;
+  planId: string;
+  count: number | null;
+  approvalTarget: string;
+};
+
+function replyPlansPayload(payload: Record<string, unknown>): ReplyPlanPayload[] {
+  const plans = payload.plans;
+  if (!Array.isArray(plans)) return [];
+  return plans.flatMap((plan): ReplyPlanPayload[] => {
+    if (!isRecord(plan)) return [];
+    const planId = stringRecordValue(plan, "planId");
+    const approvalTarget = stringRecordValue(plan, "approvalTarget");
+    const ledgerPath = stringRecordValue(plan, "ledgerPath");
+    if (!planId || !approvalTarget || !ledgerPath) return [];
+    const count = typeof plan.count === "number" && Number.isFinite(plan.count) ? plan.count : null;
+    return [
+      {
+        ledgerName: stringRecordValue(plan, "ledgerName") ?? "ledger",
+        ledgerPath,
+        planId,
+        count,
+        approvalTarget
+      }
+    ];
+  });
+}
+
+function replyPlanRows(plans: ReplyPlanPayload[]): string {
+  const rows = plans.map((plan) => {
+    const count = plan.count === null ? "" : `<dt>count</dt><dd>${plan.count}</dd>`;
+    return `<article class="receipt-row">
+<div class="receipt-topline"><span class="badge">Approval target</span><span class="name">${escapeHtml(plan.ledgerName)}</span></div>
+<dl><dt>plan</dt><dd class="mono">${escapeHtml(plan.planId)}</dd>${count}<dt>ledger</dt><dd class="mono">${escapeHtml(plan.ledgerPath)}</dd><dt>approval</dt><dd class="mono">${escapeHtml(plan.approvalTarget)}</dd></dl>
+</article>`;
+  });
+  return `<div class="receipt-list">${rows.join("")}</div>`;
+}
 
 function executionCountsPayload(payload: Record<string, unknown>): Array<[string, number]> | null {
   const counts = payload.counts;
@@ -1181,7 +1283,10 @@ function preparedPlanIndex(history: UiSessionHistoryEntry[], reviewableEventIds?
   const index = new Map<string, PreparedPlanApproval>();
   const submittedPlanEvents = submittedPreparedPlanEventIds(history);
   for (const entry of history) {
-    if (entry.event.status !== "completed" || entry.event.type !== "decision_submitted") continue;
+    if (
+      entry.event.status !== "completed" ||
+      (entry.event.type !== "decision_submitted" && entry.event.type !== "dry_run_requested")
+    ) continue;
     if (reviewableEventIds !== undefined && !reviewableEventIds.has(entry.event.id)) continue;
     const recordId = typeof entry.event.target.recordId === "string" ? entry.event.target.recordId : "";
     const ledgerPath = typeof entry.event.target.ledgerPath === "string" ? entry.event.target.ledgerPath : "";
@@ -1836,9 +1941,9 @@ function replyNote(payload: Record<string, unknown>): string | null {
 // NGX-539 browser approval workbench (AC4). A pure, scriptless render of the grouped reviewed
 // candidate rows: it shows the exact action being approved, clearly distinguishes selected from
 // unselected rows, and (only when a capability token is present) exposes per-row checkboxes plus a
-// single deliberate "Approve N selected" submit posting to /approve. There is no approve-all or
-// select-all affordance, and an empty selection disables the submit - approval is always a deliberate
-// act over an explicit subset. Like the other surfaces it embeds no file contents and mutates nothing.
+// single deliberate approval submit posting to /approve. There is no approve-all or select-all
+// affordance; approval is always a deliberate act over an explicit subset. Like the other surfaces it
+// embeds no file contents and mutates nothing.
 export function renderApprovalWorkbenchPage(view: UiApprovalWorkbenchView, token?: string): string {
   const summary = `${view.selectedCount} of ${view.totalCount} selected &middot; action ${escapeHtml(view.actionType)}`;
   const peril = view.actionType === PURGE_APPROVAL_ACTION;
@@ -1908,15 +2013,12 @@ function approvalCandidateRow(candidate: UiApprovalCandidate, withSelection: boo
 </article>`;
 }
 
-// The deliberate-approval submit, pinned to the foot of the form. An empty selection is an invalid
-// state: the submit is disabled and a notice explains approval must name an explicit subset, so it can
-// never collapse into an approve-all.
 function approvalSubmit(view: UiApprovalWorkbenchView): string {
   if (view.selectedCount === 0) {
     return `<div class="approve-actions">
-<span class="approve-empty">${ICON.info}Select at least one target to approve. Approval is a deliberate act over an explicit subset, never an approve-all.</span>
-<button type="submit" disabled>Approve 0 selected targets</button>
-</div>`;
+	<span class="approve-empty">${ICON.info}Select at least one target to approve. Approval is a deliberate act over an explicit subset, never an approve-all.</span>
+	<button type="submit">Approve selected targets</button>
+	</div>`;
   }
   const noun = view.selectedCount === 1 ? "target" : "targets";
   const peril = view.actionType === PURGE_APPROVAL_ACTION;

@@ -257,7 +257,7 @@ test("artshelf ui detail requires a record id", () => {
 test("artshelf ui help and nested help cover the dashboard and detail read surface", () => {
   const family = run(["ui", "--help"]);
   assert.equal(family.status, 0, family.stderr);
-  for (const sub of ["dashboard", "detail", "serve", "poll", "reply", "end"]) {
+  for (const sub of ["dashboard", "detail", "serve", "review", "poll", "reply", "end"]) {
     assert.match(family.stdout, new RegExp(`\\b${sub}\\b`));
   }
 

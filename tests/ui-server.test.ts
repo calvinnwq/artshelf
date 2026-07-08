@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { createDisposePlan, disposePlanEntryDigest, readDisposePlanEntry } from "../src/dispose.js";
+import { artifactIdentityFacts } from "../src/file-identity.js";
 import { readLedger } from "../src/ledger.js";
 import { escapeHtml, renderErrorPage } from "../src/renderers/ui-html.js";
 import {
@@ -277,6 +278,13 @@ function reviewedLaneRowValue(recordId: string, ledgerPath: string): string {
   return `${encodeURIComponent(recordId)}:${encodeURIComponent(ledgerPath)}`;
 }
 
+async function appendRenderedCleanupFacts(server: ServerHandle, params: URLSearchParams): Promise<void> {
+  const response = await (await server.request(`/?token=${encodeURIComponent(server.token)}`)).text();
+  const matches = [...response.matchAll(/name="reviewed:cleanup:facts" value="([^"]+)"/g)];
+  assert.ok(matches.length > 0, "dashboard should render signed reviewed cleanup row facts");
+  for (const match of matches) params.append("reviewed:cleanup:facts", match[1]!);
+}
+
 // Submit a browser triage intent exactly as the rendered HTML form would: a urlencoded POST to
 // /intents carrying the capability token in the body. `noToken` drops it to exercise the write gate.
 function postIntent(
@@ -378,6 +386,27 @@ test("GET / renders the eight buckets, ledger health, and a row that links to it
     assert.match(html, /trash-safe/);
     assert.match(html, new RegExp(`/detail/shf_cleanup\\?ledger=`), "row should link to its detail drawer");
     assert.match(html, new RegExp(`token=${server.token}`), "served dashboard links should carry the explicit URL capability");
+  });
+});
+
+test("plain ui serve omits managed close controls and rejects close posts", async () => {
+  const { registryPath } = singleLedger([baseRecord({ id: "shf_known" })]);
+
+  await withServer({ registryPath }, async (server) => {
+    const response = await server.request("/");
+    assert.equal(response.status, 200);
+    const html = await response.text();
+    assert.doesNotMatch(html, /Close review/);
+    assert.doesNotMatch(html, /managed-review-close-form/);
+
+    const close = await server.requestRaw("/close", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: formBody({ token: server.token }),
+      redirect: "manual"
+    });
+    assert.equal(close.status, 405);
+    assert.equal(readSessionEvents(server.home, server.sessionId).some((event) => event.type === "session_done" && event.source === "browser"), false);
   });
 });
 
@@ -553,8 +582,14 @@ test("GET / renders the redesigned top fold, queued actions, and non-empty revie
       "the queued-for-agent submit controls sit above the compact activity rail"
     );
     assert.match(html, /name="reviewed:cleanup"/, "bulk approval forms bind the reviewed cleanup row set");
+    assert.match(required, /name="approval:cleanup" value="request:cleanup:prepare_cleanup_plan"/, "the top fold can queue a reviewed cleanup plan request");
     assert.match(required, /name="approval:cleanup" value="decision:cleanup:trash"/, "the top fold can queue a recommended bulk decision");
     assert.match(required, /name="approval:purge-candidates" value="request:purge-candidates:review_delete_forever"/, "the top fold can queue a review request");
+    assert.match(
+      required,
+      /<summary>[\s\S]*?<label class="approve-choice" data-approval-value="request:cleanup:prepare_cleanup_plan"><input type="checkbox" name="approval:cleanup" value="request:cleanup:prepare_cleanup_plan"><span class="approve">Prepare<\/span><span class="queued">Queued<\/span><\/label>[\s\S]*?<\/summary>/,
+      "the cleanup card exposes the reviewed cleanup-plan request in the visible summary"
+    );
     assert.match(
       required,
       /<summary>[\s\S]*?<label class="approve-choice" data-approval-value="decision:cleanup:trash"><input type="checkbox" name="approval:cleanup" value="decision:cleanup:trash"><span class="approve">Approve<\/span><span class="queued">Queued<\/span><\/label>[\s\S]*?<\/summary>/,
@@ -569,6 +604,7 @@ test("GET / renders the redesigned top fold, queued actions, and non-empty revie
     assert.match(html, /Queued for agent/, "the global submit shows the queued actions area");
     assert.match(html, /Nothing selected yet\./, "the queued actions area is explicit before selection");
     assert.match(html, /Prepare delete review for 2 row\(s\)/, "the queued list describes the purge request");
+    assert.match(html, /Prepare cleanup plan for 1 row\(s\)/, "the queued list describes the cleanup plan request");
     assert.match(html, /Trash 1 ready to clean up row\(s\)/, "the queued list describes cleanup decisions");
     assert.match(
       html,
@@ -579,6 +615,11 @@ test("GET / renders the redesigned top fold, queued actions, and non-empty revie
       html,
       /<label class="row-choice danger" data-approval-value="row-decision:cleanup:trash:shf_cleanup:[^"]+"><input type="checkbox" name="approval:cleanup:row:shf_cleanup:[^"]+" value="row-decision:cleanup:trash:shf_cleanup:[^"]+"><span class="choose">Trash<\/span><span class="queued">Queued<\/span><\/label>/,
       "expanded rows can queue an exact row-level trash decision"
+    );
+    assert.match(
+      html,
+      /\.act > summary:has\(\.approve-choice input:checked\) \.approve-choice:not\(:has\(input:checked\)\)/,
+      "summary controls disable peer summary choices while one choice is queued"
     );
     assert.match(
       html,
@@ -901,6 +942,51 @@ test("prepared dry-run plans replace original required-action rows with plan app
     const afterCancel = requiredActionsHtml(await (await server.request("/")).text());
     assert.match(afterCancel, new RegExp(`value="${escapeRegExp(approvalValue!)}"`), "the plan approval is still available after unqueue");
     assert.doesNotMatch(afterCancel, new RegExp(`value="${escapeRegExp(approvalValue!)}" checked disabled`), "unqueued approvals return to an available state");
+  });
+});
+
+test("exact dry-run request prepared plans can be approved from required actions", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const event = appendEvent(server.home, server.sessionId, {
+      type: "dry_run_requested",
+      target: { recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary" },
+      payload: { request: "trash-resolve" }
+    });
+    const disposePlan = createDisposePlan(ledgerPath, { id: "shf_cleanup_a", action: "trash-resolve", reason: "reviewed" });
+    replyToEvent(server.home, server.sessionId, event.id, {
+      status: "completed",
+      payload: {
+        kind: "dispose_dry_run",
+        planId: disposePlan.planId,
+        approvalTarget: `approve artshelf dispose ledger ${ledgerPath} plan ${disposePlan.planId}`,
+        records: ["shf_cleanup_a"],
+        action: "trash-resolve"
+      }
+    });
+
+    const html = await (await server.request("/")).text();
+    const required = requiredActionsHtml(html);
+    assert.match(required, new RegExp(`approve-plan:${event.id}`));
+
+    const approvalParams = new URLSearchParams();
+    approvalParams.append("token", server.token);
+    approvalParams.append("type", "required_actions_submitted");
+    approvalParams.append("approval:ready-approval", `approve-plan:${event.id}`);
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: approvalParams.toString(),
+      redirect: "manual"
+    });
+    assert.equal(response.status, 303);
+    const approvalEvent = readSessionEvents(server.home, server.sessionId).find((candidate) => candidate.type === "approval_bundle_submitted");
+    assert.equal(approvalEvent?.payload.preparedEventId, event.id);
   });
 });
 
@@ -1496,13 +1582,107 @@ test("GET /activity is a token-gated read-only polling fragment that updates aft
     assert.match(activity, /Handled: <span class="num">1<\/span>/i);
     assert.match(activity, /shf_cleanup_a/);
     assert.match(activity, /shf_cleanup_b/);
-    assert.doesNotMatch(activity, /dispose-plan-123/, "the dashboard rail should not dump dry-run plan details");
-    assert.doesNotMatch(activity, new RegExp(escapeRegExp(`approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-123`)));
+    assert.match(activity, /dispose-plan-123/, "the dashboard rail should surface reviewed dry-run plan details");
+    assert.match(activity, new RegExp(escapeRegExp(`approve artshelf dispose ledger ${ledgerPath} plan dispose-plan-123`)));
     assert.match(activity, /No execution ran/i);
 
     endSession(server.home, server.sessionId);
     const ended = await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`);
     assert.equal(ended.status, 401, "after-end polling must be refused");
+  });
+});
+
+test("dashboard activity links purge review replies to the approval workbench", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [trashedRecord("shf_purge", "plan_purge")]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const bundle = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-purge",
+      targets: [
+        {
+          targetId: "shf_purge",
+          recordId: "shf_purge",
+          ledgerPath,
+          registryPath,
+          recordPath: "/trash/plan_purge/shf_purge.txt",
+          planId: "plan_purge",
+          actionType: "trash-purge",
+          label: "Delete forever shf_purge"
+        }
+      ],
+      selectedTargetIds: [],
+      allowEmptySelection: true,
+      reviewed: {}
+    });
+    const event = appendEvent(server.home, server.sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "purge-candidates", registryPath },
+      payload: { request: "review_delete_forever", count: 1 }
+    });
+    replyToEvent(server.home, server.sessionId, event.id, {
+      status: "completed",
+      payload: {
+        kind: "purge_review_prepared",
+        title: "Purge review prepared",
+        bundleId: bundle.id,
+        count: 1
+      }
+    });
+
+    const activity = await (await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`)).text();
+    assert.match(activity, new RegExp(escapeRegExp(`/bundle/${bundle.id}?token=${server.token}`)));
+    assert.match(activity, /Open approval workbench/);
+
+    const workbench = await (await server.request(`/bundle/${bundle.id}`)).text();
+    assert.match(workbench, /0 of 1 selected/);
+    assert.match(workbench, /Delete forever shf_purge/);
+  });
+});
+
+test("dashboard activity renders cleanup lane plan approval targets", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  const cleanupPath = realFile(dir, "cleanup-a.txt");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { id: "shf_cleanup_a", path: cleanupPath })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const event = appendEvent(server.home, server.sessionId, {
+      type: "dry_run_requested",
+      target: { lane: "cleanup", registryPath },
+      payload: {
+        request: "prepare_cleanup_plan",
+        count: 1,
+        reviewedRows: [{ recordId: "shf_cleanup_a", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due", fileFacts: artifactIdentityFacts(cleanupPath) }]
+      }
+    });
+    replyToEvent(server.home, server.sessionId, event.id, {
+      status: "completed",
+      payload: {
+        kind: "cleanup_dry_run",
+        title: "Cleanup dry-run prepared",
+        count: 1,
+        plans: [
+          {
+            ledgerName: "primary",
+            ledgerPath,
+            planId: "plan_cleanup_123",
+            count: 1,
+            approvalTarget: `approve artshelf cleanup ledger ${ledgerPath} plan plan_cleanup_123`
+          }
+        ]
+      }
+    });
+
+    const activity = await (await server.requestRaw(`/activity?token=${encodeURIComponent(server.token)}`)).text();
+    assert.match(activity, /Cleanup dry-run prepared/);
+    assert.match(activity, /plan_cleanup_123/);
+    assert.match(activity, new RegExp(escapeRegExp(`approve artshelf cleanup ledger ${ledgerPath} plan plan_cleanup_123`)));
   });
 });
 
@@ -1835,6 +2015,39 @@ test("POST /intents rejects conflicting card and row-level required-action appro
   });
 });
 
+test("POST /intents rejects conflicting cleanup requests and cleanup decisions", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "primary", "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  writeLedgerFile(ledgerPath, [
+    dueCleanupRecord(dir, { id: "shf_cleanup_a", path: realFile(dir, "cleanup-a.txt") }),
+    dueCleanupRecord(dir, { id: "shf_cleanup_b", path: realFile(dir, "cleanup-b.txt") })
+  ]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:crafted-request", "request:cleanup:prepare_cleanup_plan");
+    params.append("approval:crafted-decision", "decision:cleanup:trash");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_a", ledgerPath);
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup_b", ledgerPath);
+    await appendRenderedCleanupFacts(server, params);
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 400);
+    assert.match(await response.text(), /choose either the dashboard request or row decisions/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "conflicting cleanup plan requests and decisions must not enter the agent queue");
+  });
+});
+
 test("POST /intents records needs-review and needs-context required-action bulk approvals", async () => {
   const dir = fixtureDir();
   const ledgerPath = join(dir, "primary", "ledger.jsonl");
@@ -2059,19 +2272,26 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
   const dir = fixtureDir();
   const ledgerPath = join(dir, "ledger.jsonl");
   const registryPath = join(dir, "ledgers.json");
-  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir)]);
+  const cleanupPath = realFile(dir, "scratch.txt");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { path: cleanupPath })]);
   writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
 
   await withServer({ registryPath }, async (server) => {
-    const response = await postIntent(server, {
-      type: "dry_run_requested",
-      lane: "cleanup",
-      request: "prepare_cleanup_plan",
-      label: "Prepare cleanup plan"
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup", ledgerPath);
+    await appendRenderedCleanupFacts(server, params);
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
     });
 
     assert.equal(response.status, 303, "a successful lane request should redirect back to the dashboard lane");
-    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}#lane-cleanup`);
+    assert.equal(response.headers.get("location"), `/?token=${encodeURIComponent(server.token)}&queued=1#session-activity`);
 
     const pending = pollPendingEvents(server.home, server.sessionId);
     assert.equal(pending.length, 1, "the lane request should be queued for the agent as a pending event");
@@ -2082,19 +2302,56 @@ test("POST /intents records a dashboard lane request as a pending poll event", a
     assert.deepEqual(event.target, { lane: "cleanup", registryPath });
     assert.deepEqual(event.payload, {
       request: "prepare_cleanup_plan",
-      label: "Prepare cleanup plan",
-      count: 1
+      label: "prepare_cleanup_plan",
+      count: 1,
+      reviewedRows: [{ recordId: "shf_cleanup", ledgerPath, ledgerName: "primary", path: cleanupPath, cleanup: "trash", dueState: "due", fileFacts: artifactIdentityFacts(cleanupPath) }]
     });
 
-    const duplicate = await postIntent(server, {
-      type: "dry_run_requested",
-      lane: "cleanup",
-      request: "prepare_cleanup_plan",
-      label: "Prepare cleanup plan"
+    const duplicateParams = new URLSearchParams();
+    duplicateParams.append("token", server.token);
+    duplicateParams.append("type", "required_actions_submitted");
+    duplicateParams.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
+    appendReviewedLaneRow(duplicateParams, "cleanup", "shf_cleanup", ledgerPath);
+    await appendRenderedCleanupFacts(server, duplicateParams);
+    const duplicate = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: duplicateParams.toString(),
+      redirect: "manual"
     });
     assert.equal(duplicate.status, 409);
     assert.match(await duplicate.text(), /already queued for the agent/i);
     assert.equal(pollPendingEvents(server.home, server.sessionId).length, 1, "duplicate lane requests must not add agent work");
+  });
+});
+
+test("POST /intents rejects cleanup lane requests when rendered file facts drift before submit", async () => {
+  const dir = fixtureDir();
+  const ledgerPath = join(dir, "ledger.jsonl");
+  const registryPath = join(dir, "ledgers.json");
+  const cleanupPath = realFile(dir, "scratch.txt");
+  writeLedgerFile(ledgerPath, [dueCleanupRecord(dir, { path: cleanupPath })]);
+  writeRegistry(registryPath, [{ name: "primary", path: ledgerPath }]);
+
+  await withServer({ registryPath }, async (server) => {
+    const params = new URLSearchParams();
+    params.append("token", server.token);
+    params.append("type", "required_actions_submitted");
+    params.append("approval:cleanup", "request:cleanup:prepare_cleanup_plan");
+    appendReviewedLaneRow(params, "cleanup", "shf_cleanup", ledgerPath);
+    await appendRenderedCleanupFacts(server, params);
+    writeFileSync(cleanupPath, "changed after dashboard render");
+
+    const response = await server.requestRaw("/intents", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: params.toString(),
+      redirect: "manual"
+    });
+
+    assert.equal(response.status, 409);
+    assert.match(await response.text(), /changed since this page loaded/i);
+    assert.equal(pollPendingEvents(server.home, server.sessionId).length, 0, "stale rendered cleanup facts must not enter the agent queue");
   });
 });
 
@@ -2948,6 +3205,39 @@ test("GET /bundle/<id> renders a persisted approval bundle with token-gated part
     assert.doesNotMatch(body, /name="target"/, "the workbench never posts hidden target JSON");
     assert.match(body, /type="checkbox"/, "selection inputs let the reviewer deselect rows before approval");
     assert.match(body, /Approve 1 selected/, "the submit names the exact selected count");
+  });
+});
+
+test("GET /bundle/<id> keeps an empty purge review selectable without preselecting targets", async () => {
+  const ledger = singleLedger([baseRecord({ id: "shf_a" })]);
+
+  await withServer({ registryPath: ledger.registryPath }, async (server) => {
+    const snapshot = writeApprovalSnapshot(server.home, server.sessionId, {
+      actionType: "trash-purge",
+      targets: [
+        {
+          targetId: "t_purge",
+          ledgerPath: ledger.ledgerPath,
+          registryPath: null,
+          recordPath: "/tmp/purge",
+          planId: null,
+          actionType: "trash-purge",
+          label: "purge archived tarball"
+        }
+      ],
+      selectedTargetIds: [],
+      allowEmptySelection: true,
+      reviewed: { request: "review_delete_forever" }
+    });
+
+    const response = await server.request(`/bundle/${snapshot.id}`);
+    assert.equal(response.status, 200);
+    const body = await response.text();
+    assert.match(body, /0 of 1 selected/, "the empty starting selection is visible");
+    assert.match(body, /name="targetId" value="t_purge"/, "the reviewer can explicitly select the purge target");
+    assert.doesNotMatch(body, /name="targetId" value="t_purge" checked/, "purge targets are not preselected");
+    assert.match(body, /<button type="submit">Approve selected targets<\/button>/, "the submit path stays available after selecting a row");
+    assert.doesNotMatch(body, /Approve 0 selected targets/, "the only submit is not disabled by the starting count");
   });
 });
 
