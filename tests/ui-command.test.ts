@@ -10,7 +10,7 @@ import { groupPurgeCandidates, purgeApprovalTargets, PURGE_APPROVAL_ACTION } fro
 import type { DashboardTrashRow } from "../src/dashboard.js";
 import { readLedger } from "../src/ledger.js";
 import { appendEvent, readApprovalSnapshot, readSession, readSessionHistory, replyToEvent, writeApprovalSnapshot } from "../src/session.js";
-import type { UiApprovalTarget } from "../src/types.js";
+import type { UiApprovalSnapshot, UiApprovalTarget } from "../src/types.js";
 
 // End-to-end tests for the Artshelf UI v1 AXI command surface (NGX-532). The agent loop -
 // start/resume, poll, reply, end - is driven through the built CLI exactly as an agent would
@@ -1331,13 +1331,14 @@ test("artshelf ui help surfaces the agent loop and nested help is focused", () =
 test("artshelf ui bundle loads a persisted approval bundle as agent-facing JSON", () => {
   const home = freshHome();
   const session = startSession(home).session;
-  // A reviewed bundle is approved in the browser and persisted via the session storage seam.
+  // A reviewed bundle is approved in the browser and persisted via the session storage boundary.
   const snapshot = writeApprovalSnapshot(home, session.id, {
     actionType: "trash-resolve",
     targets: sampleTargets(),
     selectedTargetIds: ["shf_a"],
     reviewed: { planId: "plan_a", total: 2 }
   });
+  appendSubmittedApprovalEvent(home, session.id, snapshot);
 
   const packet = JSON.parse(ui(home, ["ui", "bundle", session.id, snapshot.id, "--json"]).stdout);
   assert.equal(packet.ok, true);
@@ -1373,6 +1374,8 @@ test("artshelf ui bundle lists every approved bundle for a session and is empty 
     selectedTargetIds: ["shf_a", "shf_b"],
     reviewed: { planId: "plan_b", total: 2 }
   });
+  appendSubmittedApprovalEvent(home, session.id, first);
+  appendSubmittedApprovalEvent(home, session.id, second);
 
   const listed = JSON.parse(ui(home, ["ui", "bundle", session.id, "--json"]).stdout);
   assert.equal(listed.count, 2);
@@ -1386,6 +1389,36 @@ test("artshelf ui bundle lists every approved bundle for a session and is empty 
   assert.equal(secondRow.fingerprint, second.fingerprint);
 });
 
+test("artshelf ui bundle excludes workbench source snapshots without submitted approval events", () => {
+  const home = freshHome();
+  const session = startSession(home).session;
+
+  const source = writeApprovalSnapshot(home, session.id, {
+    actionType: PURGE_APPROVAL_ACTION,
+    targets: sampleTargets(),
+    selectedTargetIds: [],
+    allowEmptySelection: true,
+    reviewed: {}
+  });
+  const submitted = writeApprovalSnapshot(home, session.id, {
+    actionType: "trash-resolve",
+    targets: sampleTargets(),
+    selectedTargetIds: ["shf_a"],
+    reviewed: { planId: "plan_a", total: 2 }
+  });
+  appendSubmittedApprovalEvent(home, session.id, submitted);
+
+  const listed = JSON.parse(ui(home, ["ui", "bundle", session.id, "--json"]).stdout);
+  assert.deepEqual(
+    listed.bundles.map((bundle: { id: string }) => bundle.id),
+    [submitted.id]
+  );
+
+  const sourceDetail = ui(home, ["ui", "bundle", session.id, source.id, "--json"]);
+  assert.notEqual(sourceDetail.status, 0);
+  assert.match(sourceDetail.stderr, /submitted approval/i);
+});
+
 test("artshelf ui bundle prints a deliberate-approval human summary, not an execution", () => {
   const home = freshHome();
   const session = startSession(home).session;
@@ -1395,6 +1428,7 @@ test("artshelf ui bundle prints a deliberate-approval human summary, not an exec
     selectedTargetIds: ["shf_a"],
     reviewed: { planId: "plan_a", total: 2 }
   });
+  appendSubmittedApprovalEvent(home, session.id, snapshot);
 
   const out = ui(home, ["ui", "bundle", session.id, snapshot.id]);
   assert.equal(out.status, 0, out.stderr);
@@ -1500,10 +1534,7 @@ function purgeRow(recordId: string, ledgerPath: string, targetPath: string): Das
   };
 }
 
-// Persist an approval bundle plus the approval_bundle_submitted event the browser would have appended
-// for it, so the agent's execute path has a real event to reply receipts against.
-function seedApprovedBundle(home: string, sessionId: string, targets: UiApprovalTarget[], selectedTargetIds: string[], registryPath: string) {
-  const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: "trash-resolve", targets: targets.map(withPlanDigest), selectedTargetIds, reviewed: {} });
+function appendSubmittedApprovalEvent(home: string, sessionId: string, snapshot: UiApprovalSnapshot, registryPath = "/tmp/registry.json"): void {
   appendEvent(home, sessionId, {
     type: "approval_bundle_submitted",
     target: { bundleId: snapshot.id },
@@ -1517,6 +1548,13 @@ function seedApprovedBundle(home: string, sessionId: string, targets: UiApproval
       targetCount: snapshot.targets.length
     }
   });
+}
+
+// Persist an approval bundle plus the approval_bundle_submitted event the browser would have appended
+// for it, so the agent's execute path has a real event to reply receipts against.
+function seedApprovedBundle(home: string, sessionId: string, targets: UiApprovalTarget[], selectedTargetIds: string[], registryPath: string) {
+  const snapshot = writeApprovalSnapshot(home, sessionId, { actionType: "trash-resolve", targets: targets.map(withPlanDigest), selectedTargetIds, reviewed: {} });
+  appendSubmittedApprovalEvent(home, sessionId, snapshot, registryPath);
   return snapshot;
 }
 

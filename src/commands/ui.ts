@@ -186,6 +186,9 @@ function handleUiBundle(parsed: ParsedArgs, json: boolean): number {
 }
 
 function printBundleDetail(home: string, session: UiSession, bundleId: string, json: boolean): number {
+  if (!submittedApprovalBundleIds(home, session.id).has(bundleId)) {
+    throw new Error(`Artshelf UI bundle ${bundleId} is not a submitted approval bundle for session ${session.id}`);
+  }
   const bundle = readApprovalSnapshot(home, session.id, bundleId);
   const selected = selectedApprovalTargets(bundle);
 
@@ -207,7 +210,10 @@ function printBundleDetail(home: string, session: UiSession, bundleId: string, j
 }
 
 function printBundleList(home: string, session: UiSession, json: boolean): number {
-  const rows = listApprovalSnapshots(home, session.id).map(bundleSummary);
+  const submittedIds = submittedApprovalBundleIds(home, session.id);
+  const rows = listApprovalSnapshots(home, session.id)
+    .filter((bundle) => submittedIds.has(bundle.id))
+    .map(bundleSummary);
 
   if (json) {
     return printCompactJson({ ok: true, command: "ui-bundle-list", sessionId: session.id, count: rows.length, bundles: rows });
@@ -224,6 +230,16 @@ function printBundleList(home: string, session: UiSession, json: boolean): numbe
     );
   }
   return 0;
+}
+
+function submittedApprovalBundleIds(home: string, sessionId: string): Set<string> {
+  const ids = new Set<string>();
+  for (const event of readSessionEvents(home, sessionId)) {
+    if (event.type !== "approval_bundle_submitted") continue;
+    const bundleId = eventBundleId(event);
+    if (bundleId) ids.add(bundleId);
+  }
+  return ids;
 }
 
 // Compact per-bundle row for the listing surface: identity, action, counts, and fingerprint so the
