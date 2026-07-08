@@ -635,8 +635,7 @@ Options:
 
 Bundle is the agent's read surface over submitted approval bundles. With a
 bundle id it loads one immutable event-backed reviewed snapshot and its
-deliberate selected targets - the agent-facing JSON used to revalidate live
-state before execution. With no bundle id it lists only the session's approved
+deliberate selected targets - the agent-facing JSON used to revalidate live state before execution. With no bundle id it lists only the session's approved
 bundles with matching approval_bundle_submitted events. Browser-only workbench
 source snapshots remain available to the token-protected browser workbench, but
 this CLI surface does not list or load them. It only reads approval records; it

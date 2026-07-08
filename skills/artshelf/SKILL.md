@@ -256,8 +256,5 @@ purge execute, verify quiet with `artshelf trash list --all --json` and `artshel
 
 ## Safety
 - Do not register secrets or credential dumps.
-- Do not use Artshelf as a replacement for git, durable workflow ledgers, or
-  backups.
-- Do not silently delete files.
-- Do not treat `cleanup=delete` as permission to delete. Cleanup records a
-  refusal; physical deletion requires a separate reviewed trash purge plan.
+- Do not use Artshelf as a replacement for git, durable workflow ledgers, backups, or permission to silently delete files.
+- `cleanup=delete` records a refusal; physical deletion requires a separate reviewed trash purge plan.
